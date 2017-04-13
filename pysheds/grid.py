@@ -764,6 +764,11 @@ class Grid(object):
     def bbox(self, new_bbox):
         self.set_bbox(new_bbox)
 
+    @property
+    def extent(self):
+        extent = (self._bbox[0], self.bbox[2], self._bbox[1], self._bbox[3])
+        return extent
+
     def set_bbox(self, new_bbox, precision=7):
         """
         Set the bounding box of the class instance (self.bbox). If the new

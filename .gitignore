@@ -1,6 +1,9 @@
 # Vim files
 *.un~
 
+# OS X stuff
+*.DS_Store
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

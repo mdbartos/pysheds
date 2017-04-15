@@ -681,7 +681,15 @@ class Grid(object):
         else:
             fdir = np.pad(fdir, (1,1), mode='constant')
 
+        # Construct flat index onto flow direction array
         flat_idx = np.ravel_multi_index(np.where(fdir), fdir.shape)
+
+        # Ensure consistent types
+        fdir_orig_type = fdir.dtype
+        mintype = np.min_scalar_type(fdir.size)
+        fdir = fdir.astype(mintype)
+        flat_idx = flat_idx.astype(mintype)
+
         shape = fdir.shape
         go_to = (
             0 - shape[1],
@@ -724,6 +732,10 @@ class Grid(object):
             else:
                 break
 
+        # TODO: Hacky: should probably fix this
+        acc[0] = 1
+
+        # Reshape and offset accumulation
         acc = np.reshape(acc, fdir.shape)
         acc -= 1
 

@@ -760,6 +760,79 @@ class Grid(object):
         else:
             return acc
 
+    def flow_distance(self, x, y, data=None, dirmap=(1, 2, 3, 4, 5, 6, 7, 8),
+                      direction_name='catch', nodata=0,
+                      out_name='dist', inplace=True, pad_inplace=True):
+        from scipy import sparse
+        if data is not None:
+            fdir = data
+        else:
+            try:
+                fdir = self.view('catch', mask=False)
+            except:
+                raise NameError("Catchment grid '{0}' not found in instance."
+                                .format(direction_name))
+
+        # TODO: This part is being reused from accumulation
+        # Construct flat index onto flow direction array
+        flat_idx = np.ravel_multi_index(np.where(fdir), fdir.shape)
+
+        # Ensure consistent types
+        # fdir_orig_type = fdir.dtype
+        # mintype = np.min_scalar_type(fdir.size)
+        # fdir = fdir.astype(mintype)
+        # flat_idx = flat_idx.astype(mintype)
+
+        shape = fdir.shape
+        go_to = (
+            0 - shape[1],
+            1 - shape[1],
+            1 + 0,
+            1 + shape[1],
+            0 + shape[1],
+            -1 + shape[1],
+            -1 + 0,
+            -1 - shape[1]
+            )
+
+        gotomap = dict(zip(dirmap, go_to))
+
+        for k, v in gotomap.items():
+            fdir[fdir == k] = v
+
+        fdir.flat[flat_idx] += flat_idx
+
+        startnodes = flat_idx
+        endnodes = fdir.flat[flat_idx]
+
+        # TODO: End re-used portion
+
+        A = sparse.lil_matrix((fdir.size, fdir.size))
+        for i,j in zip(startnodes, endnodes):
+            A[i,j] = 1
+
+        C = A.tocsr()
+        del A
+
+        xyindex = np.ravel_multi_index((y, x), fdir.shape)
+        dist = sparse.csgraph.shortest_path(C, indices=[xyindex], directed=False)
+        dist[~np.isfinite(dist)] = np.nan
+        dist = dist.ravel()
+        dist = dist.reshape(fdir.shape)
+
+        # if inplace is True, update attributes
+        if inplace:
+            setattr(self, out_name, dist)
+            self.grid_props.update({out_name : {}})
+            self.grid_props[out_name].update({'bbox' : self.bbox})
+            self.grid_props[out_name].update({'shape' : self.shape})
+            self.grid_props[out_name].update({'cellsize' : self.cellsize})
+            self.grid_props[out_name].update({'nodata' : nodata})
+            self.grid_props[out_name].update({'crs' : self.crs})
+        else:
+            return dist
+
+
     def clip_to(self, data_name, precision=7, inplace=True, **kwargs):
         """
         Clip grid to bbox representing the smallest area that contains all

@@ -1,3 +1,6 @@
+# Large data directory
+data/
+
 # Vim files
 *.un~
 

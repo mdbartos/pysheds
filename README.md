@@ -11,12 +11,14 @@ Simple and fast watershed delineation in python.
 
 ## Features
 
-- DEM to Flow Direction (D8)
+- DEM to Flow Direction
 - Flow Direction to Flow Accumulation
 - Catchment delineation from Flow Direction
-- Compute distance to outlet
+- Distance to outlet
 - Fractional contributing area between differently-sized grids
 - Read/write raster or ASCII files
+
+`pysheds` currently only supports a d8 routing scheme
 
 ## Example usage
 

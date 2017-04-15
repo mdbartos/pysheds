@@ -5,12 +5,8 @@ Simple and fast watershed delineation in python.
 
     Read a flow direction raster
     ----------------------------
-    # Import modules
-    import numpy as np
-    import matplotlib.pyplot as plt
     from pysheds.grid import Grid
 
-    # Read a grid from a raster
     grid = Grid.from_raster('../data/n30w100_dir/n30w100_dir/w001001.adf',
                             data_name='dir', input_type='ascii')
 
@@ -30,16 +26,22 @@ Simple and fast watershed delineation in python.
     # Clip the bounding box to the catchment
     grid.clip_to('catch', precision=5)
 
-    # Get a view of the catchment
-    image_arr = np.where(grid.view('catch'), grid.view('catch'), np.nan)
+![Example 2](examples/catchment.png)
 
-    # Plot the catchment
-    fig, ax = plt.subplots(figsize=(8,6))
-    plt.grid('on', zorder=1)
-    im = ax.imshow(image_arr, extent=grid.extent, zorder=2)
-    plt.colorbar(im, ax=ax)
-    plt.xlabel('Longitude')
-    plt.ylabel('Latitude')
+    Calculate flow accumulation
+    --------------------------
+    grid.accumulation(catch, dirmap=dirmap, pad_inplace=False)
+    
+![Example 3](examples/flow_accumulation.png)
 
-![Example 1](examples/catchment.png)
+    Calculate distance to outlet from each cell
+    -------------------------------------------
+    pour_point_y, pour_point_x = np.unravel_index(np.argmax(grid.view('catch')),
+                                                  grid.shape)
+    grid.flow_distance(pour_point_x, pour_point_y, dirmap=dirmap)
 
+![Example 4](examples/flow_distance.png)
+
+# To-do's:
+- Float-based bbox indexing is problematic
+- Add graph routines

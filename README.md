@@ -16,10 +16,12 @@ Simple and fast watershed delineation in python.
     ---------------------
     # Specify pour point
     x, y = -97.2937, 32.7371
+    # Specify directional mapping
+    dirmap=(64, 128, 1, 2, 4, 8, 16, 32)
 
     # Delineate the catchment
-    grid.catchment(x, y, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                   recursionlimit=15000, xytype='label')
+    grid.catchment(x, y, dirmap=dirmap, recursionlimit=15000, 
+                   xytype='label')
 
     Crop and plot the catchment
     ---------------------------

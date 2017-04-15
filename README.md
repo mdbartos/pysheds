@@ -1,7 +1,24 @@
 # pysheds
 Simple and fast watershed delineation in python.
 
-# Example usage
+## Installation
+
+`pysheds` currently only supports Python3
+
+    $ git clone https://github.com/mdbartos/pysheds.git
+    $ cd pysheds
+    $ python setup.py install
+
+## Features
+
+- DEM to Flow Direction (D8)
+- Flow Direction to Flow Accumulation
+- Catchment delineation from Flow Direction
+- Compute distance to outlet
+- Fractional contributing area between differently-sized grids
+- Read/write raster or ASCII files
+
+## Example usage
 
     Read a flow direction raster
     ----------------------------

@@ -640,8 +640,8 @@ class Grid(object):
         else:
             return result
 
-    def accumulation(self, dirmap=(1, 2, 3, 4, 5, 6, 7, 8), direction_name='dir', nodata=0,
-              recursionlimit=15000, inplace=True):
+    def accumulation(self, data=None, dirmap=(1, 2, 3, 4, 5, 6, 7, 8), direction_name='dir', nodata=0,
+              out_name='acc', inplace=True, pad_inplace=True):
         """
         Generates an array of flow accumulation, where cell values represent
         the number of upstream cells.
@@ -661,21 +661,28 @@ class Grid(object):
                   If True, catchment will be written to attribute 'catch'.
         """
 
-        try:
-            fdir = self.view(direction_name, mask=False)
-        except:
-            raise NameError("Flow direction grid 'dir' not found in instance.")
+        if data is not None:
+            fdir = data
+        else:
+            try:
+                fdir = self.view(direction_name, mask=False)
+            except:
+                raise NameError("Flow direction grid '{0}' not found in instance."
+                                .format(direction_name))
 
-        pdir = np.pad(fdir, (1,1), mode='constant')
+        # Pad the rim
+        if pad_inplace:
+            left, right, top, bottom = (fdir[:,0].copy(), fdir[:,-1].copy(),
+                                        fdir[0,:].copy(), fdir[-1,:].copy())
+            fdir[:,0] = 0
+            fdir[:,-1] = 0
+            fdir[0,:] = 0
+            fdir[-1,:] = 0
+        else:
+            fdir = np.pad(fdir, (1,1), mode='constant')
 
-        start_idx = pdir.shape[1] + 1
-        stop_idx = pdir.size - pdir.shape[1] - 2
-
-        out_accum = np.zeros(pdir.shape)
-        out_accum_flat = out_accum.ravel()
-        pdir_flat = pdir.ravel()
-
-        shape = pdir.shape
+        flat_idx = np.ravel_multi_index(np.where(fdir), fdir.shape)
+        shape = fdir.shape
         go_to = (
             0 - shape[1],
             1 - shape[1],
@@ -686,35 +693,60 @@ class Grid(object):
             -1 + 0,
             -1 - shape[1]
             )
-        go_to = dict(zip(dirmap, go_to))
 
-        # set recursion limit (needed for large datasets)
-        # sys.setrecursionlimit(recursionlimit)
+        gotomap = dict(zip(dirmap, go_to))
 
-        def accumulation_search(i, iterations=fdir.size):
-            for iter in range(iterations):
-                out_accum_flat[i] += 1
-                move = pdir_flat[i]
-                if move:
-                    i = i + go_to[move]
-                else:
-                    return None
+        for k, v in gotomap.items():
+            fdir[fdir == k] = v
 
-        for idx in range(start_idx, stop_idx):
-            accumulation_search(idx)
+        fdir.flat[flat_idx] += flat_idx
+
+        startnodes = flat_idx
+        endnodes = fdir.flat[flat_idx]
+        acc = np.ones(shape).ravel()
+        indegree = np.zeros(shape, dtype=np.uint8).ravel()
+
+        v = pd.Series(endnodes).value_counts()
+        indegree.flat[v.index.values] = v.values
+        v = v.reindex(startnodes).fillna(0).astype(int)
+        level_0 = (v == 0)
+
+        startnodes = startnodes[level_0]
+        endnodes = endnodes[level_0]
+        
+        for i in range(fdir.size):
+            if endnodes.any():
+                np.add.at(acc, endnodes, acc[startnodes])
+                np.subtract.at(indegree, endnodes, 1)
+                startnodes = np.unique(endnodes)
+                startnodes = startnodes[indegree[startnodes] == 0]
+                endnodes = fdir.flat[startnodes]
+            else:
+                break
+
+        acc = np.reshape(acc, fdir.shape)
+        acc -= 1
+
+        # Clean up
+        if pad_inplace:
+            fdir[:,0] = left
+            fdir[:,-1] = right
+            fdir[0,:] = top
+            fdir[-1,:] = bottom
+        else:
+            acc = acc[1:-1, 1:-1]
 
         # if inplace is True, update attributes
         if inplace:
-            self.accum = out_accum[1:-1, 1:-1]
-            self.grid_props.update({'acc' : {}})
-            self.grid_props['acc'].update({'bbox' : self.bbox})
-            self.grid_props['acc'].update({'shape' : self.shape})
-            self.grid_props['acc'].update({'cellsize' : self.cellsize})
-            self.grid_props['acc'].update({'nodata' : nodata})
-            self.grid_props['acc'].update({'crs' : self.crs})
+            setattr(self, out_name, acc)
+            self.grid_props.update({out_name : {}})
+            self.grid_props[out_name].update({'bbox' : self.bbox})
+            self.grid_props[out_name].update({'shape' : self.shape})
+            self.grid_props[out_name].update({'cellsize' : self.cellsize})
+            self.grid_props[out_name].update({'nodata' : nodata})
+            self.grid_props[out_name].update({'crs' : self.crs})
         else:
-            return out_accum[1:-1, 1:-1]
-
+            return acc
 
     def clip_to(self, data_name, precision=7, inplace=True, **kwargs):
         """

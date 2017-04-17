@@ -292,7 +292,7 @@ class Grid(object):
             return outview
 
 
-    def nearest_cell(self, x, y):
+    def nearest_cell(self, x, y, bbox=None, shape=None):
         """
         Returns the index of the cell (column, row) closest
         to a given geographical coordinate.
@@ -305,6 +305,11 @@ class Grid(object):
             y coordinate.
         """
 
+        if not bbox:
+            bbox = self._bbox
+        if not shape:
+            shape = self.shape
+        # Note: this speedup assumes grid cells are square
         y_ix, x_ix = self.bbox_indices(self._bbox, self.shape)
         y_ix += self.cellsize / 2.0
         x_ix += self.cellsize / 2.0
@@ -313,7 +318,8 @@ class Grid(object):
         return desired_x, desired_y
 
 
-    def flowdir(self, data_name=None, include_edges=True, nodata=0, flat=-1,
+    def flowdir(self, data=None, dem_name='dem', out_name='dir',
+                include_edges=True, nodata_in=None, nodata_out=0, flat=-1,
             dirmap=(1, 2, 3, 4, 5, 6, 7, 8), inplace=True):
         """
         Generates a flow direction grid from a DEM grid.
@@ -333,28 +339,35 @@ class Grid(object):
                  cardinal and intercardinal directions (in order):
                  [N, NE, E, SE, S, SW, W, NW]
         inplace : bool
-                  If True, write output array to self.dir
+                  If True, write output array to self.<data_name>
         """
 
         if len(dirmap) != 8:
             raise AssertionError('dirmap must be a sequence of length 8')
 
         # if data not provided, use self.dem
-        if data_name is None:
-            if hasattr(self, 'dem'):
-                data = self.view('dem', mask=False)
-        elif isinstance(data_name, str):
-            data = self.view(data_name, mask=False)
+        if data is not None:
+            dem = data
         else:
-            raise TypeError('data_name must be string type.')
+            try:
+                dem = self.view(dem_name, mask=False)
+            except:
+                raise NameError("DEM grid '{0}' not found in instance."
+                                .format(dem_name))
 
         # generate grid of indices
-        indices = np.indices(self.shape, dtype=self.shape_min)
+        indices = np.indices(dem.shape, dtype=np.min_scalar_type(dem.shape))
 
         # handle nodata values in dem
-        dem_nodata = self.grid_props['dem']['nodata']
-        dem_mask = (data == dem_nodata)
-        np.place(data, dem_mask, np.iinfo(data.dtype.type).max)
+        if nodata_in is None:
+            try:
+                nodata_in = self.grid_props[dem_name]['nodata']
+            except:
+                raise NameError("nodata value for '{0}' not found in instance."
+                                .format(dem_name))
+
+        dem_mask = (dem == nodata_in)
+        np.place(dem, dem_mask, np.iinfo(dem.dtype.type).max)
 
         # initialize indices of corners
         corners = {
@@ -388,13 +401,18 @@ class Grid(object):
         body = indices[:, 1:-1, 1:-1]
 
         # initialize output array
-        outmap = np.full(self.shape, nodata, dtype=np.int8)
+        min_dir_dtype = np.min_scalar_type(min(dirmap))
+        max_dir_dtype = np.min_scalar_type(max(dirmap))
+        nodata_dtype = np.min_scalar_type(nodata_out)
+        min_out_dtype = np.find_common_type([], [min_dir_dtype, max_dir_dtype,
+                                            nodata_dtype])
+        outmap = np.full(self.shape, nodata_out, dtype=min_out_dtype)
 
         # for each entry in "body" determine flow direction based
         # on steepest neighboring slope
         for i, j in np.nditer(tuple(body), flags=['external_loop']):
-            dat = data[i, j]
-            sur = data[self._select_surround(i, j)]
+            dat = dem[i, j]
+            sur = dem[self._select_surround(i, j)]
             a = ((dat - sur) > 0).any(axis=0)
             b = np.argmax((dat - sur), axis=0) + 1
             c = flat
@@ -405,8 +423,8 @@ class Grid(object):
 
             # fill corners
             for corner in corners.keys():
-                dat = data[corners[corner]['k']]
-                sur = data[corners[corner]['v']]
+                dat = dem[corners[corner]['k']]
+                sur = dem[corners[corner]['v']]
                 if ((dat - sur) > 0).any():
                     outmap[corners[corner]['k']] = \
                             corners[corner]['pad'][np.argmax(dat - sur)]
@@ -415,8 +433,8 @@ class Grid(object):
 
             # fill edges
             for edge in edges.keys():
-                dat = data[edges[edge]['k']]
-                sur = data[self._select_edge_sur(edges, edge)]
+                dat = dem[edges[edge]['k']]
+                sur = dem[self._select_edge_sur(edges, edge)]
                 a = ((dat - sur) > 0).any(axis=0)
                 b = edges[edge]['pad'][np.argmax((dat - sur), axis=0)]
                 c = flat
@@ -425,27 +443,29 @@ class Grid(object):
         # If direction numbering isn't default, convert values of output array.
         if dirmap != (1, 2, 3, 4, 5, 6, 7, 8):
             dir_d = dict(zip((1, 2, 3, 4, 5, 6, 7, 8), dirmap))
-            outmap = (pd.DataFrame(outmap)
-                      .apply(lambda x: x.map(dir_d), axis=1).values)
+            for k, v in dir_d.items():
+                outmap[outmap == k] = v
+            # outmap = (pd.DataFrame(outmap)
+                      # .apply(lambda x: x.map(dir_d), axis=1).values)
 
-        np.place(outmap, dem_mask, nodata)
-        np.place(data, dem_mask, dem_nodata)
+        np.place(outmap, dem_mask, nodata_out)
+        np.place(dem, dem_mask, nodata_in)
 
         if inplace:
-            self.dir = outmap
-            self.grid_props.update({'dir' : {}})
-            self.grid_props['dir'].update({'bbox' : self.bbox})
-            self.grid_props['dir'].update({'shape' : self.shape})
-            self.grid_props['dir'].update({'cellsize' : self.cellsize})
-            self.grid_props['dir'].update({'nodata' : nodata})
-            self.grid_props['dir'].update({'crs' : self.crs})
+            setattr(self, out_name, outmap)
+            self.grid_props.update({out_name : {}})
+            self.grid_props[out_name].update({'bbox' : self.bbox})
+            self.grid_props[out_name].update({'shape' : self.shape})
+            self.grid_props[out_name].update({'cellsize' : self.cellsize})
+            self.grid_props[out_name].update({'nodata' : nodata_out})
+            self.grid_props[out_name].update({'crs' : self.crs})
         else:
             return outmap
 
 
-    def catchment(self, x, y, pour_value=None, direction_name='dir',
-                  dirmap=(1, 2, 3, 4, 5, 6, 7, 8), nodata=0, xytype='index',
-                  recursionlimit=15000, inplace=True):
+    def catchment(self, x, y, data=None, pour_value=None, direction_name='dir',
+                  out_name='catch', dirmap=(1, 2, 3, 4, 5, 6, 7, 8),
+                  nodata=0, xytype='index', bbox=None, recursionlimit=15000, inplace=True):
         """
         Delineates a watershed from a given pour point (x, y).
 
@@ -480,10 +500,6 @@ class Grid(object):
         if len(dirmap) != 8:
             raise AssertionError('dirmap must be a sequence of length 8')
 
-        # if xytype is 'label', delineate catchment based on cell nearest
-        # to given geographic coordinate
-        if xytype == 'label':
-            x, y = self.nearest_cell(x, y)
 
         # set recursion limit (needed for large datasets)
         sys.setrecursionlimit(recursionlimit)
@@ -491,20 +507,36 @@ class Grid(object):
         # initialize array to collect catchment cells
         self.collect = []
 
+        # if data not provided, use self.dir
         # pad the flow direction grid with a rim of 'nodata' cells
         # easy way to prevent catchment search from going out of bounds
         # TODO: Need better way of doing this
-        try:
-            self.cdir = np.pad(self.view(direction_name, mask=False),
-                1, mode='constant',
-                constant_values=np.asscalar(self.grid_props['dir']['nodata']))
-        except ValueError:
-            self.cdir = np.pad(self.view(direction_name, mask=False),
-                1, mode='constant')
+
+        if data is not None:
+            self.cdir = np.pad(data, 1, mode='constant')
+        else:
+            try:
+                self.cdir = np.pad(self.view(direction_name, mask=False),
+                    1, mode='constant',
+                    constant_values=np.asscalar(self.grid_props['dir']['nodata']))
+            except ValueError:
+                self.cdir = np.pad(self.view(direction_name, mask=False),
+                    1, mode='constant')
+            except NameError:
+                raise NameError("Flow direction grid '{0}' not found in instance."
+                                .format(direction_name))
+
 
         # get shape of padded flow direction array, then flatten
         padshape = self.cdir.shape
         self.cdir = self.cdir.ravel()
+
+        # if xytype is 'label', delineate catchment based on cell nearest
+        # to given geographic coordinate
+        # TODO: This relies on the bbox of the grid instance, not the dataset
+        if xytype == 'label':
+            x, y = self.nearest_cell(x, y, bbox,
+                                     (padshape[0] - 1, padshape[1] - 1))
 
         # get the flattened index of the pour point
         pour_point = np.ravel_multi_index(np.array([y + 1, x + 1]), padshape)
@@ -552,13 +584,13 @@ class Grid(object):
 
         # if inplace is True, update attributes
         if inplace:
-            self.catch = outcatch
-            self.grid_props.update({'catch' : {}})
-            self.grid_props['catch'].update({'bbox' : self.bbox})
-            self.grid_props['catch'].update({'shape' : self.shape})
-            self.grid_props['catch'].update({'cellsize' : self.cellsize})
-            self.grid_props['catch'].update({'nodata' : nodata})
-            self.grid_props['catch'].update({'crs' : self.crs})
+            setattr(self, out_name, outcatch)
+            self.grid_props.update({out_name : {}})
+            self.grid_props[out_name].update({'bbox' : self.bbox})
+            self.grid_props[out_name].update({'shape' : self.shape})
+            self.grid_props[out_name].update({'cellsize' : self.cellsize})
+            self.grid_props[out_name].update({'nodata' : nodata})
+            self.grid_props[out_name].update({'crs' : self.crs})
         else:
             return outcatch
 
@@ -721,7 +753,7 @@ class Grid(object):
 
         startnodes = startnodes[level_0]
         endnodes = endnodes[level_0]
-        
+
         for i in range(fdir.size):
             if endnodes.any():
                 np.add.at(acc, endnodes, acc[startnodes])
@@ -776,12 +808,6 @@ class Grid(object):
         # TODO: This part is being reused from accumulation
         # Construct flat index onto flow direction array
         flat_idx = np.ravel_multi_index(np.where(fdir), fdir.shape)
-
-        # Ensure consistent types
-        # fdir_orig_type = fdir.dtype
-        # mintype = np.min_scalar_type(fdir.size)
-        # fdir = fdir.astype(mintype)
-        # flat_idx = flat_idx.astype(mintype)
 
         shape = fdir.shape
         go_to = (

@@ -66,3 +66,6 @@ Simple and fast watershed delineation in python.
 # To-do's:
 - Float-based bbox indexing is problematic
 - Add graph routines
+- Allow conversion of CRS
+- Extract river topology from flow accumulation
+- Raster to vector conversion and shapefile output

@@ -11,7 +11,6 @@ Simple and fast watershed delineation in python.
 
 ## Features
 
-- DEM to Flow Direction
 - Flow Direction to Flow Accumulation
 - Catchment delineation from Flow Direction
 - Distance to outlet
@@ -21,6 +20,8 @@ Simple and fast watershed delineation in python.
 `pysheds` currently only supports a d8 routing scheme
 
 ## Example usage
+
+See examples/quickstart for more details.
 
     Read a flow direction raster
     ----------------------------
@@ -63,7 +64,14 @@ Simple and fast watershed delineation in python.
 
 ![Example 4](examples/flow_distance.png)
 
+# Performance
+Performance benchmarks on a 2015 MacBook Pro:
+
+- Flow Direction --> Flow Accumulation: 36 million grid cells in 28.3 seconds.
+- Flow Direction --> Catchment: 9.8 million grid cells in 4.55 seconds.
+
 # To-do's:
+- DEM to Flow Direction doesn't handle flats
 - Float-based bbox indexing is problematic
 - Add graph routines
 - Allow conversion of CRS

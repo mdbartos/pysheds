@@ -686,9 +686,6 @@ class Grid(object):
                  [N, NE, E, SE, S, SW, W, NW]
         nodata : int
                  Value to indicate nodata in output array.
-        recursionlimit : int
-                         Recursion limit--may need to be raised if
-                         recursion limit is reached.
         inplace : bool
                   If True, catchment will be written to attribute 'catch'.
         """
@@ -714,7 +711,7 @@ class Grid(object):
             fdir = np.pad(fdir, (1,1), mode='constant')
 
         # Construct flat index onto flow direction array
-        flat_idx = np.ravel_multi_index(np.where(fdir), fdir.shape)
+        flat_idx = np.arange(fdir.size)
 
         # Ensure consistent types
         fdir_orig_type = fdir.dtype
@@ -743,13 +740,10 @@ class Grid(object):
 
         startnodes = flat_idx
         endnodes = fdir.flat[flat_idx]
-        acc = np.ones(shape).ravel()
-        indegree = np.zeros(shape, dtype=np.uint8).ravel()
-
-        v = pd.Series(endnodes).value_counts()
-        indegree.flat[v.index.values] = v.values
-        v = v.reindex(startnodes).fillna(0).astype(int)
+        acc = np.ones(shape).astype(int).ravel()
+        v = np.bincount(endnodes)
         level_0 = (v == 0)
+        indegree = v.reshape(acc.shape).astype(np.uint8)
 
         startnodes = startnodes[level_0]
         endnodes = endnodes[level_0]

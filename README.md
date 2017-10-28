@@ -5,9 +5,11 @@ Simple and fast watershed delineation in python.
 
 `pysheds` currently only supports Python3
 
+```bash
     $ git clone https://github.com/mdbartos/pysheds.git
     $ cd pysheds
     $ python setup.py install
+```
 
 ## Features
 
@@ -23,17 +25,20 @@ Simple and fast watershed delineation in python.
 
 See examples/quickstart for more details.
 
-    Read a flow direction raster
-    ----------------------------
+```python
+    # Read a flow direction raster
+    # ----------------------------
     from pysheds.grid import Grid
 
     grid = Grid.from_raster('../data/n30w100_dir/n30w100_dir/w001001.adf',
                             data_name='dir', input_type='ascii')
+```
 
 ![Example 1](examples/flow_direction.png)
 
-    Delineate a catchment
-    ---------------------
+```python
+    # Delineate a catchment
+    # ---------------------
     # Specify pour point
     x, y = -97.2937, 32.7371
     # Specify directional mapping
@@ -43,24 +48,29 @@ See examples/quickstart for more details.
     grid.catchment(x, y, dirmap=dirmap, recursionlimit=15000,
                    xytype='label')
 
-    Crop and plot the catchment
-    ---------------------------
+    # Crop and plot the catchment
+    # ---------------------------
     # Clip the bounding box to the catchment
     grid.clip_to('catch', precision=5)
+```
 
 ![Example 2](examples/catchment.png)
 
-    Calculate flow accumulation
-    --------------------------
+```python
+    # Calculate flow accumulation
+    # --------------------------
     grid.accumulation(catch, dirmap=dirmap, pad_inplace=False)
+```
 
 ![Example 3](examples/flow_accumulation.png)
 
-    Calculate distance to outlet from each cell
-    -------------------------------------------
+```python
+    # Calculate distance to outlet from each cell
+    # -------------------------------------------
     pour_point_y, pour_point_x = np.unravel_index(np.argmax(grid.view('catch')),
                                                   grid.shape)
     grid.flow_distance(pour_point_x, pour_point_y, dirmap=dirmap)
+```
 
 ![Example 4](examples/flow_distance.png)
 

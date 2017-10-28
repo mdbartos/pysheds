@@ -40,7 +40,7 @@ See examples/quickstart for more details.
     dirmap=(64, 128, 1, 2, 4, 8, 16, 32)
 
     # Delineate the catchment
-    grid.catchment(x, y, dirmap=dirmap, recursionlimit=15000, 
+    grid.catchment(x, y, dirmap=dirmap, recursionlimit=15000,
                    xytype='label')
 
     Crop and plot the catchment
@@ -53,7 +53,7 @@ See examples/quickstart for more details.
     Calculate flow accumulation
     --------------------------
     grid.accumulation(catch, dirmap=dirmap, pad_inplace=False)
-    
+
 ![Example 3](examples/flow_accumulation.png)
 
     Calculate distance to outlet from each cell
@@ -67,7 +67,7 @@ See examples/quickstart for more details.
 # Performance
 Performance benchmarks on a 2015 MacBook Pro:
 
-- Flow Direction --> Flow Accumulation: 36 million grid cells in 28.3 seconds.
+- Flow Direction --> Flow Accumulation: 36 million grid cells in 15 seconds.
 - Flow Direction --> Catchment: 9.8 million grid cells in 4.55 seconds.
 
 # To-do's:

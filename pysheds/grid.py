@@ -1005,7 +1005,8 @@ class Grid(object):
                      self.grid_props[mask_source]['nodata'])
 
 
-    def to_ascii(self, data_name=None, file_name=None, delimiter=' ', **kwargs):
+    def to_ascii(self, data_name=None, file_name=None, delimiter=' ',
+                 mask=False, **kwargs):
         """
         Writes current "view" of grid data to ascii grid files.
 
@@ -1039,7 +1040,7 @@ class Grid(object):
                                              self.bbox[1],
                                              self.cellsize,
                                              self.grid_props[in_name]['nodata'])
-            np.savetxt(out_name, self.view(in_name), delimiter=delimiter,
+            np.savetxt(out_name, self.view(in_name, mask=mask), delimiter=delimiter,
                     header=header, comments='', **kwargs)
 
 

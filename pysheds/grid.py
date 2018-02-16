@@ -2,6 +2,13 @@ import numpy as np
 import pandas as pd
 import sys
 import ast
+try:
+    import scipy.sparse
+    from scipy.sparse import csgraph
+    _HAS_SCIPY = True
+except:
+    _HAS_SCIPY = False
+
 
 class Grid(object):
     """
@@ -789,7 +796,8 @@ class Grid(object):
     def flow_distance(self, x, y, data=None, dirmap=(1, 2, 3, 4, 5, 6, 7, 8),
                       direction_name='catch', nodata=0,
                       out_name='dist', inplace=True, pad_inplace=True):
-        from scipy import sparse
+        if not _HAS_SCIPY:
+            raise ImportError('flow_distance requires scipy.sparse module')
         if data is not None:
             fdir = data
         else:
@@ -827,7 +835,7 @@ class Grid(object):
 
         # TODO: End re-used portion
 
-        A = sparse.lil_matrix((fdir.size, fdir.size))
+        A = scipy.sparse.lil_matrix((fdir.size, fdir.size))
         for i,j in zip(startnodes, endnodes):
             A[i,j] = 1
 
@@ -835,7 +843,7 @@ class Grid(object):
         del A
 
         xyindex = np.ravel_multi_index((y, x), fdir.shape)
-        dist = sparse.csgraph.shortest_path(C, indices=[xyindex], directed=False)
+        dist = csgraph.shortest_path(C, indices=[xyindex], directed=False)
         dist[~np.isfinite(dist)] = np.nan
         dist = dist.ravel()
         dist = dist.reshape(fdir.shape)
@@ -1075,4 +1083,5 @@ class Grid(object):
                          i - 1 + offset,
                          i - 1 + 0,
                          i - 1 - offset]).T
+        import scipy.sparse
 

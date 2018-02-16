@@ -289,7 +289,7 @@ class Grid(object):
                                        self.grid_props[data_name]['shape'])
         outview = (pd.DataFrame(getattr(self, data_name),
                                 index=rows, columns=cols)
-                   .reindex(selfrows).reindex_axis(selfcols, axis=1)
+                   .reindex(selfrows).reindex(selfcols, axis=1)
                    .fillna(self.grid_props[data_name]['nodata']).values)
         if mask:
             return np.where(self.mask,
@@ -647,7 +647,7 @@ class Grid(object):
         # reindex self to other based on column labels and fill nulls with
         # nearest neighbor
         result = (selfdf.reindex(otherrows, method='nearest')
-                  .reindex_axis(othercols, axis=1, method='nearest'))
+                  .reindex(othercols, axis=1, method='nearest'))
         initial_counts = np.bincount(result.values.ravel(),
                                      minlength=selfdf.size).astype(float)
 

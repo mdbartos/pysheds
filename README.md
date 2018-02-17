@@ -1,15 +1,5 @@
-# pysheds
+# pysheds [![Build Status](https://travis-ci.org/mdbartos/pysheds.svg?branch=master)](https://travis-ci.org/mdbartos/pysheds)
 Simple and fast watershed delineation in python.
-
-## Installation
-
-`pysheds` currently only supports Python3
-
-```bash
-    $ git clone https://github.com/mdbartos/pysheds.git
-    $ cd pysheds
-    $ python setup.py install
-```
 
 ## Features
 
@@ -24,6 +14,8 @@ Simple and fast watershed delineation in python.
 ## Example usage
 
 See examples/quickstart for more details.
+
+Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadownload.php) project.
 
 ```python
     # Read a flow direction raster
@@ -73,6 +65,17 @@ See examples/quickstart for more details.
 ```
 
 ![Example 4](examples/flow_distance.png)
+
+## Installation
+
+`pysheds` currently only supports Python3
+
+```bash
+    $ git clone https://github.com/mdbartos/pysheds.git
+    $ cd pysheds
+    $ python setup.py install
+```
+
 
 # Performance
 Performance benchmarks on a 2015 MacBook Pro:

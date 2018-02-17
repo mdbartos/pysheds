@@ -63,7 +63,7 @@ class Grid(object):
         catchment_mask : Updates self.mask to mask all gricells not inside the
                          catchment (given by self.catch).
 
-    Reserved Dataset Names
+    Default Dataset Names
     ======================
     dem : digital elevation grid
     dir : flow direction grid
@@ -726,28 +726,10 @@ class Grid(object):
         fdir = fdir.astype(mintype)
         flat_idx = flat_idx.astype(mintype)
 
-        shape = fdir.shape
-        go_to = (
-            0 - shape[1],
-            1 - shape[1],
-            1 + 0,
-            1 + shape[1],
-            0 + shape[1],
-            -1 + shape[1],
-            -1 + 0,
-            -1 - shape[1]
-            )
-
-        gotomap = dict(zip(dirmap, go_to))
-
-        for k, v in gotomap.items():
-            fdir[fdir == k] = v
-
-        fdir.flat[flat_idx] += flat_idx
-
-        startnodes = flat_idx
-        endnodes = fdir.flat[flat_idx]
-        acc = np.ones(shape).astype(int).ravel()
+        # Get matching of start and end nodes
+        startnodes, endnodes = self._construct_matching(fdir, flat_idx,
+                                                        dirmap=dirmap)
+        acc = np.ones(fdir.shape).astype(int).ravel()
         v = np.bincount(endnodes)
         level_0 = (v == 0)
         indegree = v.reshape(acc.shape).astype(np.uint8)
@@ -811,29 +793,8 @@ class Grid(object):
         # Construct flat index onto flow direction array
         flat_idx = np.ravel_multi_index(np.where(fdir), fdir.shape)
 
-        shape = fdir.shape
-        go_to = (
-            0 - shape[1],
-            1 - shape[1],
-            1 + 0,
-            1 + shape[1],
-            0 + shape[1],
-            -1 + shape[1],
-            -1 + 0,
-            -1 - shape[1]
-            )
-
-        gotomap = dict(zip(dirmap, go_to))
-
-        for k, v in gotomap.items():
-            fdir[fdir == k] = v
-
-        fdir.flat[flat_idx] += flat_idx
-
-        startnodes = flat_idx
-        endnodes = fdir.flat[flat_idx]
-
-        # TODO: End re-used portion
+        startnodes, endnodes = self._construct_matching(fdir, flat_idx,
+                                                        dirmap=dirmap)
 
         A = scipy.sparse.lil_matrix((fdir.size, fdir.size))
         for i,j in zip(startnodes, endnodes):
@@ -860,6 +821,25 @@ class Grid(object):
         else:
             return dist
 
+    def _construct_matching(self, fdir, flat_idx, dirmap):
+        shape = fdir.shape
+        go_to = (
+             0 - shape[1],
+             1 - shape[1],
+             1 + 0,
+             1 + shape[1],
+             0 + shape[1],
+            -1 + shape[1],
+            -1 + 0,
+            -1 - shape[1]
+            )
+        gotomap = dict(zip(dirmap, go_to))
+        for k, v in gotomap.items():
+            fdir[fdir == k] = v
+        fdir.flat[flat_idx] += flat_idx
+        startnodes = flat_idx
+        endnodes = fdir.flat[flat_idx]
+        return startnodes, endnodes
 
     def clip_to(self, data_name, precision=7, inplace=True, **kwargs):
         """

@@ -1,9 +1,14 @@
+import os
 import numpy as np
 from pysheds.grid import Grid
 
+current_dir = os.path.dirname(os.path.realpath(__file__))
+data_dir = os.path.abspath(os.path.join(current_dir, '../data'))
+data_path = os.path.join(data_dir, 'dir.asc')
+
 # Initialize grid
 grid = Grid()
-grid.read_ascii('../data/dir.asc', 'dir', dtype=np.uint8)
+grid.read_ascii(data_path, 'dir', dtype=np.uint8)
 # Initialize parameters
 dirmap = (64,  128,  1,   2,    4,   8,    16,  32)
 acc_in_frame = 77259

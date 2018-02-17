@@ -271,7 +271,7 @@ class Grid(object):
         return rows, cols
 
 
-    def view(self, data_name, mask=True):
+    def view(self, data_name, mask=True, nodata=None):
         """
         Return a copy of a gridded dataset clipped to the bounding box
         (self.bbox) with cells outside the catchment mask (self.mask)
@@ -284,17 +284,17 @@ class Grid(object):
         mask : bool
                If True, "mask" the view using self.mask.
         """
+        if nodata is None:
+            nodata = self.grid_props[data_name]['nodata']
         selfrows, selfcols = self.bbox_indices(self.bbox, self.shape)
         rows, cols = self.bbox_indices(self.grid_props[data_name]['bbox'],
                                        self.grid_props[data_name]['shape'])
         outview = (pd.DataFrame(getattr(self, data_name),
                                 index=rows, columns=cols)
                    .reindex(selfrows).reindex(selfcols, axis=1)
-                   .fillna(self.grid_props[data_name]['nodata']).values)
+                   .fillna(nodata).values)
         if mask:
-            return np.where(self.mask,
-                            outview,
-                            self.grid_props[data_name]['nodata'])
+            return np.where(self.mask, outview, nodata)
         else:
             return outview
 
@@ -985,8 +985,8 @@ class Grid(object):
                      self.grid_props[mask_source]['nodata'])
 
 
-    def to_ascii(self, data_name=None, file_name=None, delimiter=' ',
-                 mask=False, **kwargs):
+    def to_ascii(self, data_name=None, file_name=None, view=True, mask=False, delimiter=' ',
+                 **kwargs):
         """
         Writes current "view" of grid data to ascii grid files.
 
@@ -1012,16 +1012,34 @@ class Grid(object):
             data_name = [data_name]
         if isinstance(file_name, str):
             file_name = [file_name]
-
+ 
+        header_space = 9*' '
         for in_name, out_name in zip(data_name, file_name):
-            header = """ncols         %s\nnrows         %s\nxllcorner     %s\nyllcorner     %s\ncellsize      %s\nNODATA_value  %s""" % (self.shape[1],
-                                             self.shape[0],
-                                             self.bbox[0],
-                                             self.bbox[1],
-                                             self.cellsize,
-                                             self.grid_props[in_name]['nodata'])
-            np.savetxt(out_name, self.view(in_name, mask=mask), delimiter=delimiter,
-                    header=header, comments='', **kwargs)
+            nodata = self.grid_props[in_name]['nodata']
+            if view:
+                shape = self.shape
+                bbox = self.bbox
+                cellsize = self.cellsize
+            else:
+                shape = self.grid_props[in_name]['shape']
+                bbox = self.grid_props[in_name]['bbox']
+                cellsize = self.grid_props[in_name]['cellsize']
+
+            header = (("ncols{0}{1}\nnrows{0}{2}\nxllcorner{0}{3}\n"
+                      "yllcorner{0}{4}\ncellsize{0}{5}\nNODATA_value{0}{6}")
+                      .format(header_space, 
+                              shape[1],
+                              shape[0],
+                              bbox[0],
+                              bbox[1],
+                              cellsize,
+                              nodata))
+            if view:
+                np.savetxt(out_name, self.view(in_name, mask=mask), delimiter=delimiter,
+                        header=header, comments='', **kwargs)
+            else:
+                np.savetxt(out_name, getattr(self, in_name), delimiter=delimiter,
+                        header=header, comments='', **kwargs)
 
 
     def _select_surround(self, i, j):

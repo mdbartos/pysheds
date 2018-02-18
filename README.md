@@ -71,7 +71,7 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
 
 ```python
     # Extract river network
-    -----------------------
+    # ---------------------
     branches, yx = grid.extract_river_network(threshold=200)
 ```
 

@@ -78,7 +78,7 @@ class Grid(object):
 
 
     def add_data(self, data, data_name, bbox=None, shape=None, cellsize=None,
-            crs=None, nodata=None):
+            crs=None, nodata=None, data_attrs={}):
         """
         A generic method for adding data into a GridProc instance.
         Inserts data into a named attribute of GridProc (name of attribute
@@ -155,10 +155,12 @@ class Grid(object):
         self.grid_props[data_name].update({'cellsize' : cellsize})
         self.grid_props[data_name].update({'nodata' : nodata})
         self.grid_props[data_name].update({'crs' : crs})
+        for other_name, other_value in data_attrs:
+            self.grid_props[data_name].update({other_name : other_value})
         setattr(self, data_name, data)
 
 
-    def read_ascii(self, data, data_name, skiprows=6, crs=None, **kwargs):
+    def read_ascii(self, data, data_name, skiprows=6, crs=None, data_attrs={}, **kwargs):
         """
         Reads data from an ascii file into a named attribute of GridProc
         instance (name of attribute determined by 'data_name').
@@ -195,10 +197,11 @@ class Grid(object):
             bbox = (xll, yll, xll + ncols * cellsize, yll + nrows * cellsize)
         data = np.loadtxt(data, skiprows=skiprows, **kwargs)
         nodata = data.dtype.type(nodata)
-        self.add_data(data, data_name, bbox, shape, cellsize, crs, nodata)
+        self.add_data(data, data_name, bbox, shape, cellsize, crs, nodata,
+                      data_attrs=data_attrs)
 
 
-    def read_raster(self, data, data_name, band=1, **kwargs):
+    def read_raster(self, data, data_name, band=1, data_attrs={}, **kwargs):
         """
         Reads data from a raster file into a named attribute of GridProc
         (name of attribute determined by keyword 'data_name').
@@ -236,7 +239,8 @@ class Grid(object):
             f.close()
             data = data.reshape(shape)
         nodata = data.dtype.type(nodata)
-        self.add_data(data, data_name, bbox, shape, cellsize, crs, nodata)
+        self.add_data(data, data_name, bbox, shape, cellsize, crs, nodata,
+                      data_attrs=data_attrs)
 
     @classmethod
     def from_ascii(cls, path, data_name, **kwargs):
@@ -466,12 +470,13 @@ class Grid(object):
             self.grid_props[out_name].update({'cellsize' : self.cellsize})
             self.grid_props[out_name].update({'nodata' : nodata_out})
             self.grid_props[out_name].update({'crs' : self.crs})
+            self.grid_props[out_name].update({'dirmap' : dirmap})
         else:
             return outmap
 
 
     def catchment(self, x, y, data=None, pour_value=None, direction_name='dir',
-                  out_name='catch', dirmap=(1, 2, 3, 4, 5, 6, 7, 8),
+                  out_name='catch', dirmap=None,
                   nodata=0, xytype='index', bbox=None, recursionlimit=15000, inplace=True):
         """
         Delineates a watershed from a given pour point (x, y).
@@ -504,6 +509,7 @@ class Grid(object):
                   If True, catchment will be written to attribute 'catch'.
         """
 
+        dirmap = self._set_dirmap(dirmap, direction_name)
         if len(dirmap) != 8:
             raise AssertionError('dirmap must be a sequence of length 8')
 
@@ -549,7 +555,7 @@ class Grid(object):
         pour_point = np.ravel_multi_index(np.array([y + 1, x + 1]), padshape)
 
         # reorder direction mapping to work with select_surround_ravel()
-        dirmap = np.array(dirmap)[[4, 5, 6, 7, 0, 1, 2, 3]].tolist()
+        r_dirmap = np.array(dirmap)[[4, 5, 6, 7, 0, 1, 2, 3]].tolist()
 
         pour_point = np.array([pour_point])
 
@@ -560,7 +566,7 @@ class Grid(object):
             # self.collect = np.append(self.collect, j)
             self.collect.extend(j)
             selection = self._select_surround_ravel(j, padshape)
-            next_idx = selection[np.where(self.cdir[selection] == dirmap)]
+            next_idx = selection[np.where(self.cdir[selection] == r_dirmap)]
             if next_idx.any():
                 return catchment_search(next_idx)
 
@@ -598,6 +604,7 @@ class Grid(object):
             self.grid_props[out_name].update({'cellsize' : self.cellsize})
             self.grid_props[out_name].update({'nodata' : nodata})
             self.grid_props[out_name].update({'crs' : self.crs})
+            self.grid_props[out_name].update({'dirmap' : dirmap})
         else:
             return outcatch
 
@@ -696,7 +703,7 @@ class Grid(object):
         inplace : bool
                   If True, catchment will be written to attribute 'catch'.
         """
-
+        dirmap = self._set_dirmap(dirmap, direction_name)
         if data is not None:
             fdir = data
         else:
@@ -718,6 +725,7 @@ class Grid(object):
             fdir = np.pad(fdir, (1,1), mode='constant')
 
         # Construct flat index onto flow direction array
+        # TODO: Note that this flat_idx is different than the others
         flat_idx = np.arange(fdir.size)
 
         # Ensure consistent types
@@ -775,11 +783,12 @@ class Grid(object):
         else:
             return acc
 
-    def flow_distance(self, x, y, data=None, dirmap=(1, 2, 3, 4, 5, 6, 7, 8),
+    def flow_distance(self, x, y, data=None, dirmap=None,
                       direction_name='catch', nodata=0,
                       out_name='dist', inplace=True, pad_inplace=True):
         if not _HAS_SCIPY:
             raise ImportError('flow_distance requires scipy.sparse module')
+        dirmap = self._set_dirmap(dirmap, direction_name)
         if data is not None:
             fdir = data
         else:
@@ -821,7 +830,8 @@ class Grid(object):
         else:
             return dist
 
-    def _construct_matching(self, fdir, flat_idx, dirmap):
+    def _flatten_fdir(self, fdir, flat_idx, dirmap):
+        # WARNING: This modifies fdir in place!
         shape = fdir.shape
         go_to = (
              0 - shape[1],
@@ -837,6 +847,11 @@ class Grid(object):
         for k, v in gotomap.items():
             fdir[fdir == k] = v
         fdir.flat[flat_idx] += flat_idx
+
+    def _construct_matching(self, fdir, flat_idx, dirmap, fdir_flattened=False):
+        # TODO: Maybe fdir should be flattened outside this function
+        if not fdir_flattened:
+            self._flatten_fdir(fdir, flat_idx, dirmap)
         startnodes = flat_idx
         endnodes = fdir.flat[flat_idx]
         return startnodes, endnodes
@@ -946,7 +961,6 @@ class Grid(object):
         else:
             self.mask = np.ones(self.shape, dtype=np.bool)
 
-
     def set_nodata(self, data_name, new_nodata, old_nodata=None):
         """
         Change nodata value of a dataset.
@@ -1041,6 +1055,61 @@ class Grid(object):
                 np.savetxt(out_name, getattr(self, in_name), delimiter=delimiter,
                         header=header, comments='', **kwargs)
 
+    def extract_river_network(self, fdir=None, acc=None, threshold=100,
+                              catchment_name='catch', accumulation_name='acc',
+                              dirmap=None):
+        if fdir is None:
+            try:
+                fdir = self.view(catchment_name, mask=True)
+            except:
+                raise NameError("Flow direction grid '{0}' not found in instance."
+                                .format(catchment_name))
+        if acc is None:
+            try:
+                acc = self.view(accumulation_name, mask=True)
+            except:
+                raise NameError("Accumulation grid '{0}' not found in instance."
+                                .format(accumulation_name))
+        dirmap = self._set_dirmap(dirmap, catchment_name)
+        flat_idx = np.arange(fdir.size)
+        startnodes, endnodes = self._construct_matching(fdir, flat_idx,
+                                                        dirmap=dirmap)
+        start = startnodes[acc.flat[startnodes] > threshold]
+        end = fdir.flat[start]
+        v = np.bincount(end)
+        indegree = v.astype(np.uint8)
+        forks_end = np.where(indegree > 1)[0]
+        no_fork = ~np.in1d(end, forks_end)
+        # Find connected components
+        A = scipy.sparse.lil_matrix((fdir.size, fdir.size))
+        for i,j in zip(start[no_fork], end[no_fork]):
+            A[i,j] = 1
+        n_components, labels = csgraph.connected_components(A)
+        u, inverse, c = np.unique(labels, return_inverse=True, return_counts=True)
+        idx_vals_repeated = np.where(c > 1)[0]
+        C = scipy.sparse.lil_matrix((fdir.size, fdir.size))
+        # Get shortest paths for sorting
+        for i,j in zip(start, end):
+            C[i,j] = 1
+        C = C.tocsr()
+        outlet = np.argmax(acc)
+        y, x = np.unravel_index(outlet, acc.shape)
+        xyindex = np.ravel_multi_index((y, x), fdir.shape)
+        dist = csgraph.shortest_path(C, indices=[xyindex], directed=False)
+        dist = dist.ravel()
+        noninf = np.where(np.isfinite(dist))[0]
+        sorted_dists = np.argsort(dist)
+        sorted_dists = sorted_dists[np.in1d(sorted_dists, noninf)][::-1]
+        branches = []
+        for val in idx_vals_repeated:
+            branch = np.where(labels == val)[0]
+            branch = branch[np.argsort(dist[branch])].tolist()
+            fork = fdir.flat[branch[0]]
+            branch = [fork] + branch
+            branches.append(np.asarray(branch))
+        yx = np.vstack(np.dstack(
+                    np.meshgrid(*self.bbox_indices(self.bbox, self.shape), indexing='ij')))
+        return branches, yx
 
     def _select_surround(self, i, j):
         """
@@ -1048,7 +1117,6 @@ class Grid(object):
         """
         return ([i - 1, i - 1, i + 0, i + 1, i + 1, i + 1, i + 0, i - 1],
                 [j + 0, j + 1, j + 1, j + 1, j + 0, j - 1, j - 1, j - 1])
-
 
     def _select_edge_sur(self, edges, k):
         """
@@ -1068,7 +1136,6 @@ class Grid(object):
             return ([i - 1, i - 1, i + 0, i + 1, i + 1],
                     [j + 0, j + 1, j + 1, j + 1, j + 0])
 
-
     def _select_surround_ravel(self, i, shape):
         """
         Select the eight indices surrounding a flattened index.
@@ -1082,5 +1149,15 @@ class Grid(object):
                          i - 1 + offset,
                          i - 1 + 0,
                          i - 1 - offset]).T
-        import scipy.sparse
+
+    def _set_dirmap(self, dirmap, direction_name):
+        default_dirmap = (1, 2, 3, 4, 5, 6, 7, 8)
+        if dirmap is None:
+            if direction_name in self.grid_props:
+                dirmap = self.grid_props[direction_name].setdefault(
+                    'dirmap', default_dirmap)
+            else:
+                dirmap = default_dirmap
+        return dirmap
+
 

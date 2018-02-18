@@ -7,26 +7,29 @@ Simple and fast watershed delineation in python.
 - Catchment delineation from Flow Direction
 - Distance to outlet
 - Fractional contributing area between differently-sized grids
+- River network extraction
 - Read/write raster or ASCII files
 
 `pysheds` currently only supports a d8 routing scheme
 
 ## Example usage
 
-See examples/quickstart for more details.
+See [examples/quickstart](https://github.com/mdbartos/pysheds/blob/master/examples/quickstart.ipynb) for more details.
 
 Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadownload.php) project.
 
 ```python
-    # Read a flow direction raster
+    # Read elevation and flow direction rasters
     # ----------------------------
     from pysheds.grid import Grid
 
-    grid = Grid.from_raster('../data/n30w100_dir/n30w100_dir/w001001.adf',
-                            data_name='dir', input_type='ascii')
+    grid = Grid.from_raster('n30w100_con',
+                             data_name='dem', input_type='ascii')
+    grid.read_raster('n30w100_dir',
+                      data_name='dir', input_type='ascii')
 ```
 
-![Example 1](examples/img/flow_direction.png)
+![Example 1](examples/img/conditioned_dem.png)
 
 ```python
     # Delineate a catchment
@@ -88,5 +91,4 @@ Performance benchmarks on a 2015 MacBook Pro:
 - Float-based bbox indexing is problematic
 - Add graph routines
 - Allow conversion of CRS
-- Extract river topology from flow accumulation
 - Raster to vector conversion and shapefile output

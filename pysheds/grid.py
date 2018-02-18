@@ -30,12 +30,12 @@ class Grid(object):
         File I/O
         --------
         add_data : Add a gridded dataset (dem, flowdir, accumulation)
-                   to GridProc instance (generic method).
+                   to Grid instance (generic method).
         read_ascii : Read an ascii grid from a file and add it to a
-                     GridProc instance.
-        read_raster : Read a raster file and add the data to a GridProc
+                     Grid instance.
+        read_raster : Read a raster file and add the data to a Grid
                       instance.
-        to_ascii : Writes current "view" of gridded datasets to ascii file.
+        to_ascii : Writes current "view" of gridded dataset(s) to ascii file.
         ----------
         Hydrologic
         ----------
@@ -43,6 +43,10 @@ class Grid(object):
                   dataset (dem). Does not currently handle flats.
         catchment : Delineate the watershed for a given pour point (x, y)
                     or (column, row).
+        accumulation : Compute the number of cells upstream of each cell.
+        flow_distance : Compute the distance (in cells) from each cell to the
+                        outlet.
+        extract_river_network : Extract river segments from a catchment.
         fraction : Generate the fractional contributing area for a coarse
                    scale flow direction grid based on a fine-scale flow
                    direction grid.
@@ -80,14 +84,14 @@ class Grid(object):
     def add_data(self, data, data_name, bbox=None, shape=None, cellsize=None,
             crs=None, nodata=None, data_attrs={}):
         """
-        A generic method for adding data into a GridProc instance.
-        Inserts data into a named attribute of GridProc (name of attribute
+        A generic method for adding data into a Grid instance.
+        Inserts data into a named attribute of Grid (name of attribute
         determined by keyword 'data_name').
 
         Parameters
         ----------
         data : numpy ndarray
-               Data to be inserted into GridProc instance.
+               Data to be inserted into Grid instance.
         data_name : string
                      Name of dataset. Will determine the name of the attribute
                      representing the gridded data. Default values are used
@@ -107,6 +111,11 @@ class Grid(object):
               Coordinate reference system of gridded data.
         nodata : int or float
                  Value indicating no data.
+        data_attrs : dict
+                     Other attributes describing dataset, such as direction
+                     mapping for flow direction files. e.g.:
+                     data_attrs={'dirmap' : (1, 2, 3, 4, 5, 6, 7, 8),
+                                 'routing' : 'd8'}
         """
         if not isinstance(data, np.ndarray):
             raise TypeError('Input data must be ndarray')
@@ -162,7 +171,7 @@ class Grid(object):
 
     def read_ascii(self, data, data_name, skiprows=6, crs=None, data_attrs={}, **kwargs):
         """
-        Reads data from an ascii file into a named attribute of GridProc
+        Reads data from an ascii file into a named attribute of Grid
         instance (name of attribute determined by 'data_name').
 
         Parameters
@@ -182,6 +191,11 @@ class Grid(object):
                    The number of rows taken up by the header (defaults to 6).
         crs : dict (optional)
               Coordinate reference system of ascii data.
+        data_attrs : dict
+                     Other attributes describing dataset, such as direction
+                     mapping for flow direction files. e.g.:
+                     data_attrs={'dirmap' : (1, 2, 3, 4, 5, 6, 7, 8),
+                                 'routing' : 'd8'}
 
         Additional keyword arguments are passed to numpy.loadtxt()
         """
@@ -203,7 +217,7 @@ class Grid(object):
 
     def read_raster(self, data, data_name, band=1, data_attrs={}, **kwargs):
         """
-        Reads data from a raster file into a named attribute of GridProc
+        Reads data from a raster file into a named attribute of Grid
         (name of attribute determined by keyword 'data_name').
 
         Parameters
@@ -221,6 +235,11 @@ class Grid(object):
                          'frac' : fractional contributing area
         band : int
                The band number to read.
+        data_attrs : dict
+                     Other attributes describing dataset, such as direction
+                     mapping for flow direction files. e.g.:
+                     data_attrs={'dirmap' : (1, 2, 3, 4, 5, 6, 7, 8),
+                                 'routing' : 'd8'}
 
         Additional keyword arguments are passed to rasterio.open()
         """
@@ -254,7 +273,7 @@ class Grid(object):
         newinstance.read_raster(path, data_name, **kwargs)
         return newinstance
 
-    def bbox_indices(self, bbox, shape, precision=7):
+    def bbox_indices(self, bbox=None, shape=None, precision=7):
         """
         Return row and column coordinates of a bounding box at a
         given cellsize.
@@ -262,18 +281,22 @@ class Grid(object):
         Parameters
         ----------
         bbox : tuple of floats or ints (length 4)
-               bbox of new data.
+               bbox of new data. Defaults to instance bbox.
         shape : tuple of ints (length 2)
-                The shape of the 2D array (rows, columns).
+                The shape of the 2D array (rows, columns). Defaults
+                to instance shape.
         precision : int
                     Precision to use when matching geographic coordinates.
         """
+        if bbox is None:
+            bbox = self._bbox
+        if shape is None:
+            shape = self.shape
         rows = np.around(np.linspace(bbox[1], bbox[3],
                shape[0], endpoint=False)[::-1], precision)
         cols = np.around(np.linspace(bbox[0], bbox[2],
                shape[1], endpoint=False), precision)
         return rows, cols
-
 
     def view(self, data_name, mask=True, nodata=None):
         """
@@ -287,6 +310,9 @@ class Grid(object):
                     Name of the dataset to be viewed.
         mask : bool
                If True, "mask" the view using self.mask.
+        nodata : int of float
+                 Value indicating no data. Defaults to
+                 self.grid_props[data_name]['nodata']
         """
         if nodata is None:
             nodata = self.grid_props[data_name]['nodata']
@@ -337,12 +363,18 @@ class Grid(object):
 
         Parameters
         ----------
-        data_name : string
+        data : numpy ndarray
+               Array of DEM data (overrides dem_name constructor)
+        dem_name : string
                     Name of attribute containing dem data.
+        out_name : string
+                   Name of attribute containing new flow direction array.
         include_edges : bool
                         If True, include outer rim of grid.
-        nodata : int
-                 Value to indicate nodata in output array.
+        nodata_in : int
+                     Value to indicate nodata in input array.
+        nodata_out : int
+                     Value to indicate nodata in output array.
         flat : int
                Value to indicate flat areas in output array.
         dirmap : list or tuple (length 8)
@@ -350,7 +382,8 @@ class Grid(object):
                  cardinal and intercardinal directions (in order):
                  [N, NE, E, SE, S, SW, W, NW]
         inplace : bool
-                  If True, write output array to self.<data_name>
+                  If True, write output array to self.<data_name>.
+                  Otherwise, return the output array.
         """
 
         if len(dirmap) != 8:
@@ -487,9 +520,15 @@ class Grid(object):
             x coordinate of pour point
         y : int or float
             y coordinate of pour point
+        data : numpy ndarray
+               Array of flow direction data (overrides direction_name constructor)
         pour_value : int or None
                      If not None, value to represent pour point in catchment
                      grid (required by some programs).
+        direction_name : string
+                         Name of attribute containing flow direction data.
+        out_name : string
+                   Name of attribute containing new catchment array.
         dirmap : list or tuple (length 8)
                  List of integer values representing the following
                  cardinal and intercardinal directions (in order):
@@ -502,12 +541,17 @@ class Grid(object):
                                indices of the pour point.
                      'label' : x and y represent geographic coordinates
                                (will be passed to self.nearest_cell).
+        bbox :  tuple (length 4)
+                Bounding box of flow direction array, if different from
+                instance bbox.
         recursionlimit : int
                          Recursion limit--may need to be raised if
                          recursion limit is reached.
         inplace : bool
                   If True, catchment will be written to attribute 'catch'.
+                  Otherwise, return the output array.
         """
+        # TODO: No nodata_in attribute. Inconsistent.
 
         dirmap = self._set_dirmap(dirmap, direction_name)
         if len(dirmap) != 8:
@@ -616,8 +660,8 @@ class Grid(object):
 
         Parameters
         ----------
-        other : GridProc instance
-                Another GridProc instance containing fine-scale flow direction
+        other : Grid instance
+                Another Grid instance containing fine-scale flow direction
                 data. The ratio of self.cellsize/other.cellsize must be a
                 positive integer. Grid cell boundaries must have some overlap.
                 Must have attributes 'dir' and 'catch' (i.e. must have a flow
@@ -686,22 +730,34 @@ class Grid(object):
         else:
             return result
 
-    def accumulation(self, data=None, dirmap=(1, 2, 3, 4, 5, 6, 7, 8), direction_name='dir', nodata=0,
-              out_name='acc', inplace=True, pad_inplace=True):
+    def accumulation(self, data=None, dirmap=(1, 2, 3, 4, 5, 6, 7, 8), direction_name='dir',
+                     nodata=0, out_name='acc', inplace=True, pad_inplace=True):
         """
         Generates an array of flow accumulation, where cell values represent
         the number of upstream cells.
 
         Parameters
         ----------
+        data : numpy ndarray
+               Array of flow direction data (overrides direction_name constructor)
         dirmap : list or tuple (length 8)
                  List of integer values representing the following
                  cardinal and intercardinal directions (in order):
                  [N, NE, E, SE, S, SW, W, NW]
+        direction_name : string
+                         Name of attribute containing flow direction data.
         nodata : int
                  Value to indicate nodata in output array.
+        out_name : string
+                   Name of attribute containing new accumulation array.
         inplace : bool
-                  If True, catchment will be written to attribute 'catch'.
+                  If True, accumulation will be written to attribute 'acc'.
+                  Otherwise, return the output array.
+        pad_inplace : bool
+                  If True, do not include the edges of the flow direction array in the
+                  accumulation computation. Otherwise, create a copy of the flow direction
+                  array with the edges padded (this is more expensive in terms of
+                  computational resources).
         """
         dirmap = self._set_dirmap(dirmap, direction_name)
         if data is not None:
@@ -786,6 +842,38 @@ class Grid(object):
     def flow_distance(self, x, y, data=None, dirmap=None,
                       direction_name='catch', nodata=0,
                       out_name='dist', inplace=True, pad_inplace=True):
+        """
+        Generates an array representing the topological distance from each cell
+        to the outlet.
+
+        Parameters
+        ----------
+        x : int or float
+            x coordinate of pour point
+        y : int or float
+            y coordinate of pour point
+        data : numpy ndarray
+               Array of flow direction data (overrides direction_name constructor)
+        dirmap : list or tuple (length 8)
+                 List of integer values representing the following
+                 cardinal and intercardinal directions (in order):
+                 [N, NE, E, SE, S, SW, W, NW]
+        direction_name : string
+                         Name of attribute containing flow direction data.
+        nodata : int
+                 Value to indicate nodata in output array.
+        out_name : string
+                   Name of attribute containing new flow distance array.
+        inplace : bool
+                  If True, accumulation will be written to attribute 'acc'.
+                  Otherwise, return the output array.
+        pad_inplace : bool
+                  If True, do not include the edges of the flow direction array in the
+                  accumulation computation. Otherwise, create a copy of the flow direction
+                  array with the edges padded (this is more expensive in terms of
+                  computational resources).
+        """
+        # TODO: Currently only accepts index-based x, y coords
         if not _HAS_SCIPY:
             raise ImportError('flow_distance requires scipy.sparse module')
         dirmap = self._set_dirmap(dirmap, direction_name)
@@ -1012,6 +1100,11 @@ class Grid(object):
         file_name : string or list-like (optional)
                     Name(s) of file(s) to write to (defaults to attribute
                     name).
+        view : bool
+               If True, writes the "view" of the dataset. Otherwise, writes the
+               entire dataset.
+        mask : bool
+               If True, write the "masked" view of the dataset.
         delimiter : string (optional)
                     Delimiter to use in output file (defaults to ' ')
 
@@ -1026,7 +1119,7 @@ class Grid(object):
             data_name = [data_name]
         if isinstance(file_name, str):
             file_name = [file_name]
- 
+
         header_space = 9*' '
         for in_name, out_name in zip(data_name, file_name):
             nodata = self.grid_props[in_name]['nodata']
@@ -1041,7 +1134,7 @@ class Grid(object):
 
             header = (("ncols{0}{1}\nnrows{0}{2}\nxllcorner{0}{3}\n"
                       "yllcorner{0}{4}\ncellsize{0}{5}\nNODATA_value{0}{6}")
-                      .format(header_space, 
+                      .format(header_space,
                               shape[1],
                               shape[0],
                               bbox[0],
@@ -1058,6 +1151,45 @@ class Grid(object):
     def extract_river_network(self, fdir=None, acc=None, threshold=100,
                               catchment_name='catch', accumulation_name='acc',
                               dirmap=None):
+        """
+        Generates river segments from accumulation and flow_direction arrays.
+
+        Parameters
+        ----------
+        fdir : numpy ndarray
+               Array of flow direction data (overrides catchment_name constructor)
+        acc : numpy ndarray
+              Array of flow accumulation data (overrides accumulation_name constructor)
+        threshold : int or float
+                    Minimum allowed cell accumulation needed for inclusion in
+                    river network.
+        catchment_name : string
+                         Name of attribute containing flow direction data. Must
+                         be a catchment (all cells drain to a common point).
+        accumulation_name : string
+                         Name of attribute containing flow accumulation data.
+        dirmap : list or tuple (length 8)
+                 List of integer values representing the following
+                 cardinal and intercardinal directions (in order):
+                 [N, NE, E, SE, S, SW, W, NW]
+
+        Returns
+        -------
+        branches : list of numpy ndarray
+                   A list of river segments. Each array contains the cell
+                   indices of junctions in the segment.
+        yx : numpy ndarray
+             Ordered y and x coordinates of each cell.
+        The x and y coordinates of each river segment can be obtained as
+        follows:
+
+        ```
+        for branch in branches:
+            coords = yx[branch]
+            y, x = coords[:,0], coords[:,1]
+        ```
+        """
+        # TODO: If two "forks" are directly connected, it can introduce a gap
         if fdir is None:
             try:
                 fdir = self.view(catchment_name, mask=True)

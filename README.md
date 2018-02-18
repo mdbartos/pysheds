@@ -69,6 +69,14 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
 
 ![Example 4](examples/img/flow_distance.png)
 
+```python
+    # Extract river network
+    -----------------------
+    branches, yx = grid.extract_river_network(threshold=200)
+```
+
+![Example 5](examples/img/river_network.png)
+
 ## Installation
 
 `pysheds` currently only supports Python3

@@ -26,7 +26,7 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
                             data_name='dir', input_type='ascii')
 ```
 
-![Example 1](examples/flow_direction.png)
+![Example 1](examples/img/flow_direction.png)
 
 ```python
     # Delineate a catchment
@@ -46,7 +46,7 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
     grid.clip_to('catch', precision=5)
 ```
 
-![Example 2](examples/catchment.png)
+![Example 2](examples/img/catchment.png)
 
 ```python
     # Calculate flow accumulation
@@ -54,7 +54,7 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
     grid.accumulation(catch, dirmap=dirmap, pad_inplace=False)
 ```
 
-![Example 3](examples/flow_accumulation.png)
+![Example 3](examples/img/flow_accumulation.png)
 
 ```python
     # Calculate distance to outlet from each cell
@@ -64,7 +64,7 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
     grid.flow_distance(pour_point_x, pour_point_y, dirmap=dirmap)
 ```
 
-![Example 4](examples/flow_distance.png)
+![Example 4](examples/img/flow_distance.png)
 
 ## Installation
 

@@ -1208,19 +1208,19 @@ class Grid(object):
                                                         dirmap=dirmap)
         start = startnodes[acc.flat[startnodes] > threshold]
         end = fdir.flat[start]
-        v = np.bincount(end)
-        indegree = v.astype(np.uint8)
+        # Find nodes with indegree > 1 and sever them
+        indegree = (np.bincount(end)).astype(np.uint8)
         forks_end = np.where(indegree > 1)[0]
         no_fork = ~np.in1d(end, forks_end)
-        # Find connected components
+        # Find connected components with forks severed
         A = scipy.sparse.lil_matrix((fdir.size, fdir.size))
         for i,j in zip(start[no_fork], end[no_fork]):
             A[i,j] = 1
         n_components, labels = csgraph.connected_components(A)
         u, inverse, c = np.unique(labels, return_inverse=True, return_counts=True)
         idx_vals_repeated = np.where(c > 1)[0]
+        # Get shortest paths to sort nodes in each branch
         C = scipy.sparse.lil_matrix((fdir.size, fdir.size))
-        # Get shortest paths for sorting
         for i,j in zip(start, end):
             C[i,j] = 1
         C = C.tocsr()
@@ -1232,6 +1232,7 @@ class Grid(object):
         noninf = np.where(np.isfinite(dist))[0]
         sorted_dists = np.argsort(dist)
         sorted_dists = sorted_dists[np.in1d(sorted_dists, noninf)][::-1]
+        # Construct branches
         branches = []
         for val in idx_vals_repeated:
             branch = np.where(labels == val)[0]
@@ -1239,6 +1240,14 @@ class Grid(object):
             fork = fdir.flat[branch[0]]
             branch = [fork] + branch
             branches.append(np.asarray(branch))
+        # Handle case where two adjacent forks are connected
+        after_fork = fdir.flat[forks_end]
+        second_fork = np.unique(after_fork[np.in1d(after_fork, forks_end)])
+        second_fork_start = start[np.in1d(end, second_fork)]
+        second_fork_end = fdir.flat[second_fork_start]
+        for fork_start, fork_end in zip(second_fork_start, second_fork_end):
+            branches.append([fork_start, fork_end])
+        # Get x, y coordinates for plotting
         yx = np.vstack(np.dstack(
                     np.meshgrid(*self.bbox_indices(self.bbox, self.shape), indexing='ij')))
         return branches, yx

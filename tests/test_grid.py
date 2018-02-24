@@ -1,3 +1,4 @@
+import pyproj
 import os
 import numpy as np
 from pysheds.grid import Grid
@@ -8,6 +9,7 @@ data_path = os.path.join(data_dir, 'dir.asc')
 
 # Initialize grid
 grid = Grid()
+grid.crs = pyproj.Proj('+init=epsg:4326')
 grid.read_ascii(data_path, 'dir', dtype=np.uint8)
 # Initialize parameters
 dirmap = (64,  128,  1,   2,    4,   8,    16,  32)

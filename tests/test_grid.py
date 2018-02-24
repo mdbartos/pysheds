@@ -9,8 +9,8 @@ data_path = os.path.join(data_dir, 'dir.asc')
 
 # Initialize grid
 grid = Grid()
-grid.crs = pyproj.Proj('+init=epsg:4326')
-grid.read_ascii(data_path, 'dir', dtype=np.uint8)
+crs = pyproj.Proj('+init=epsg:4326')
+grid.read_ascii(data_path, 'dir', dtype=np.uint8, crs=crs)
 # Initialize parameters
 dirmap = (64,  128,  1,   2,    4,   8,    16,  32)
 acc_in_frame = 77259

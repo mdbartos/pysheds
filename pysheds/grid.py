@@ -209,7 +209,7 @@ class Grid(object):
 
         Additional keyword arguments are passed to numpy.loadtxt()
         """
-
+        # TODO: Consider setting default crs to geographic
         with open(data) as header:
             ncols = int(header.readline().split()[1])
             nrows = int(header.readline().split()[1])

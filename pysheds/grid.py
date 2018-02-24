@@ -1,3 +1,4 @@
+import pyproj
 import numpy as np
 import pandas as pd
 import sys
@@ -5,6 +6,7 @@ import ast
 try:
     import scipy.sparse
     from scipy.sparse import csgraph
+    import scipy.interpolate
     _HAS_SCIPY = True
 except:
     _HAS_SCIPY = False
@@ -140,22 +142,29 @@ class Grid(object):
             if not isinstance(cellsize, (int, float)):
                 raise TypeError('cellsize must be an int or float.')
 
+            if crs is not None:
+                if isinstance(crs, pyproj.Proj):
+                    pass
+                if isinstance(crs, dict) or isinstance(crs, str):
+                    crs = pyproj.Proj(crs)
+
             # initialize instance metadata
             self._bbox = bbox
             self.shape = shape
-            self.cellsize = cellsize
-            self.crs = crs
+            self._crs = crs
+            self.nodata = nodata
             self.mask = np.ones(self.shape, dtype=np.bool)
             self.shape_min = np.min_scalar_type(max(self.shape))
             self.size_min = np.min_scalar_type(data.size)
+            self.is_regular = data_attrs.setdefault('is_regular', None)
 
         # if there are existing datasets, conform incoming
         # data to bbox
-        else:
-            try:
-                np.testing.assert_almost_equal(cellsize, self.cellsize)
-            except:
-                raise AssertionError('Grid cellsize not equal')
+        # else:
+        #     try:
+        #         np.testing.assert_almost_equal(cellsize, self.cellsize)
+        #     except:
+        #         raise AssertionError('Grid cellsize not equal')
 
         # assign new data to attribute; record nodata value
         self.grid_props.update({data_name : {}})
@@ -164,7 +173,7 @@ class Grid(object):
         self.grid_props[data_name].update({'cellsize' : cellsize})
         self.grid_props[data_name].update({'nodata' : nodata})
         self.grid_props[data_name].update({'crs' : crs})
-        for other_name, other_value in data_attrs:
+        for other_name, other_value in data_attrs.items():
             self.grid_props[data_name].update({other_name : other_value})
         setattr(self, data_name, data)
 
@@ -211,6 +220,7 @@ class Grid(object):
             bbox = (xll, yll, xll + ncols * cellsize, yll + nrows * cellsize)
         data = np.loadtxt(data, skiprows=skiprows, **kwargs)
         nodata = data.dtype.type(nodata)
+        data_attrs.update({'is_regular' : True})
         self.add_data(data, data_name, bbox, shape, cellsize, crs, nodata,
                       data_attrs=data_attrs)
 
@@ -246,7 +256,7 @@ class Grid(object):
         # read raster file
         import rasterio
         f = rasterio.open(data, **kwargs)
-        crs = f.crs
+        crs = pyproj.Proj(f.crs)
         bbox = tuple(f.bounds)
         shape = f.shape
         cellsize = f.affine[0]
@@ -258,6 +268,7 @@ class Grid(object):
             f.close()
             data = data.reshape(shape)
         nodata = data.dtype.type(nodata)
+        data_attrs.update({'is_regular' : True})
         self.add_data(data, data_name, bbox, shape, cellsize, crs, nodata,
                       data_attrs=data_attrs)
 
@@ -298,7 +309,8 @@ class Grid(object):
                shape[1], endpoint=False), precision)
         return rows, cols
 
-    def view(self, data_name, mask=True, nodata=None):
+    def view(self, data_name, mask=True, nodata=None, tolerance=0.01,
+             method='nearest'):
         """
         Return a copy of a gridded dataset clipped to the bounding box
         (self.bbox) with cells outside the catchment mask (self.mask)
@@ -314,20 +326,73 @@ class Grid(object):
                  Value indicating no data. Defaults to
                  self.grid_props[data_name]['nodata']
         """
+
+        data_crs = self.grid_props[data_name]['crs']
+        data_regular = self.grid_props[data_name]['is_regular']
+        same_crs = self.crs.srs == data_crs.srs
+
+        if self.is_regular and data_regular and same_crs:
+            return self._regular_view(data_name, mask, nodata, tolerance)
+        else:
+            return self._irregular_view(data_name, mask, nodata, method)
+
+    def _regular_view(self, data_name, mask=True, nodata=None, tolerance=0.01):
+        data_bbox = self.grid_props[data_name]['bbox']
+        data_shape = self.grid_props[data_name]['shape']
+        dy, dx = self._dy_dx()
+        x_tolerance = dx * tolerance
+        y_tolerance = dy * tolerance
+
         if nodata is None:
             nodata = self.grid_props[data_name]['nodata']
         selfrows, selfcols = self.bbox_indices(self.bbox, self.shape)
-        rows, cols = self.bbox_indices(self.grid_props[data_name]['bbox'],
-                                       self.grid_props[data_name]['shape'])
+        rows, cols = self.bbox_indices(data_bbox,
+                                       data_shape)
         outview = (pd.DataFrame(getattr(self, data_name),
                                 index=rows, columns=cols)
-                   .reindex(selfrows).reindex(selfcols, axis=1)
+                   .reindex(selfrows, tolerance=y_tolerance, method='nearest')
+                   .reindex(selfcols, axis=1, tolerance=x_tolerance,
+                            method='nearest')
                    .fillna(nodata).values)
         if mask:
             return np.where(self.mask, outview, nodata)
         else:
             return outview
 
+    def _irregular_view(self, data_name, mask=True, nodata=None, method='nearest'):
+        data_bbox = self.grid_props[data_name]['bbox']
+        data_shape = self.grid_props[data_name]['shape']
+        data_crs = self.grid_props[data_name]['crs']
+        data_regular = self.grid_props[data_name]['is_regular']
+
+        if nodata is None:
+            nodata = self.grid_props[data_name]['nodata']
+        if self.crs.srs != data_crs.srs:
+            if data_regular:
+                yx_data = self.bbox_indices(bbox=data_bbox, shape=data_shape)
+                yx_data = np.vstack(np.dstack(np.meshgrid(*yx_data,
+                                                          indexing='ij')))
+            else:
+                yx_data = self.grid_props[data_name]['grid_indices']
+            yx_data = self._convert_grid_indices_crs(yx_data, data_crs, self.crs)
+        if not self.is_regular:
+            yx_grid = self._grid_indices
+        else:
+            yx_grid = np.vstack(np.dstack(
+                np.meshgrid(*self.bbox_indices(), indexing='ij')))
+        in_ybounds = ((yx_data[:,0] <= yx_grid[:,0].max())
+                      & (yx_data[:,0] >= yx_grid[:,0].min()))
+        in_xbounds = ((yx_data[:,1] <= yx_grid[:,1].max())
+                      & (yx_data[:,1] >= yx_grid[:,1].min()))
+        in_bounds = in_ybounds & in_xbounds
+        outview = scipy.interpolate.griddata(yx_data[in_bounds],
+                                              getattr(self, data_name).ravel()[in_bounds],
+                                              yx_grid,
+                                             method=method).reshape(self.shape)
+        if mask:
+            return np.where(self.mask, outview, nodata)
+        else:
+            return outview
 
     def nearest_cell(self, x, y, bbox=None, shape=None):
         """
@@ -346,10 +411,11 @@ class Grid(object):
             bbox = self._bbox
         if not shape:
             shape = self.shape
+        dy, dx = self._dy_dx()
         # Note: this speedup assumes grid cells are square
         y_ix, x_ix = self.bbox_indices(self._bbox, self.shape)
-        y_ix += self.cellsize / 2.0
-        x_ix += self.cellsize / 2.0
+        y_ix += dy / 2.0
+        x_ix += dx / 2.0
         desired_y = np.argmin(np.abs(y_ix - y))
         desired_x = np.argmin(np.abs(x_ix - x))
         return desired_x, desired_y
@@ -495,18 +561,11 @@ class Grid(object):
         np.place(outmap, dem_mask, nodata_out)
         np.place(dem, dem_mask, nodata_in)
 
-        if inplace:
-            setattr(self, out_name, outmap)
-            self.grid_props.update({out_name : {}})
-            self.grid_props[out_name].update({'bbox' : self.bbox})
-            self.grid_props[out_name].update({'shape' : self.shape})
-            self.grid_props[out_name].update({'cellsize' : self.cellsize})
-            self.grid_props[out_name].update({'nodata' : nodata_out})
-            self.grid_props[out_name].update({'crs' : self.crs})
-            self.grid_props[out_name].update({'dirmap' : dirmap})
-        else:
-            return outmap
-
+        is_regular = self.grid_props[dem_name].setdefault('is_regular', None)
+        private_props = {'nodata' : nodata_out, 'dirmap' : dirmap,
+                         'is_regular' : is_regular}
+        grid_props = self._generate_grid_props(**private_props)
+        return self._output_handler(outmap, inplace, out_name=out_name, **grid_props)
 
     def catchment(self, x, y, data=None, pour_value=None, direction_name='dir',
                   out_name='catch', dirmap=None,
@@ -639,21 +698,13 @@ class Grid(object):
         # reset recursion limit
         sys.setrecursionlimit(1000)
 
-        # if inplace is True, update attributes
-        if inplace:
-            setattr(self, out_name, outcatch)
-            self.grid_props.update({out_name : {}})
-            self.grid_props[out_name].update({'bbox' : self.bbox})
-            self.grid_props[out_name].update({'shape' : self.shape})
-            self.grid_props[out_name].update({'cellsize' : self.cellsize})
-            self.grid_props[out_name].update({'nodata' : nodata})
-            self.grid_props[out_name].update({'crs' : self.crs})
-            self.grid_props[out_name].update({'dirmap' : dirmap})
-        else:
-            return outcatch
+        is_regular = self.grid_props[direction_name].setdefault('is_regular', None)
+        private_props = {'nodata' : nodata, 'dirmap' : dirmap,
+                         'is_regular' : is_regular}
+        grid_props = self._generate_grid_props(**private_props)
+        return self._output_handler(outcatch, inplace, out_name=out_name, **grid_props)
 
-
-    def fraction(self, other, nodata=0, inplace=True):
+    def fraction(self, other, nodata=0, out_name='frac', inplace=True):
         """
         Generates a grid representing the fractional contributing area for a
         coarse-scale flow direction grid.
@@ -718,17 +769,9 @@ class Grid(object):
         if nodata != 0:
             np.place(result, result == 0, nodata)
 
-        # if inplace is True, set class attributes
-        if inplace:
-            self.frac = result
-            self.grid_props.update({'frac' : {}})
-            self.grid_props['frac'].update({'bbox' : self.bbox})
-            self.grid_props['frac'].update({'shape' : self.shape})
-            self.grid_props['frac'].update({'cellsize' : self.cellsize})
-            self.grid_props['frac'].update({'nodata' : nodata})
-            self.grid_props['frac'].update({'crs' : self.crs})
-        else:
-            return result
+        private_props = {'nodata' : nodata}
+        grid_props = self._generate_grid_props(**private_props)
+        return self._output_handler(result, inplace, out_name=out_name, **grid_props)
 
     def accumulation(self, data=None, dirmap=(1, 2, 3, 4, 5, 6, 7, 8), direction_name='dir',
                      nodata=0, out_name='acc', inplace=True, pad_inplace=True):
@@ -827,17 +870,10 @@ class Grid(object):
         else:
             acc = acc[1:-1, 1:-1]
 
-        # if inplace is True, update attributes
-        if inplace:
-            setattr(self, out_name, acc)
-            self.grid_props.update({out_name : {}})
-            self.grid_props[out_name].update({'bbox' : self.bbox})
-            self.grid_props[out_name].update({'shape' : self.shape})
-            self.grid_props[out_name].update({'cellsize' : self.cellsize})
-            self.grid_props[out_name].update({'nodata' : nodata})
-            self.grid_props[out_name].update({'crs' : self.crs})
-        else:
-            return acc
+        is_regular = self.grid_props[direction_name].setdefault('is_regular', None)
+        private_props = {'nodata' : nodata, 'is_regular' : is_regular}
+        grid_props = self._generate_grid_props(**private_props)
+        return self._output_handler(acc, inplace, out_name=out_name, **grid_props)
 
     def flow_distance(self, x, y, data=None, dirmap=None,
                       direction_name='catch', nodata=0,
@@ -906,17 +942,105 @@ class Grid(object):
         dist = dist.ravel()
         dist = dist.reshape(fdir.shape)
 
-        # if inplace is True, update attributes
+        # Prepare output
+        private_props = {'nodata' : nodata}
+        grid_props = self._generate_grid_props(**private_props)
+        return self._output_handler(dist, inplace, out_name=out_name, **grid_props)
+
+    def cell_area(self):
+        dy, dx = self._dy_dx()
+        area = dx * dy
+        return area
+
+    def cell_distances(self, direction_name, out_name='cdist',
+                       inplace=True):
+        dy, dx = self._dy_dx()
+        ddiag = np.sqrt(dx**2 + dy**2)
+        cdist = np.zeros(self.shape)
+        fdir = self.view(direction_name)
+        dirmap = self.grid_props[direction_name]['dirmap']
+        nodata = self.grid_props[direction_name]['nodata']
+
+        for i, direction in enumerate(dirmap):
+            if i in (0, 4):
+                cdist[fdir == direction] = dy
+            if i in (2, 6):
+                cdist[fdir == direction] = dx
+            else:
+                cdist[fdir == direction] = ddiag
+        # Prepare output
+        private_props = {'nodata' : nodata}
+        grid_props = self._generate_grid_props(**private_props)
+        return self._output_handler(cdist, inplace, out_name=out_name, **grid_props)
+
+    def cell_slopes(self, direction_name, dem_name, out_name='slopes',
+                    inplace=True, nodata=None):
+        startnodes, endnodes = self._construct_matching(self.view(direction_name))
+        startelev = self.view(dem_name).ravel()[startnodes]
+        endelev = self.view(dem_name).ravel()[endnodes]
+        dh = (startelev - endelev).reshape(self.shape)
+        cdist = self.cell_distances(direction_name, inplace=False)
+        slopes = np.where(self.mask, dh/cdist, nodata)
+        # Prepare output
+        private_props = {'nodata' : nodata}
+        grid_props = self._generate_grid_props(**private_props)
+        return self._output_handler(slopes, inplace, out_name=out_name, **grid_props)
+
+    def _output_handler(self, data, inplace, out_name, **kwargs):
         if inplace:
-            setattr(self, out_name, dist)
+            setattr(self, out_name, data)
             self.grid_props.update({out_name : {}})
-            self.grid_props[out_name].update({'bbox' : self.bbox})
-            self.grid_props[out_name].update({'shape' : self.shape})
-            self.grid_props[out_name].update({'cellsize' : self.cellsize})
-            self.grid_props[out_name].update({'nodata' : nodata})
-            self.grid_props[out_name].update({'crs' : self.crs})
+            self.grid_props[out_name].update(kwargs)
         else:
-            return dist
+            return data
+
+    def _generate_grid_props(self, **kwargs):
+        grid_props = {}
+        required = ('bbox', 'shape', 'cellsize', 'nodata', 'crs')
+        grid_props.update(kwargs)
+        for param in required:
+            grid_props[param] = grid_props.setdefault(param,
+                                                      getattr(self, param))
+        return grid_props
+
+    def _dy_dx(self):
+        x0, y0, x1, y1 = self.bbox
+        dy = np.abs(y1 - y0) / (self.shape[0]) #TODO: Should this be shape - 1
+        dx = np.abs(x1 - x0) / (self.shape[1]) #TODO: Should this be shape - 1
+        return dy, dx
+
+    def _convert_bbox_crs(self, bbox, old_crs, new_crs):
+        x1 = np.asarray((bbox[0], bbox[2]))
+        y1 = np.asarray((bbox[1], bbox[3]))
+        x2, y2 = pyproj.transform(old_crs, new_crs,
+                                      x1, y1)
+        new_bbox = (x2[0], y2[0], x2[1], y2[1])
+        return new_bbox
+
+    def _convert_bbox_indices_crs(self, bbox, shape, old_crs, new_crs):
+        y1, x1 = self.bbox_indices(bbox=bbox, shape=shape)
+        yx1 = np.vstack(np.dstack(np.meshgrid(y1, x1, indexing='ij')))
+        yx2 = self._convert_grid_indices_crs(yx1, old_crs, new_crs)
+        return yx2
+
+    def _convert_grid_indices_crs(self, grid_indices, old_crs, new_crs):
+        x2, y2 = pyproj.transform(old_crs, new_crs, grid_indices[:,1],
+                                  grid_indices[:,0])
+        yx2 = np.column_stack([y2, x2])
+        return yx2
+
+    def to_crs(self, new_crs, old_crs=None, to_regular=False, preserve_units=False):
+        if old_crs is None:
+            old_crs = self.crs
+        if (isinstance(new_crs, str) or isinstance(new_crs, dict)):
+            new_crs = pyproj.Proj(new_crs, preserve_units=preserve_units)
+        self.is_regular = to_regular
+        self._grid_indices = self._convert_bbox_indices_crs(self.bbox,
+                                                            self.shape,
+                                                            old_crs,
+                                                            new_crs)
+        self._bbox = self._convert_bbox_crs(self.bbox, old_crs, new_crs)
+        self.crs = new_crs
 
     def _flatten_fdir(self, fdir, flat_idx, dirmap):
         # WARNING: This modifies fdir in place!
@@ -997,6 +1121,22 @@ class Grid(object):
         extent = (self._bbox[0], self.bbox[2], self._bbox[1], self._bbox[3])
         return extent
 
+    @property
+    def crs(self):
+        return self._crs
+
+    @crs.setter
+    def crs(self, new_crs):
+        assert isinstance(new_crs, pyproj.Proj)
+        self._crs = new_crs
+
+    @property
+    def cellsize(self):
+        dy, dx = self._dy_dx()
+        # TODO: Assuming square cells
+        cellsize = (dy + dx) / 2
+        return cellsize
+
     def set_bbox(self, new_bbox, precision=7):
         """
         Set the bounding box of the class instance (self.bbox). If the new
@@ -1019,23 +1159,29 @@ class Grid(object):
             raise TypeError('new_bbox must be a tuple of length 4.')
 
         # check if alignable; if not, round unaligned bbox entries to nearest
+        dy, dx = self._dy_dx()
         new_bbox = np.asarray(new_bbox)
-        err = np.abs(new_bbox) % self.cellsize
+        err = np.abs(new_bbox)
+        err[[1, 3]] = err[[1, 3]] % dy
+        err[[0, 2]] = err[[0, 2]] % dx
         try:
-            np.testing.assert_almost_equal(err, np.zeros(len(new_bbox)))
+            np.testing.assert_almost_equal(err, np.zeros(len(new_bbox)),
+                                           decimal=precision)
         except AssertionError:
+            err_bbox = new_bbox
             direction = np.where(new_bbox > 0.0, 1, -1)
             new_bbox = new_bbox - (err * direction)
-            print('Unalignable bbox provided, rounding to %s' % (new_bbox))
+            print('Unalignable bbox provided: {0}, rounding to {1}'.format(err_bbox,
+                  new_bbox))
 
         # construct arrays representing old bbox coords
         selfrows, selfcols = self.bbox_indices(self.bbox, self.shape)
 
         # construct arrays representing coordinates of new grid
-        nrows = ((new_bbox[3] - new_bbox[1]) / self.cellsize)
-        ncols = ((new_bbox[2] - new_bbox[0]) / self.cellsize)
-        np.testing.assert_almost_equal(nrows, round(nrows))
-        np.testing.assert_almost_equal(ncols, round(ncols))
+        nrows = ((new_bbox[3] - new_bbox[1]) / dy)
+        ncols = ((new_bbox[2] - new_bbox[0]) / dx)
+        np.testing.assert_almost_equal(nrows, round(nrows), decimal=precision)
+        np.testing.assert_almost_equal(ncols, round(ncols), decimal=precision)
         rows = np.linspace(new_bbox[1], new_bbox[3],
                            round(nrows), endpoint=False)
         cols = np.linspace(new_bbox[0], new_bbox[2],
@@ -1126,6 +1272,8 @@ class Grid(object):
             if view:
                 shape = self.shape
                 bbox = self.bbox
+                # TODO: This breaks if cells are not square; issue with ASCII
+                # format
                 cellsize = self.cellsize
             else:
                 shape = self.grid_props[in_name]['shape']

@@ -1,4 +1,5 @@
 import pyproj
+import warnings
 import numpy as np
 import pandas as pd
 import sys
@@ -367,13 +368,13 @@ class Grid(object):
 
         if nodata is None:
             nodata = self.grid_props[data_name]['nodata']
+        if data_regular:
+            yx_data = self.bbox_indices(bbox=data_bbox, shape=data_shape)
+            yx_data = np.vstack(np.dstack(np.meshgrid(*yx_data,
+                                                        indexing='ij')))
+        else:
+            yx_data = self.grid_props[data_name]['grid_indices']
         if self.crs.srs != data_crs.srs:
-            if data_regular:
-                yx_data = self.bbox_indices(bbox=data_bbox, shape=data_shape)
-                yx_data = np.vstack(np.dstack(np.meshgrid(*yx_data,
-                                                          indexing='ij')))
-            else:
-                yx_data = self.grid_props[data_name]['grid_indices']
             yx_data = self._convert_grid_indices_crs(yx_data, data_crs, self.crs)
         if not self.is_regular:
             yx_grid = self._grid_indices
@@ -947,15 +948,45 @@ class Grid(object):
         grid_props = self._generate_grid_props(**private_props)
         return self._output_handler(dist, inplace, out_name=out_name, **grid_props)
 
-    def cell_area(self):
-        dy, dx = self._dy_dx()
+    def cell_area(self, out_name='area', nodata=0, inplace=True):
+        # TODO: Will have to figure this out
+        is_regular = self.is_regular
+        if self.crs.is_latlong():
+            warnings.warn(('CRS is geographic. Area will not have meaningful'
+                           'units.'))
+        if is_regular:
+            indices = np.vstack(np.dstack(np.meshgrid(*self.bbox_indices,
+                                                      indexing='ij')))
+        else:
+            indices = self._grid_indices
+        dyy, dyx = np.gradient(indices[:, 0].reshape(self.shape))
+        dxy, dxx = np.gradient(indices[:, 1].reshape(self.shape))
+        dy = np.sqrt(dyy**2 + dyx**2)
+        dx = np.sqrt(dxy**2 + dxx**2)
         area = dx * dy
+        private_props = {'nodata' : nodata, 'is_regular' : is_regular}
+        if not is_regular:
+            private_props.update({'grid_indices' : self._grid_indices})
+        grid_props = self._generate_grid_props(**private_props)
+        return self._output_handler(area, inplace, out_name=out_name, **grid_props)
         return area
 
     def cell_distances(self, direction_name, out_name='cdist',
                        inplace=True):
-        dy, dx = self._dy_dx()
-        ddiag = np.sqrt(dx**2 + dy**2)
+        is_regular = self.is_regular
+        if self.crs.is_latlong():
+            warnings.warn(('CRS is geographic. Area will not have meaningful'
+                           'units.'))
+        if self.is_regular:
+            indices = np.vstack(np.dstack(np.meshgrid(*self.bbox_indices,
+                                                      indexing='ij')))
+        else:
+            indices = self._grid_indices
+        dyy, dyx = np.gradient(indices[:, 0].reshape(self.shape))
+        dxy, dxx = np.gradient(indices[:, 1].reshape(self.shape))
+        dy = np.sqrt(dyy**2 + dyx**2)
+        dx = np.sqrt(dxy**2 + dxx**2)
+        ddiag = np.sqrt(dy**2 + dx**2)
         cdist = np.zeros(self.shape)
         fdir = self.view(direction_name)
         dirmap = self.grid_props[direction_name]['dirmap']
@@ -963,26 +994,54 @@ class Grid(object):
 
         for i, direction in enumerate(dirmap):
             if i in (0, 4):
-                cdist[fdir == direction] = dy
+                cdist[fdir == direction] = dy[fdir == direction]
             if i in (2, 6):
-                cdist[fdir == direction] = dx
+                cdist[fdir == direction] = dx[fdir == direction]
             else:
-                cdist[fdir == direction] = ddiag
+                cdist[fdir == direction] = ddiag[fdir == direction]
         # Prepare output
-        private_props = {'nodata' : nodata}
+        private_props = {'nodata' : nodata, 'is_regular' : is_regular}
+        if not is_regular:
+            private_props.update({'grid_indices' : self._grid_indices})
         grid_props = self._generate_grid_props(**private_props)
         return self._output_handler(cdist, inplace, out_name=out_name, **grid_props)
 
-    def cell_slopes(self, direction_name, dem_name, out_name='slopes',
-                    inplace=True, nodata=None):
-        startnodes, endnodes = self._construct_matching(self.view(direction_name))
-        startelev = self.view(dem_name).ravel()[startnodes]
-        endelev = self.view(dem_name).ravel()[endnodes]
+    def cell_dh(self, direction_name, dem_name, out_name='dh',
+                    inplace=True, nodata_out=None, dirmap=None):
+        if nodata_out is None:
+            nodata_out = np.nan
+        is_regular = self.is_regular
+        dem = self.view(dem_name, nodata=np.nan)
+        fdir = self.view(direction_name)
+        dirmap = self._set_dirmap(dirmap, direction_name)
+        # TODO: The np.where could fail here
+        #flat_idx = np.ravel_multi_index(np.where(self.mask), self.shape)
+        flat_idx = np.arange(fdir.size)
+        startnodes, endnodes = self._construct_matching(fdir, flat_idx, dirmap)
+        startelev = dem.ravel()[startnodes].astype(np.float64)
+        endelev = dem.ravel()[endnodes].astype(np.float64)
         dh = (startelev - endelev).reshape(self.shape)
-        cdist = self.cell_distances(direction_name, inplace=False)
-        slopes = np.where(self.mask, dh/cdist, nodata)
+        dh[np.isnan(dh)] = nodata_out
         # Prepare output
-        private_props = {'nodata' : nodata}
+        private_props = {'nodata' : nodata_out, 'is_regular' : is_regular}
+        if not is_regular:
+            private_props.update({'grid_indices' : self._grid_indices})
+        grid_props = self._generate_grid_props(**private_props)
+        return self._output_handler(dh, inplace, out_name=out_name, **grid_props)
+
+    def cell_slopes(self, direction_name, dem_name, out_name='slopes',
+                    inplace=True, nodata_out=None, dirmap=None):
+        if nodata_out is None:
+            nodata_out = np.nan
+        is_regular = self.is_regular
+        dh = self.cell_dh(direction_name, dem_name, out_name, inplace=False,
+                          nodata_out=nodata_out, dirmap=dirmap)
+        cdist = self.cell_distances(direction_name, inplace=False)
+        slopes = np.where(self.mask, dh/cdist, nodata_out)
+        # Prepare output
+        private_props = {'nodata' : nodata_out, 'is_regular' : is_regular}
+        if not is_regular:
+            private_props.update({'grid_indices' : self._grid_indices})
         grid_props = self._generate_grid_props(**private_props)
         return self._output_handler(slopes, inplace, out_name=out_name, **grid_props)
 

@@ -85,7 +85,7 @@ class Grid(object):
 
 
     def add_data(self, data, data_name, bbox=None, shape=None, cellsize=None,
-            crs=None, nodata=None, data_attrs={}):
+            crs=None, nodata=None, is_regular=None, data_attrs={}):
         """
         A generic method for adding data into a Grid instance.
         Inserts data into a named attribute of Grid (name of attribute
@@ -157,15 +157,15 @@ class Grid(object):
             self.mask = np.ones(self.shape, dtype=np.bool)
             self.shape_min = np.min_scalar_type(max(self.shape))
             self.size_min = np.min_scalar_type(data.size)
-            self.is_regular = data_attrs.setdefault('is_regular', None)
-
-        # if there are existing datasets, conform incoming
-        # data to bbox
-        # else:
-        #     try:
-        #         np.testing.assert_almost_equal(cellsize, self.cellsize)
-        #     except:
-        #         raise AssertionError('Grid cellsize not equal')
+            self.is_regular = is_regular
+            if is_regular:
+                self._bounds = bbox
+            else:
+                try:
+                    self._bounds = data_attrs['bounds']
+                except:
+                    self._bounds = bbox
+                    warnings.warn("No bounds set. Assuming equal to bbox.")
 
         # assign new data to attribute; record nodata value
         self.grid_props.update({data_name : {}})
@@ -174,8 +174,14 @@ class Grid(object):
         self.grid_props[data_name].update({'cellsize' : cellsize})
         self.grid_props[data_name].update({'nodata' : nodata})
         self.grid_props[data_name].update({'crs' : crs})
+        self.grid_props[data_name].update({'is_regular' : is_regular})
         for other_name, other_value in data_attrs.items():
             self.grid_props[data_name].update({other_name : other_value})
+        if (is_regular) and (not 'bounds' in data_attrs):
+            self.grid_props[data_name].update({'bounds' : bbox})
+        else:
+            if not 'bounds' in self.grid_props[data_name]:
+                warnings.warn("No bounds set for dataset.")
         setattr(self, data_name, data)
 
 
@@ -221,9 +227,8 @@ class Grid(object):
             bbox = (xll, yll, xll + ncols * cellsize, yll + nrows * cellsize)
         data = np.loadtxt(data, skiprows=skiprows, **kwargs)
         nodata = data.dtype.type(nodata)
-        data_attrs.update({'is_regular' : True})
         self.add_data(data, data_name, bbox, shape, cellsize, crs, nodata,
-                      data_attrs=data_attrs)
+                      is_regular=True, data_attrs=data_attrs)
 
 
     def read_raster(self, data, data_name, band=1, data_attrs={}, **kwargs):
@@ -269,9 +274,8 @@ class Grid(object):
             f.close()
             data = data.reshape(shape)
         nodata = data.dtype.type(nodata)
-        data_attrs.update({'is_regular' : True})
         self.add_data(data, data_name, bbox, shape, cellsize, crs, nodata,
-                      data_attrs=data_attrs)
+                      is_regular=True, data_attrs=data_attrs)
 
     @classmethod
     def from_ascii(cls, path, data_name, **kwargs):
@@ -335,7 +339,8 @@ class Grid(object):
         if self.is_regular and data_regular and same_crs:
             return self._regular_view(data_name, mask, nodata, tolerance)
         else:
-            return self._irregular_view(data_name, mask, nodata, method)
+            return self._irregular_view(data_name, mask, nodata, method,
+                                        tolerance=tolerance)
 
     def _regular_view(self, data_name, mask=True, nodata=None, tolerance=0.01):
         data_bbox = self.grid_props[data_name]['bbox']
@@ -360,7 +365,8 @@ class Grid(object):
         else:
             return outview
 
-    def _irregular_view(self, data_name, mask=True, nodata=None, method='nearest'):
+    def _irregular_view(self, data_name, mask=True, nodata=None,
+                        method='nearest', tolerance=0.01):
         data_bbox = self.grid_props[data_name]['bbox']
         data_shape = self.grid_props[data_name]['shape']
         data_crs = self.grid_props[data_name]['crs']
@@ -368,28 +374,54 @@ class Grid(object):
 
         if nodata is None:
             nodata = self.grid_props[data_name]['nodata']
+
+        xmin = self.bounds[0]
+        ymin = self.bounds[1]
+        xmax = self.bounds[2]
+        ymax = self.bounds[3]
+
+        # If data is defined on a regular grid, run a pre-filter
         if data_regular:
-            yx_data = self.bbox_indices(bbox=data_bbox, shape=data_shape)
-            yx_data = np.vstack(np.dstack(np.meshgrid(*yx_data,
-                                                        indexing='ij')))
+            # Filter data by master grid bbox
+            yyxx = self._convert_outer_indices_crs(data_bbox, data_shape, data_crs,
+                                                self.crs)
+            # TODO: Should use max of cornerpoints instead of bbox
+            by_bool = (yyxx[:,0] >= ymin) & (yyxx[:,0] <= ymax)
+            uy_bool = (yyxx[:,1] >= ymin) & (yyxx[:,1] <= ymax)
+            lx_bool = (yyxx[:,2] >= xmin) & (yyxx[:,2] <= xmax)
+            rx_bool = (yyxx[:,3] >= xmin) & (yyxx[:,3] <= xmax)
+            y_bool = (by_bool | uy_bool)
+            x_bool = (lx_bool | rx_bool)
+            # Ensure contiguous range
+            y_bool[np.nonzero(y_bool)[0].min() : np.nonzero(y_bool)[0].max()] = 1
+            x_bool[np.nonzero(x_bool)[0].min() : np.nonzero(x_bool)[0].max()] = 1
+
+            data_y, data_x = self.bbox_indices(data_bbox, data_shape)
+            data_y = data_y[y_bool]
+            data_x = data_x[x_bool]
+            yx_data = np.vstack(np.dstack(np.meshgrid(data_y, data_x, indexing='ij')))
+            search_grid = getattr(self, data_name)[y_bool][:, x_bool].ravel()
+            if self.crs.srs != data_crs.srs:
+                yx_data = self._convert_grid_indices_crs(yx_data, data_crs, self.crs)
         else:
+            #TODO: Is it possible to prefilter irregular data?
             yx_data = self.grid_props[data_name]['grid_indices']
-        if self.crs.srs != data_crs.srs:
-            yx_data = self._convert_grid_indices_crs(yx_data, data_crs, self.crs)
+            if self.crs.srs != data_crs.srs:
+                yx_data = self._convert_grid_indices_crs(yx_data, data_crs, self.crs)
+            y_bool = (yx_data[:, 0] >= ymin) & (yx_data[:, 0] <= ymax)
+            x_bool = (yx_data[:, 1] >= xmin) & (yx_data[:, 1] <= xmax)
+            yx_bool = (y_bool & x_bool)
+            yx_data = yx_data[yx_bool]
+            search_grid = getattr(self, data_name).ravel()[yx_bool]
+        # Prepare master grid
         if not self.is_regular:
             yx_grid = self._grid_indices
         else:
             yx_grid = np.vstack(np.dstack(
                 np.meshgrid(*self.bbox_indices(), indexing='ij')))
-        in_ybounds = ((yx_data[:,0] <= yx_grid[:,0].max())
-                      & (yx_data[:,0] >= yx_grid[:,0].min()))
-        in_xbounds = ((yx_data[:,1] <= yx_grid[:,1].max())
-                      & (yx_data[:,1] >= yx_grid[:,1].min()))
-        in_bounds = in_ybounds & in_xbounds
-        outview = scipy.interpolate.griddata(yx_data[in_bounds],
-                                              getattr(self, data_name).ravel()[in_bounds],
-                                              yx_grid,
-                                             method=method).reshape(self.shape)
+        outview = scipy.interpolate.griddata(yx_data, search_grid,
+                                             yx_grid,
+                                             method='nearest').reshape(self.shape)
         if mask:
             return np.where(self.mask, outview, nodata)
         else:
@@ -1046,6 +1078,7 @@ class Grid(object):
         return self._output_handler(slopes, inplace, out_name=out_name, **grid_props)
 
     def _output_handler(self, data, inplace, out_name, **kwargs):
+        # TODO: Should this be rolled into add_data?
         if inplace:
             setattr(self, out_name, data)
             self.grid_props.update({out_name : {}})
@@ -1055,7 +1088,7 @@ class Grid(object):
 
     def _generate_grid_props(self, **kwargs):
         grid_props = {}
-        required = ('bbox', 'shape', 'cellsize', 'nodata', 'crs')
+        required = ('bbox', 'shape', 'cellsize', 'nodata', 'crs', 'bounds')
         grid_props.update(kwargs)
         for param in required:
             grid_props[param] = grid_props.setdefault(param,
@@ -1069,10 +1102,12 @@ class Grid(object):
         return dy, dx
 
     def _convert_bbox_crs(self, bbox, old_crs, new_crs):
+        # TODO: Won't necessarily work in every case as ur might be lower than
+        # ul
         x1 = np.asarray((bbox[0], bbox[2]))
         y1 = np.asarray((bbox[1], bbox[3]))
         x2, y2 = pyproj.transform(old_crs, new_crs,
-                                      x1, y1)
+                                  x1, y1)
         new_bbox = (x2[0], y2[0], x2[1], y2[1])
         return new_bbox
 
@@ -1088,16 +1123,34 @@ class Grid(object):
         yx2 = np.column_stack([y2, x2])
         return yx2
 
+    def _convert_outer_indices_crs(self, bbox, shape, old_crs, new_crs):
+        y1, x1 = self.bbox_indices(bbox=bbox, shape=shape)
+        lx, _ = pyproj.transform(old_crs, new_crs,
+                                  x1, np.repeat(y1[0], len(x1)))
+        rx, _ = pyproj.transform(old_crs, new_crs,
+                                  x1, np.repeat(y1[-1], len(x1)))
+        __, by = pyproj.transform(old_crs, new_crs,
+                                  np.repeat(x1[0], len(y1)), y1)
+        __, uy = pyproj.transform(old_crs, new_crs,
+                                  np.repeat(x1[-1], len(y1)), y1)
+        return np.column_stack([by, uy, lx, rx])
+
     def to_crs(self, new_crs, old_crs=None, to_regular=False, preserve_units=False):
+        old_bbox = self.bbox
         if old_crs is None:
             old_crs = self.crs
         if (isinstance(new_crs, str) or isinstance(new_crs, dict)):
             new_crs = pyproj.Proj(new_crs, preserve_units=preserve_units)
         self.is_regular = to_regular
-        self._grid_indices = self._convert_bbox_indices_crs(self.bbox,
+        self._grid_indices = self._convert_bbox_indices_crs(old_bbox,
                                                             self.shape,
                                                             old_crs,
                                                             new_crs)
+        ymin = self._grid_indices[:, 0].min()
+        ymax = self._grid_indices[:, 0].max()
+        xmin = self._grid_indices[:, 1].min()
+        xmax = self._grid_indices[:, 1].max()
+        self._bounds = (xmin, ymin, xmax, ymax)
         self._bbox = self._convert_bbox_crs(self.bbox, old_crs, new_crs)
         self.crs = new_crs
 
@@ -1176,6 +1229,10 @@ class Grid(object):
         self.set_bbox(new_bbox)
 
     @property
+    def bounds(self):
+        return self._bounds
+
+    @property
     def extent(self):
         extent = (self._bbox[0], self.bbox[2], self._bbox[1], self._bbox[3])
         return extent
@@ -1230,7 +1287,7 @@ class Grid(object):
             err_bbox = new_bbox
             direction = np.where(new_bbox > 0.0, 1, -1)
             new_bbox = new_bbox - (err * direction)
-            print('Unalignable bbox provided: {0}, rounding to {1}'.format(err_bbox,
+            print('Unalignable bbox provided: {0}.\nRounding to {1}'.format(err_bbox,
                   new_bbox))
 
         # construct arrays representing old bbox coords

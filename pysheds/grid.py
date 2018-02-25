@@ -314,8 +314,8 @@ class Grid(object):
                shape[1], endpoint=False), precision)
         return rows, cols
 
-    def view(self, data_name, mask=True, nodata=None, tolerance=0.01,
-             method='nearest'):
+    def view(self, data_name, mask=True, nodata=None, method='nearest',
+             return_coords=False, tolerance=0.01):
         """
         Return a copy of a gridded dataset clipped to the bounding box
         (self.bbox) with cells outside the catchment mask (self.mask)
@@ -337,12 +337,13 @@ class Grid(object):
         same_crs = self.crs.srs == data_crs.srs
 
         if self.is_regular and data_regular and same_crs:
-            return self._regular_view(data_name, mask, nodata, tolerance)
+            return self._regular_view(data_name, mask, nodata, return_coords, tolerance)
         else:
             return self._irregular_view(data_name, mask, nodata, method,
-                                        tolerance=tolerance)
+                                        return_coords, tolerance=tolerance)
 
-    def _regular_view(self, data_name, mask=True, nodata=None, tolerance=0.01):
+    def _regular_view(self, data_name, mask=True, nodata=None,
+                      return_coords=False, tolerance=0.01):
         data_bbox = self.grid_props[data_name]['bbox']
         data_shape = self.grid_props[data_name]['shape']
         dy, dx = self._dy_dx()
@@ -361,12 +362,16 @@ class Grid(object):
                             method='nearest')
                    .fillna(nodata).values)
         if mask:
-            return np.where(self.mask, outview, nodata)
+            outview = np.where(self.mask, outview, nodata)
+        if return_coords:
+            coords = np.vstack(np.dstack(np.meshgrid(selfrows, selfcols,
+                                                     indexing='ij')))
+            return outview, coords
         else:
             return outview
 
     def _irregular_view(self, data_name, mask=True, nodata=None,
-                        method='nearest', tolerance=0.01):
+                        method='nearest', return_coords=False, tolerance=0.01):
         data_bbox = self.grid_props[data_name]['bbox']
         data_shape = self.grid_props[data_name]['shape']
         data_crs = self.grid_props[data_name]['crs']
@@ -423,7 +428,9 @@ class Grid(object):
                                              yx_grid,
                                              method='nearest').reshape(self.shape)
         if mask:
-            return np.where(self.mask, outview, nodata)
+            outview = np.where(self.mask, outview, nodata)
+        if return_coords:
+            return outview, yx_grid
         else:
             return outview
 

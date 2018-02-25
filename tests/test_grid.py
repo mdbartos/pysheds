@@ -17,6 +17,8 @@ acc_in_frame = 77259
 cells_in_catch = 11422
 catch_shape = (159, 169)
 max_distance = 208
+new_crs = pyproj.Proj('+init=epsg:3083')
+old_crs = pyproj.Proj('+init=epsg:4326')
 
 # TODO: Need to test dtypes of different constructor methods
 
@@ -58,4 +60,10 @@ def test_to_ascii():
     grid.to_ascii('dir', 'test_dir.asc', view=True, mask=True)
     grid.read_ascii('test_dir.asc', 'dir_output', dtype=np.uint8)
     assert((grid.dir_output == grid.view('catch')).all())
+
+def test_crs_conversion():
+    catch = grid.view('catch')
+    grid.to_crs(new_crs)
+    t_catch = grid.view('catch')
+    assert np.allclose(catch, t_catch)
 

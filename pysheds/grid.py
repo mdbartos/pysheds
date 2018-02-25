@@ -388,13 +388,13 @@ class Grid(object):
         # If data is defined on a regular grid, run a pre-filter
         if data_regular:
             # Filter data by master grid bbox
-            yyxx = self._convert_outer_indices_crs(data_bbox, data_shape, data_crs,
-                                                self.crs)
+            by, uy, lx, rx = self._convert_outer_indices_crs(data_bbox, data_shape,
+                                                             data_crs, self.crs)
             # TODO: Should use max of cornerpoints instead of bbox
-            by_bool = (yyxx[:,0] >= ymin) & (yyxx[:,0] <= ymax)
-            uy_bool = (yyxx[:,1] >= ymin) & (yyxx[:,1] <= ymax)
-            lx_bool = (yyxx[:,2] >= xmin) & (yyxx[:,2] <= xmax)
-            rx_bool = (yyxx[:,3] >= xmin) & (yyxx[:,3] <= xmax)
+            by_bool = (by >= ymin) & (by <= ymax)
+            uy_bool = (uy >= ymin) & (uy <= ymax)
+            lx_bool = (lx >= xmin) & (lx <= xmax)
+            rx_bool = (rx >= xmin) & (rx <= xmax)
             y_bool = (by_bool | uy_bool)
             x_bool = (lx_bool | rx_bool)
             # Ensure contiguous range
@@ -1140,7 +1140,7 @@ class Grid(object):
                                   np.repeat(x1[0], len(y1)), y1)
         __, uy = pyproj.transform(old_crs, new_crs,
                                   np.repeat(x1[-1], len(y1)), y1)
-        return np.column_stack([by, uy, lx, rx])
+        return by, uy, lx, rx
 
     def to_crs(self, new_crs, old_crs=None, to_regular=False, preserve_units=False):
         old_bbox = self.bbox

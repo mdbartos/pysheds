@@ -11,7 +11,6 @@ try:
     _HAS_SCIPY = True
 except:
     _HAS_SCIPY = False
-
 try:
     import rasterio
     _HAS_RASTERIO = True
@@ -22,7 +21,7 @@ except:
 class Grid(object):
     """
     Container class for holding and manipulating gridded data.
-
+ 
     Attributes
     ==========
     bbox : The geographical bounding box for viewing the gridded data
@@ -32,7 +31,7 @@ class Grid(object):
     grid_props : dict containing metadata for each gridded dataset.
     mask : A boolean array used to mask certain grid cells in the bbox;
            may be used to indicate which cells lie inside a catchment.
-
+ 
     Methods
     =======
         --------
@@ -75,7 +74,7 @@ class Grid(object):
                   self.catch).
         catchment_mask : Updates self.mask to mask all gricells not inside the
                          catchment (given by self.catch).
-
+ 
     Default Dataset Names
     ======================
     dem : digital elevation grid
@@ -95,7 +94,7 @@ class Grid(object):
         A generic method for adding data into a Grid instance.
         Inserts data into a named attribute of Grid (name of attribute
         determined by keyword 'data_name').
-
+ 
         Parameters
         ----------
         data : numpy ndarray
@@ -188,7 +187,7 @@ class Grid(object):
         """
         Reads data from an ascii file into a named attribute of Grid
         instance (name of attribute determined by 'data_name').
-
+ 
         Parameters
         ----------
         data : string
@@ -211,7 +210,7 @@ class Grid(object):
                      mapping for flow direction files. e.g.:
                      data_attrs={'dirmap' : (1, 2, 3, 4, 5, 6, 7, 8),
                                  'routing' : 'd8'}
-
+ 
         Additional keyword arguments are passed to numpy.loadtxt()
         """
         # TODO: Consider setting default crs to geographic
@@ -233,7 +232,7 @@ class Grid(object):
         """
         Reads data from a raster file into a named attribute of Grid
         (name of attribute determined by keyword 'data_name').
-
+ 
         Parameters
         ----------
         data : string
@@ -254,7 +253,7 @@ class Grid(object):
                      mapping for flow direction files. e.g.:
                      data_attrs={'dirmap' : (1, 2, 3, 4, 5, 6, 7, 8),
                                  'routing' : 'd8'}
-
+ 
         Additional keyword arguments are passed to rasterio.open()
         """
         # read raster file
@@ -292,7 +291,7 @@ class Grid(object):
         """
         Return row and column coordinates of a bounding box at a
         given cellsize.
-
+ 
         Parameters
         ----------
         bbox : tuple of floats or ints (length 4)
@@ -319,7 +318,7 @@ class Grid(object):
         Return a copy of a gridded dataset clipped to the bounding box
         (self.bbox) with cells outside the catchment mask (self.mask)
         optionally displayed as 'nodata' (self.grid_props[data_name]['nodata'])
-
+ 
         Parameters
         ----------
         data_name : string
@@ -430,7 +429,7 @@ class Grid(object):
         """
         Returns the index of the cell (column, row) closest
         to a given geographical coordinate.
-
+ 
         Parameters
         ----------
         x : int or float
@@ -468,7 +467,7 @@ class Grid(object):
             dirmap=(1, 2, 3, 4, 5, 6, 7, 8), inplace=True):
         """
         Generates a flow direction grid from a DEM grid.
-
+ 
         Parameters
         ----------
         data : numpy ndarray
@@ -591,7 +590,7 @@ class Grid(object):
                   nodata=0, xytype='index', bbox=None, recursionlimit=15000, inplace=True):
         """
         Delineates a watershed from a given pour point (x, y).
-
+ 
         Parameters
         ----------
         x : int or float
@@ -708,7 +707,7 @@ class Grid(object):
         """
         Generates a grid representing the fractional contributing area for a
         coarse-scale flow direction grid.
-
+ 
         Parameters
         ----------
         other : Grid instance
@@ -769,7 +768,7 @@ class Grid(object):
         """
         Generates an array of flow accumulation, where cell values represent
         the number of upstream cells.
-
+ 
         Parameters
         ----------
         data : numpy ndarray
@@ -861,7 +860,7 @@ class Grid(object):
         """
         Generates an array representing the topological distance from each cell
         to the outlet.
-
+ 
         Parameters
         ----------
         x : int or float
@@ -1101,6 +1100,7 @@ class Grid(object):
             old_crs = self.crs
         if (isinstance(new_crs, str) or isinstance(new_crs, dict)):
             new_crs = pyproj.Proj(new_crs, preserve_units=preserve_units)
+        # TODO: Should test for regularity instead
         self.is_regular = to_regular
         self._grid_indices = self._convert_bbox_indices_crs(old_bbox,
                                                             self.shape,
@@ -1145,7 +1145,7 @@ class Grid(object):
         Clip grid to bbox representing the smallest area that contains all
         non-null data for a given dataset. If inplace is True, will set
         self.bbox to the bbox generated by this method.
-
+ 
         Parameters
         ----------
         data_name : numpy ndarray
@@ -1154,7 +1154,7 @@ class Grid(object):
                   If True, update bbox to conform to clip.
         precision : int
                     Precision to use when matching geographic coordinates.
-
+ 
         Other keyword arguments are passed to self.set_bbox
         """
         # get class attributes
@@ -1215,7 +1215,7 @@ class Grid(object):
         Set the bounding box of the class instance (self.bbox). If the new
         bbox is not alignable to self.cellsize, each entry is automatically
         rounded such that the bbox is alignable.
-
+ 
         Parameters
         ----------
         new_bbox : tuple
@@ -1266,7 +1266,7 @@ class Grid(object):
     def set_nodata(self, data_name, new_nodata, old_nodata=None):
         """
         Change nodata value of a dataset.
-
+ 
         Parameters
         ----------
         data_name : string
@@ -1287,7 +1287,7 @@ class Grid(object):
         """
         Masks grid cells not included in catchment. The catchment mask is saved
         to self.mask.
-
+ 
         Parameters
         ----------
         to_mask : string
@@ -1302,7 +1302,7 @@ class Grid(object):
                  **kwargs):
         """
         Writes current "view" of grid data to ascii grid files.
-
+ 
         Parameters
         ----------
         data_name : string or list-like (optional)
@@ -1318,7 +1318,7 @@ class Grid(object):
                If True, write the "masked" view of the dataset.
         delimiter : string (optional)
                     Delimiter to use in output file (defaults to ' ')
-
+ 
         Additional keyword arguments are passed to numpy.savetxt
         """
         if data_name is None:
@@ -1363,7 +1363,7 @@ class Grid(object):
                               dirmap=None):
         """
         Generates river segments from accumulation and flow_direction arrays.
-
+ 
         Parameters
         ----------
         fdir : numpy ndarray
@@ -1382,7 +1382,7 @@ class Grid(object):
                  List of integer values representing the following
                  cardinal and intercardinal directions (in order):
                  [N, NE, E, SE, S, SW, W, NW]
-
+ 
         Returns
         -------
         branches : list of numpy ndarray
@@ -1392,7 +1392,7 @@ class Grid(object):
              Ordered y and x coordinates of each cell.
         The x and y coordinates of each river segment can be obtained as
         follows:
-
+ 
         ```
         for branch in branches:
             coords = yx[branch]

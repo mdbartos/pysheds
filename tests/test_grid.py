@@ -42,13 +42,13 @@ def test_accumulation():
     grid.accumulation(grid.dir, dirmap=dirmap, out_name='acc', pad=True)
     assert(grid.acc.max() == acc_in_frame)
     # TODO: Should eventually assert: grid.acc.dtype == np.min_scalar_type(grid.acc.max())
-    grid.accumulation(direction_name='catch', dirmap=dirmap, out_name='acc',
+    grid.accumulation(data='catch', dirmap=dirmap, out_name='acc',
                       pad=True)
     assert(grid.acc.max() == cells_in_catch)
 
 def test_flow_distance():
     pour_point_y, pour_point_x = np.unravel_index(np.argmax(grid.view('catch')), grid.shape)
-    grid.flow_distance(pour_point_x, pour_point_y, dirmap=dirmap, out_name='dist')
+    grid.flow_distance(pour_point_x, pour_point_y, data='catch', dirmap=dirmap, out_name='dist')
     assert(grid.dist[~np.isnan(grid.dist)].max() == max_distance)
 
 def test_set_nodata():

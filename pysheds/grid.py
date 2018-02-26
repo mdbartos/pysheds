@@ -12,6 +12,12 @@ try:
 except:
     _HAS_SCIPY = False
 
+try:
+    import rasterio
+    _HAS_RASTERIO = True
+except:
+    _HAS_RASTERIO = False
+
 
 class Grid(object):
     """
@@ -83,7 +89,6 @@ class Grid(object):
     def __init__(self):
         self.grid_props = {}
 
-
     def add_data(self, data, data_name, bbox=None, shape=None, cellsize=None,
             crs=None, nodata=None, is_regular=None, data_attrs={}):
         """
@@ -122,11 +127,9 @@ class Grid(object):
         """
         if not isinstance(data, np.ndarray):
             raise TypeError('Input data must be ndarray')
-
         # if there are no datasets, initialize bbox, shape,
         # cellsize and crs based on incoming data
         if len(self.grid_props) < 1:
-
             # check validity of bbox
             if ((hasattr(bbox, "__len__")) and (not isinstance(bbox, str))
                     and (len(bbox) == 4)):
@@ -142,13 +145,11 @@ class Grid(object):
             # check validity of cellsize
             if not isinstance(cellsize, (int, float)):
                 raise TypeError('cellsize must be an int or float.')
-
             if crs is not None:
                 if isinstance(crs, pyproj.Proj):
                     pass
                 if isinstance(crs, dict) or isinstance(crs, str):
                     crs = pyproj.Proj(crs)
-
             # initialize instance metadata
             self._bbox = bbox
             self.shape = shape
@@ -166,7 +167,6 @@ class Grid(object):
                 except:
                     self._bounds = bbox
                     warnings.warn("No bounds set. Assuming equal to bbox.")
-
         # assign new data to attribute; record nodata value
         self.grid_props.update({data_name : {}})
         self.grid_props[data_name].update({'bbox' : bbox})
@@ -183,7 +183,6 @@ class Grid(object):
             if not 'bounds' in self.grid_props[data_name]:
                 warnings.warn("No bounds set for dataset.")
         setattr(self, data_name, data)
-
 
     def read_ascii(self, data, data_name, skiprows=6, crs=None, data_attrs={}, **kwargs):
         """
@@ -230,7 +229,6 @@ class Grid(object):
         self.add_data(data, data_name, bbox, shape, cellsize, crs, nodata,
                       is_regular=True, data_attrs=data_attrs)
 
-
     def read_raster(self, data, data_name, band=1, data_attrs={}, **kwargs):
         """
         Reads data from a raster file into a named attribute of Grid
@@ -260,7 +258,8 @@ class Grid(object):
         Additional keyword arguments are passed to rasterio.open()
         """
         # read raster file
-        import rasterio
+        if not _HAS_RASTERIO:
+            raise ImportError('Requires rasterio module')
         f = rasterio.open(data, **kwargs)
         crs = pyproj.Proj(f.crs)
         bbox = tuple(f.bounds)
@@ -331,11 +330,9 @@ class Grid(object):
                  Value indicating no data. Defaults to
                  self.grid_props[data_name]['nodata']
         """
-
         data_crs = self.grid_props[data_name]['crs']
         data_regular = self.grid_props[data_name]['is_regular']
         same_crs = self.crs.srs == data_crs.srs
-
         if self.is_regular and data_regular and same_crs:
             return self._regular_view(data_name, mask, nodata, return_coords, tolerance)
         else:
@@ -349,7 +346,6 @@ class Grid(object):
         dy, dx = self._dy_dx()
         x_tolerance = dx * tolerance
         y_tolerance = dy * tolerance
-
         if nodata is None:
             nodata = self.grid_props[data_name]['nodata']
         selfrows, selfcols = self.bbox_indices(self.bbox, self.shape)
@@ -376,15 +372,12 @@ class Grid(object):
         data_shape = self.grid_props[data_name]['shape']
         data_crs = self.grid_props[data_name]['crs']
         data_regular = self.grid_props[data_name]['is_regular']
-
         if nodata is None:
             nodata = self.grid_props[data_name]['nodata']
-
         xmin = self.bounds[0]
         ymin = self.bounds[1]
         xmax = self.bounds[2]
         ymax = self.bounds[3]
-
         # If data is defined on a regular grid, run a pre-filter
         if data_regular:
             # Filter data by master grid bbox
@@ -400,7 +393,6 @@ class Grid(object):
             # Ensure contiguous range
             y_bool[np.nonzero(y_bool)[0].min() : np.nonzero(y_bool)[0].max()] = 1
             x_bool[np.nonzero(x_bool)[0].min() : np.nonzero(x_bool)[0].max()] = 1
-
             data_y, data_x = self.bbox_indices(data_bbox, data_shape)
             data_y = data_y[y_bool]
             data_x = data_x[x_bool]
@@ -446,7 +438,6 @@ class Grid(object):
         y : int or float
             y coordinate.
         """
-
         if not bbox:
             bbox = self._bbox
         if not shape:
@@ -460,6 +451,17 @@ class Grid(object):
         desired_x = np.argmin(np.abs(x_ix - x))
         return desired_x, desired_y
 
+    def _input_handler(self, data, view=True, mask=True, **kwargs):
+        if isinstance(data, np.ndarray):
+            return data
+        elif isinstance(data, str):
+            if view:
+                data = self.view(data, mask=mask, **kwargs)
+            else:
+                data = getattr(self, data)
+            return data
+        else:
+            raise TypeError('Data must be a numpy ndarray or name string.')
 
     def flowdir(self, data=None, dem_name='dem', out_name='dir',
                 include_edges=True, nodata_in=None, nodata_out=0, flat=-1,
@@ -491,23 +493,12 @@ class Grid(object):
                   If True, write output array to self.<data_name>.
                   Otherwise, return the output array.
         """
-
         if len(dirmap) != 8:
             raise AssertionError('dirmap must be a sequence of length 8')
-
         # if data not provided, use self.dem
-        if data is not None:
-            dem = data
-        else:
-            try:
-                dem = self.view(dem_name, mask=False)
-            except:
-                raise NameError("DEM grid '{0}' not found in instance."
-                                .format(dem_name))
-
+        dem = self._input_handler(data, mask=False)
         # generate grid of indices
         indices = np.indices(dem.shape, dtype=np.min_scalar_type(dem.shape))
-
         # handle nodata values in dem
         if nodata_in is None:
             try:
@@ -515,10 +506,8 @@ class Grid(object):
             except:
                 raise NameError("nodata value for '{0}' not found in instance."
                                 .format(dem_name))
-
         dem_mask = (dem == nodata_in)
         np.place(dem, dem_mask, np.iinfo(dem.dtype.type).max)
-
         # initialize indices of corners
         corners = {
         'nw' : {'k' : tuple(indices[:, 0, 0]),
@@ -534,7 +523,6 @@ class Grid(object):
                 'v' : [[-1, -2, -2],  [-2, -2, -1]],
                 'pad': np.array([7, 8, 1])}
         }
-
         # initialize indices of edges
         edges = {
         'n' : {'k' : tuple(indices[:, 0, 1:-1]),
@@ -546,10 +534,8 @@ class Grid(object):
         's' : {'k' : tuple(indices[:, -1, 1:-1]),
                'pad' : np.array([1, 2, 3, 7, 8])}
         }
-
         # initialize indices of body (all cells except edges and corners)
         body = indices[:, 1:-1, 1:-1]
-
         # initialize output array
         min_dir_dtype = np.min_scalar_type(min(dirmap))
         max_dir_dtype = np.min_scalar_type(max(dirmap))
@@ -557,7 +543,6 @@ class Grid(object):
         min_out_dtype = np.find_common_type([], [min_dir_dtype, max_dir_dtype,
                                             nodata_dtype])
         outmap = np.full(self.shape, nodata_out, dtype=min_out_dtype)
-
         # for each entry in "body" determine flow direction based
         # on steepest neighboring slope
         for i, j in np.nditer(tuple(body), flags=['external_loop']):
@@ -567,10 +552,8 @@ class Grid(object):
             b = np.argmax((dat - sur), axis=0) + 1
             c = flat
             outmap[i, j] = np.where(a, b, c)
-
         # determine flow direction for edges and corners, if desired
         if include_edges:
-
             # fill corners
             for corner in corners.keys():
                 dat = dem[corners[corner]['k']]
@@ -580,7 +563,6 @@ class Grid(object):
                             corners[corner]['pad'][np.argmax(dat - sur)]
                 else:
                     outmap[corners[corner]['k']] = flat
-
             # fill edges
             for edge in edges.keys():
                 dat = dem[edges[edge]['k']]
@@ -589,7 +571,6 @@ class Grid(object):
                 b = edges[edge]['pad'][np.argmax((dat - sur), axis=0)]
                 c = flat
                 outmap[edges[edge]['k']] = np.where(a, b, c)
-
         # If direction numbering isn't default, convert values of output array.
         if dirmap != (1, 2, 3, 4, 5, 6, 7, 8):
             dir_d = dict(zip((1, 2, 3, 4, 5, 6, 7, 8), dirmap))
@@ -597,10 +578,8 @@ class Grid(object):
                 outmap[outmap == k] = v
             # outmap = (pd.DataFrame(outmap)
                       # .apply(lambda x: x.map(dir_d), axis=1).values)
-
         np.place(outmap, dem_mask, nodata_out)
         np.place(dem, dem_mask, nodata_in)
-
         is_regular = self.grid_props[dem_name].setdefault('is_regular', None)
         private_props = {'nodata' : nodata_out, 'dirmap' : dirmap,
                          'is_regular' : is_regular}
@@ -651,23 +630,13 @@ class Grid(object):
                   Otherwise, return the output array.
         """
         # TODO: No nodata_in attribute. Inconsistent.
-
         dirmap = self._set_dirmap(dirmap, direction_name)
-        if len(dirmap) != 8:
-            raise AssertionError('dirmap must be a sequence of length 8')
-
-
-        # set recursion limit (needed for large datasets)
-        sys.setrecursionlimit(recursionlimit)
-
         # initialize array to collect catchment cells
         self.collect = []
-
         # if data not provided, use self.dir
         # pad the flow direction grid with a rim of 'nodata' cells
         # easy way to prevent catchment search from going out of bounds
         # TODO: Need better way of doing this
-
         if data is not None:
             self.cdir = np.pad(data, 1, mode='constant')
         else:
@@ -681,27 +650,20 @@ class Grid(object):
             except NameError:
                 raise NameError("Flow direction grid '{0}' not found in instance."
                                 .format(direction_name))
-
-
         # get shape of padded flow direction array, then flatten
         padshape = self.cdir.shape
         self.cdir = self.cdir.ravel()
-
         # if xytype is 'label', delineate catchment based on cell nearest
         # to given geographic coordinate
         # TODO: This relies on the bbox of the grid instance, not the dataset
         if xytype == 'label':
             x, y = self.nearest_cell(x, y, bbox,
                                      (padshape[0] - 1, padshape[1] - 1))
-
         # get the flattened index of the pour point
         pour_point = np.ravel_multi_index(np.array([y + 1, x + 1]), padshape)
-
         # reorder direction mapping to work with select_surround_ravel()
         r_dirmap = np.array(dirmap)[[4, 5, 6, 7, 0, 1, 2, 3]].tolist()
-
         pour_point = np.array([pour_point])
-
         # for each cell j, recursively search through grid to determine
         # if surrounding cells are in the contributing area, then add
         # flattened indices to self.collect
@@ -712,32 +674,30 @@ class Grid(object):
             next_idx = selection[np.where(self.cdir[selection] == r_dirmap)]
             if next_idx.any():
                 return catchment_search(next_idx)
-
-        # call catchment search starting at the pour point
-        catchment_search(pour_point)
-
-        # initialize output array
-        outcatch = np.zeros(padshape, dtype=int)
-
-        # if nodata is not 0, replace 0 with nodata value in output array
-        if nodata != 0:
-            np.place(outcatch, outcatch == 0, nodata)
-
-        # set values of output array based on 'collected' cells
-        outcatch.flat[self.collect] = self.cdir[self.collect]
-
-        # remove outer rim, delete temporary arrays
-        outcatch = outcatch[1:-1, 1:-1]
-        del self.cdir
-        del self.collect
-
-        # if pour point needs to be a special value, set it
-        if pour_value is not None:
-            outcatch[y, x] = pour_value
-
-        # reset recursion limit
-        sys.setrecursionlimit(1000)
-
+        try:
+            # set recursion limit (needed for large datasets)
+            sys.setrecursionlimit(recursionlimit)
+            # call catchment search starting at the pour point
+            catchment_search(pour_point)
+            # initialize output array
+            outcatch = np.zeros(padshape, dtype=int)
+            # if nodata is not 0, replace 0 with nodata value in output array
+            if nodata != 0:
+                np.place(outcatch, outcatch == 0, nodata)
+            # set values of output array based on 'collected' cells
+            outcatch.flat[self.collect] = self.cdir[self.collect]
+            # remove outer rim, delete temporary arrays
+            outcatch = outcatch[1:-1, 1:-1]
+            del self.cdir
+            del self.collect
+            # if pour point needs to be a special value, set it
+            if pour_value is not None:
+                outcatch[y, x] = pour_value
+            # reset recursion limit
+        except:
+            raise
+        finally:
+            sys.setrecursionlimit(1000)
         is_regular = self.grid_props[direction_name].setdefault('is_regular', None)
         private_props = {'nodata' : nodata, 'dirmap' : dirmap,
                          'is_regular' : is_regular}
@@ -762,19 +722,16 @@ class Grid(object):
         inplace : bool (optional)
                   If True, appends fraction grid to attribute 'frac'.
         """
-
         # check for required attributes in self and other
         assert hasattr(self, 'dir')
         assert hasattr(other, 'dir')
         assert hasattr(other, 'catch')
-
         # set scale ratio
         raw_ratio = self.cellsize / other.cellsize
         if np.allclose(int(round(raw_ratio)), raw_ratio):
             cell_ratio = int(round(raw_ratio))
         else:
             raise ValueError('Ratio of cell sizes must be an integer')
-
         # create DataFrames for self and other with geographic coordinates
         # as row and column labels. entries in selfdf represent cell indices.
         selfdf = pd.DataFrame(
@@ -785,37 +742,30 @@ class Grid(object):
                                 self.shape[1], endpoint=False)
                 )
         otherrows, othercols = self.bbox_indices(other.bbox, other.shape)
-
         # reindex self to other based on column labels and fill nulls with
         # nearest neighbor
         result = (selfdf.reindex(otherrows, method='nearest')
                   .reindex(othercols, axis=1, method='nearest'))
         initial_counts = np.bincount(result.values.ravel(),
                                      minlength=selfdf.size).astype(float)
-
         # mask cells not in catchment of 'other'
         result = result.values[np.where(other.view('catch') !=
             other.grid_props['catch']['nodata'], True, False)]
         final_counts = np.bincount(result, minlength=selfdf.size).astype(float)
-
         # count remaining indices and divide by the original number of indices
         result = (final_counts / initial_counts).reshape(selfdf.shape)
-
         # take care of nans
         if np.isnan(result).any():
             result = pd.DataFrame(result).fillna(0).values.astype(float)
-
         # replace 0 with nodata value
         if nodata != 0:
             np.place(result, result == 0, nodata)
-
         private_props = {'nodata' : nodata}
         grid_props = self._generate_grid_props(**private_props)
         return self._output_handler(result, inplace, out_name=out_name, **grid_props)
 
-    def accumulation(self, data=None, weights=None, dirmap=(1, 2, 3, 4, 5, 6, 7, 8),
-                     direction_name='dir', nodata=0, out_name='acc',
-                     inplace=True, pad=False):
+    def accumulation(self, data=None, weights=None, dirmap=None, direction_name='dir',
+                     nodata=0, out_name='acc', inplace=True, pad=False):
         """
         Generates an array of flow accumulation, where cell values represent
         the number of upstream cells.
@@ -844,15 +794,8 @@ class Grid(object):
               If True, pad the rim of the input array with zeros. Else, ignore
               the outer rim of cells in the computation.
         """
-        dirmap = self._set_dirmap(dirmap, direction_name)
-        if data is not None:
-            fdir = data
-        else:
-            try:
-                fdir = self.view(direction_name, mask=False)
-            except:
-                raise NameError("Flow direction grid '{0}' not found in instance."
-                                .format(direction_name))
+        dirmap = self._set_dirmap(dirmap, data)
+        fdir = self._input_handler(data, mask=False)
         # Pad the rim
         if pad:
             fdir = np.pad(fdir, (1,1), mode='constant')
@@ -861,7 +804,6 @@ class Grid(object):
         fdir_orig_type = fdir.dtype
         try:
             # Construct flat index onto flow direction array
-            # TODO: Note that this flat_idx is different than the others
             flat_idx = np.arange(fdir.size)
             # Ensure consistent types
             mintype = np.min_scalar_type(fdir.size)
@@ -914,9 +856,8 @@ class Grid(object):
         grid_props = self._generate_grid_props(**private_props)
         return self._output_handler(acc, inplace, out_name=out_name, **grid_props)
 
-    def flow_distance(self, x, y, data=None, weights=None, dirmap=None,
-                      direction_name='catch', nodata_in=0, nodata_out=0,
-                      out_name='dist', inplace=True, pad_inplace=True):
+    def flow_distance(self, x, y, data, weights=None, dirmap=None, nodata_in=0,
+                      nodata_out=0, out_name='dist', inplace=True, pad_inplace=True):
         """
         Generates an array representing the topological distance from each cell
         to the outlet.
@@ -953,17 +894,9 @@ class Grid(object):
         # TODO: Currently only accepts index-based x, y coords
         if not _HAS_SCIPY:
             raise ImportError('flow_distance requires scipy.sparse module')
-        dirmap = self._set_dirmap(dirmap, direction_name)
-        if data is not None:
-            fdir = data
-        else:
-            try:
-                fdir = self.view('catch', mask=False)
-            except:
-                raise NameError("Catchment grid '{0}' not found in instance."
-                                .format(direction_name))
+        dirmap = self._set_dirmap(dirmap, data)
+        fdir = self._input_handler(data, mask=True)
         # Construct flat index onto flow direction array
-        #flat_idx = np.ravel_multi_index(np.where(fdir), fdir.shape)
         flat_idx = np.arange(fdir.size)
         startnodes, endnodes = self._construct_matching(fdir, flat_idx,
                                                         dirmap=dirmap)
@@ -990,7 +923,6 @@ class Grid(object):
         return self._output_handler(dist, inplace, out_name=out_name, **grid_props)
 
     def cell_area(self, out_name='area', nodata=0, inplace=True, as_crs=None):
-        # TODO: Will have to figure this out
         is_regular = self.is_regular
         if self.crs.is_latlong():
             warnings.warn(('CRS is geographic. Area will not have meaningful'
@@ -1014,7 +946,6 @@ class Grid(object):
             private_props.update({'grid_indices' : self._grid_indices})
         grid_props = self._generate_grid_props(**private_props)
         return self._output_handler(area, inplace, out_name=out_name, **grid_props)
-        return area
 
     def cell_distances(self, direction_name, out_name='cdist',
                        inplace=True, as_crs=None):
@@ -1061,8 +992,6 @@ class Grid(object):
         dem = self.view(dem_name, nodata=np.nan)
         fdir = self.view(direction_name)
         dirmap = self._set_dirmap(dirmap, direction_name)
-        # TODO: The np.where could fail here
-        #flat_idx = np.ravel_multi_index(np.where(self.mask), self.shape)
         flat_idx = np.arange(fdir.size)
         startnodes, endnodes = self._construct_matching(fdir, flat_idx, dirmap)
         startelev = dem.ravel()[startnodes].astype(np.float64)
@@ -1128,8 +1057,8 @@ class Grid(object):
 
     def _dy_dx(self):
         x0, y0, x1, y1 = self.bbox
-        dy = np.abs(y1 - y0) / (self.shape[0]) #TODO: Should this be shape - 1
-        dx = np.abs(x1 - x0) / (self.shape[1]) #TODO: Should this be shape - 1
+        dy = np.abs(y1 - y0) / (self.shape[0]) #TODO: Should this be shape - 1?
+        dx = np.abs(x1 - x0) / (self.shape[1]) #TODO: Should this be shape - 1?
         return dy, dx
 
     def _convert_bbox_crs(self, bbox, old_crs, new_crs):
@@ -1228,15 +1157,12 @@ class Grid(object):
 
         Other keyword arguments are passed to self.set_bbox
         """
-
         # get class attributes
         data = getattr(self, data_name)
         nodata = self.grid_props[data_name]['nodata']
-
         # get bbox of nonzero entries
         nz = np.nonzero(data != nodata)
         nz_ix = (nz[0].min() - 1, nz[0].max(), nz[1].min(), nz[1].max() + 1)
-
         # if inplace is True, clip all grids to new bbox and set self.bbox
         if inplace:
             selfrows, selfcols = \
@@ -1297,14 +1223,12 @@ class Grid(object):
         precision : int
                     Precision to use when matching geographic coordinates.
         """
-
         # check validity of new bbox
         if ((hasattr(new_bbox, "__len__")) and (not isinstance(new_bbox, str))
                 and (len(new_bbox) == 4)):
             new_bbox = tuple(new_bbox)
         else:
             raise TypeError('new_bbox must be a tuple of length 4.')
-
         # check if alignable; if not, round unaligned bbox entries to nearest
         dy, dx = self._dy_dx()
         new_bbox = np.asarray(new_bbox)
@@ -1320,10 +1244,8 @@ class Grid(object):
             new_bbox = new_bbox - (err * direction)
             print('Unalignable bbox provided: {0}.\nRounding to {1}'.format(err_bbox,
                   new_bbox))
-
         # construct arrays representing old bbox coords
         selfrows, selfcols = self.bbox_indices(self.bbox, self.shape)
-
         # construct arrays representing coordinates of new grid
         nrows = ((new_bbox[3] - new_bbox[1]) / dy)
         ncols = ((new_bbox[2] - new_bbox[0]) / dx)
@@ -1333,7 +1255,6 @@ class Grid(object):
                            round(nrows), endpoint=False)
         cols = np.linspace(new_bbox[0], new_bbox[2],
                            round(ncols), endpoint=False)
-
         # set class attributes
         self._bbox = tuple(new_bbox)
         self.shape = tuple([len(rows), len(cols)])
@@ -1356,13 +1277,11 @@ class Grid(object):
                      If none provided, defaults to
                      self.grid_props[data_name]['nodata']
         """
-
         if old_nodata is None:
             old_nodata = self.grid_props[data_name]['nodata']
         data = getattr(self, data_name)
         np.place(data, data == old_nodata, new_nodata)
         self.grid_props[data_name]['nodata'] = new_nodata
-
 
     def catchment_mask(self, mask_source='catch'):
         """
@@ -1378,7 +1297,6 @@ class Grid(object):
         """
         self.mask = (self.view(mask_source, mask=False) !=
                      self.grid_props[mask_source]['nodata'])
-
 
     def to_ascii(self, data_name=None, file_name=None, view=True, mask=False, delimiter=' ',
                  **kwargs):
@@ -1407,12 +1325,10 @@ class Grid(object):
             data_name = self.grid_props.keys()
         if file_name is None:
             file_name = self.grid_props.keys()
-
         if isinstance(data_name, str):
             data_name = [data_name]
         if isinstance(file_name, str):
             file_name = [file_name]
-
         header_space = 9*' '
         for in_name, out_name in zip(data_name, file_name):
             nodata = self.grid_props[in_name]['nodata']
@@ -1426,7 +1342,6 @@ class Grid(object):
                 shape = self.grid_props[in_name]['shape']
                 bbox = self.grid_props[in_name]['bbox']
                 cellsize = self.grid_props[in_name]['cellsize']
-
             header = (("ncols{0}{1}\nnrows{0}{2}\nxllcorner{0}{3}\n"
                       "yllcorner{0}{4}\ncellsize{0}{5}\nNODATA_value{0}{6}")
                       .format(header_space,
@@ -1587,13 +1502,19 @@ class Grid(object):
                          i - 1 - offset]).T
 
     def _set_dirmap(self, dirmap, direction_name):
+        # TODO: For transparency, default dirmap should be in kwargs
         default_dirmap = (1, 2, 3, 4, 5, 6, 7, 8)
         if dirmap is None:
-            if direction_name in self.grid_props:
-                dirmap = self.grid_props[direction_name].setdefault(
-                    'dirmap', default_dirmap)
+            if isinstance(direction_name, str):
+                if direction_name in self.grid_props:
+                    dirmap = self.grid_props[direction_name].setdefault(
+                        'dirmap', default_dirmap)
+                else:
+                    raise KeyError("{0} not found in grid instance"
+                                   .format(direction_name))
             else:
                 dirmap = default_dirmap
+        if len(dirmap) != 8:
+            raise AssertionError('dirmap must be a sequence of length 8')
         return dirmap
-
 

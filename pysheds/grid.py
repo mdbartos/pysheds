@@ -813,8 +813,8 @@ class Grid(object):
         grid_props = self._generate_grid_props(**private_props)
         return self._output_handler(result, inplace, out_name=out_name, **grid_props)
 
-    def accumulation(self, data=None, dirmap=(1, 2, 3, 4, 5, 6, 7, 8), direction_name='dir',
-                     nodata=0, out_name='acc', inplace=True, pad_inplace=True):
+    def accumulation(self, data=None, weights=None, dirmap=(1, 2, 3, 4, 5, 6, 7, 8),
+                     direction_name='dir', nodata=0, out_name='acc', inplace=True):
         """
         Generates an array of flow accumulation, where cell values represent
         the number of upstream cells.
@@ -823,6 +823,9 @@ class Grid(object):
         ----------
         data : numpy ndarray
                Array of flow direction data (overrides direction_name constructor)
+        weights: numpy ndarray
+                 Array of weights to be applied to each accumulation cell. Must
+                 be same size as data.
         dirmap : list or tuple (length 8)
                  List of integer values representing the following
                  cardinal and intercardinal directions (in order):
@@ -836,11 +839,6 @@ class Grid(object):
         inplace : bool
                   If True, accumulation will be written to attribute 'acc'.
                   Otherwise, return the output array.
-        pad_inplace : bool
-                  If True, do not include the edges of the flow direction array in the
-                  accumulation computation. Otherwise, create a copy of the flow direction
-                  array with the edges padded (this is more expensive in terms of
-                  computational resources).
         """
         dirmap = self._set_dirmap(dirmap, direction_name)
         if data is not None:
@@ -851,72 +849,61 @@ class Grid(object):
             except:
                 raise NameError("Flow direction grid '{0}' not found in instance."
                                 .format(direction_name))
-
         # Pad the rim
-        if pad_inplace:
-            left, right, top, bottom = (fdir[:,0].copy(), fdir[:,-1].copy(),
-                                        fdir[0,:].copy(), fdir[-1,:].copy())
-            fdir[:,0] = 0
-            fdir[:,-1] = 0
-            fdir[0,:] = 0
-            fdir[-1,:] = 0
-        else:
-            fdir = np.pad(fdir, (1,1), mode='constant')
-
-        # Construct flat index onto flow direction array
-        # TODO: Note that this flat_idx is different than the others
-        flat_idx = np.arange(fdir.size)
-
-        # Ensure consistent types
+        left, right, top, bottom = self._pop_rim(fdir)
         fdir_orig_type = fdir.dtype
-        mintype = np.min_scalar_type(fdir.size)
-        fdir = fdir.astype(mintype)
-        flat_idx = flat_idx.astype(mintype)
-
-        # Get matching of start and end nodes
-        startnodes, endnodes = self._construct_matching(fdir, flat_idx,
-                                                        dirmap=dirmap)
-        acc = np.ones(fdir.shape).astype(int).ravel()
-        v = np.bincount(endnodes)
-        level_0 = (v == 0)
-        indegree = v.reshape(acc.shape).astype(np.uint8)
-
-        startnodes = startnodes[level_0]
-        endnodes = endnodes[level_0]
-
-        for i in range(fdir.size):
-            if endnodes.any():
-                np.add.at(acc, endnodes, acc[startnodes])
-                np.subtract.at(indegree, endnodes, 1)
-                startnodes = np.unique(endnodes)
-                startnodes = startnodes[indegree[startnodes] == 0]
-                endnodes = fdir.flat[startnodes]
+        try:
+            # Construct flat index onto flow direction array
+            # TODO: Note that this flat_idx is different than the others
+            flat_idx = np.arange(fdir.size)
+            # Ensure consistent types
+            mintype = np.min_scalar_type(fdir.size)
+            fdir = fdir.astype(mintype)
+            flat_idx = flat_idx.astype(mintype)
+            # Get matching of start and end nodes
+            startnodes, endnodes = self._construct_matching(fdir, flat_idx,
+                                                            dirmap=dirmap)
+            if weights:
+                assert(weights.size == fdir.size)
+                acc = weights.ravel()
             else:
-                break
-
-        # TODO: Hacky: should probably fix this
-        acc[0] = 1
-
-        # Reshape and offset accumulation
-        acc = np.reshape(acc, fdir.shape)
-        acc -= 1
-
+                acc = np.ones(fdir.shape).astype(int).ravel()
+            indegree = np.bincount(endnodes)
+            level_0 = (indegree == 0)
+            indegree = indegree.reshape(acc.shape).astype(np.uint8)
+            startnodes = startnodes[level_0]
+            endnodes = endnodes[level_0]
+            for _ in range(fdir.size):
+                if endnodes.any():
+                    np.add.at(acc, endnodes, acc[startnodes])
+                    np.subtract.at(indegree, endnodes, 1)
+                    startnodes = np.unique(endnodes)
+                    startnodes = startnodes[indegree[startnodes] == 0]
+                    endnodes = fdir.flat[startnodes]
+                else:
+                    break
+            # TODO: Hacky: should probably fix this
+            acc[0] = 1
+            # Reshape and offset accumulation
+            # TODO: Should subtract weights if weighted?
+            if weights:
+                acc -= weights
+            else:
+                acc -= 1
+            acc = np.reshape(acc, fdir.shape)
+        except:
+            raise
         # Clean up
-        if pad_inplace:
-            fdir[:,0] = left
-            fdir[:,-1] = right
-            fdir[0,:] = top
-            fdir[-1,:] = bottom
-        else:
-            acc = acc[1:-1, 1:-1]
-
+        finally:
+            self._replace_rim(data, left, right, top, bottom)
+            fdir = fdir.astype(fdir_orig_type)
         is_regular = self.grid_props[direction_name].setdefault('is_regular', None)
         private_props = {'nodata' : nodata, 'is_regular' : is_regular}
         grid_props = self._generate_grid_props(**private_props)
         return self._output_handler(acc, inplace, out_name=out_name, **grid_props)
 
-    def flow_distance(self, x, y, data=None, dirmap=None,
-                      direction_name='catch', nodata=0,
+    def flow_distance(self, x, y, data=None, weights=None, dirmap=None,
+                      direction_name='catch', nodata_in=0, nodata_out=0,
                       out_name='dist', inplace=True, pad_inplace=True):
         """
         Generates an array representing the topological distance from each cell
@@ -930,6 +917,8 @@ class Grid(object):
             y coordinate of pour point
         data : numpy ndarray
                Array of flow direction data (overrides direction_name constructor)
+        weights: numpy ndarray
+                 Weights (distances) to apply to link edges.
         dirmap : list or tuple (length 8)
                  List of integer values representing the following
                  cardinal and intercardinal directions (in order):
@@ -961,33 +950,34 @@ class Grid(object):
             except:
                 raise NameError("Catchment grid '{0}' not found in instance."
                                 .format(direction_name))
-
-        # TODO: This part is being reused from accumulation
         # Construct flat index onto flow direction array
-        flat_idx = np.ravel_multi_index(np.where(fdir), fdir.shape)
-
+        #flat_idx = np.ravel_multi_index(np.where(fdir), fdir.shape)
+        flat_idx = np.arange(fdir.size)
         startnodes, endnodes = self._construct_matching(fdir, flat_idx,
                                                         dirmap=dirmap)
-
-        A = scipy.sparse.lil_matrix((fdir.size, fdir.size))
-        for i,j in zip(startnodes, endnodes):
-            A[i,j] = 1
-
-        C = A.tocsr()
-        del A
-
+        # TODO: Currently the size of weights is hard to understand
+        if weights:
+            weights = weights.ravel()
+            assert(weights.size == startnodes.size)
+            assert(weights.size == endnodes.size)
+        else:
+            assert(startnodes.size == endnodes.size)
+            weights = np.where(fdir == nodata_in, 0, 1).ravel().astype(int)
+        C = scipy.sparse.lil_matrix((fdir.size, fdir.size))
+        for i,j,w in zip(startnodes, endnodes, weights):
+            C[i,j] = w
+        C = C.tocsr()
         xyindex = np.ravel_multi_index((y, x), fdir.shape)
         dist = csgraph.shortest_path(C, indices=[xyindex], directed=False)
         dist[~np.isfinite(dist)] = np.nan
         dist = dist.ravel()
         dist = dist.reshape(fdir.shape)
-
         # Prepare output
-        private_props = {'nodata' : nodata}
+        private_props = {'nodata' : nodata_out}
         grid_props = self._generate_grid_props(**private_props)
         return self._output_handler(dist, inplace, out_name=out_name, **grid_props)
 
-    def cell_area(self, out_name='area', nodata=0, inplace=True):
+    def cell_area(self, out_name='area', nodata=0, inplace=True, as_crs=None):
         # TODO: Will have to figure this out
         is_regular = self.is_regular
         if self.crs.is_latlong():
@@ -998,6 +988,10 @@ class Grid(object):
                                                       indexing='ij')))
         else:
             indices = self._grid_indices
+        # TODO: Add to_crs conversion here
+        if as_crs:
+            indices = self._convert_grid_indices(self.crs, as_crs,
+                                                 indices[:,1], indices[:,0])
         dyy, dyx = np.gradient(indices[:, 0].reshape(self.shape))
         dxy, dxx = np.gradient(indices[:, 1].reshape(self.shape))
         dy = np.sqrt(dyy**2 + dyx**2)
@@ -1011,7 +1005,7 @@ class Grid(object):
         return area
 
     def cell_distances(self, direction_name, out_name='cdist',
-                       inplace=True):
+                       inplace=True, as_crs=None):
         is_regular = self.is_regular
         if self.crs.is_latlong():
             warnings.warn(('CRS is geographic. Area will not have meaningful'
@@ -1021,6 +1015,9 @@ class Grid(object):
                                                       indexing='ij')))
         else:
             indices = self._grid_indices
+        if as_crs:
+            indices = self._convert_grid_indices(self.crs, as_crs,
+                                                 indices[:,1], indices[:,0])
         dyy, dyx = np.gradient(indices[:, 0].reshape(self.shape))
         dxy, dxx = np.gradient(indices[:, 1].reshape(self.shape))
         dy = np.sqrt(dyy**2 + dyx**2)
@@ -1030,7 +1027,6 @@ class Grid(object):
         fdir = self.view(direction_name)
         dirmap = self.grid_props[direction_name]['dirmap']
         nodata = self.grid_props[direction_name]['nodata']
-
         for i, direction in enumerate(dirmap):
             if i in (0, 4):
                 cdist[fdir == direction] = dy[fdir == direction]
@@ -1069,13 +1065,13 @@ class Grid(object):
         return self._output_handler(dh, inplace, out_name=out_name, **grid_props)
 
     def cell_slopes(self, direction_name, dem_name, out_name='slopes',
-                    inplace=True, nodata_out=None, dirmap=None):
+                    inplace=True, nodata_out=None, dirmap=None, as_crs=None):
         if nodata_out is None:
             nodata_out = np.nan
         is_regular = self.is_regular
         dh = self.cell_dh(direction_name, dem_name, out_name, inplace=False,
                           nodata_out=nodata_out, dirmap=dirmap)
-        cdist = self.cell_distances(direction_name, inplace=False)
+        cdist = self.cell_distances(direction_name, inplace=False, as_crs=as_crs)
         slopes = np.where(self.mask, dh/cdist, nodata_out)
         # Prepare output
         private_props = {'nodata' : nodata_out, 'is_regular' : is_regular}
@@ -1101,6 +1097,22 @@ class Grid(object):
             grid_props[param] = grid_props.setdefault(param,
                                                       getattr(self, param))
         return grid_props
+
+    def _pop_rim(self, data):
+        left, right, top, bottom = (data[:,0].copy(), data[:,-1].copy(),
+                                    data[0,:].copy(), data[-1,:].copy())
+        data[:,0] = 0
+        data[:,-1] = 0
+        data[0,:] = 0
+        data[-1,:] = 0
+        return left, right, top, bottom
+
+    def _replace_rim(self, data, left, right, top, bottom):
+        data[:,0] = left
+        data[:,-1] = right
+        data[0,:] = top
+        data[-1,:] = bottom
+        return None
 
     def _dy_dx(self):
         x0, y0, x1, y1 = self.bbox

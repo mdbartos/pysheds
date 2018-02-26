@@ -39,7 +39,8 @@ def test_clip():
     assert(grid.view('catch').shape == catch_shape)
 
 def test_accumulation():
-    grid.accumulation(grid.dir, dirmap=dirmap, out_name='acc', pad=True)
+    grid.accumulation(grid.dir, dirmap=dirmap, out_name='acc', pad=True,
+                      **grid.grid_props['dir'])
     assert(grid.acc.max() == acc_in_frame)
     # TODO: Should eventually assert: grid.acc.dtype == np.min_scalar_type(grid.acc.max())
     grid.accumulation(data='catch', dirmap=dirmap, out_name='acc',

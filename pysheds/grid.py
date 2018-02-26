@@ -84,7 +84,15 @@ class Grid(object):
     frac : fractional contributing area grid
     """
 
-    def __init__(self):
+    def __init__(self, bbox=None, shape=None, nodata=0, crs=None,
+                 bounds=None, is_regular=None, grid_indices=None):
+        self._bbox = bbox
+        self.shape = shape
+        self.nodata = nodata
+        self._crs = crs
+        self._bounds = bounds
+        self.is_regular = is_regular
+        self._grid_indices = grid_indices
         self.grid_props = {}
 
     def add_data(self, data, data_name, bbox=None, shape=None, cellsize=None,
@@ -449,9 +457,9 @@ class Grid(object):
         desired_x = np.argmin(np.abs(x_ix - x))
         return desired_x, desired_y
 
-    def flowdir(self, data=None, dem_name='dem', out_name='dir',
-                include_edges=True, nodata_in=None, nodata_out=0, flat=-1,
-            dirmap=(1, 2, 3, 4, 5, 6, 7, 8), inplace=True):
+    def flowdir(self, data=None, out_name='dir', include_edges=True,
+                nodata_in=None, nodata_out=0, flat=-1,
+                dirmap=(1, 2, 3, 4, 5, 6, 7, 8), inplace=True, **kwargs):
         """
         Generates a flow direction grid from a DEM grid.
  
@@ -482,16 +490,21 @@ class Grid(object):
         if len(dirmap) != 8:
             raise AssertionError('dirmap must be a sequence of length 8')
         # if data not provided, use self.dem
-        dem = self._input_handler(data, mask=False)
+        grid_props = {'nodata' : nodata_out, 'dirmap' : dirmap}
+        dem = self._input_handler(data, mask=False, properties=grid_props,
+                                  **kwargs)
         # generate grid of indices
         indices = np.indices(dem.shape, dtype=np.min_scalar_type(dem.shape))
         # handle nodata values in dem
         if nodata_in is None:
-            try:
-                nodata_in = self.grid_props[dem_name]['nodata']
-            except:
-                raise NameError("nodata value for '{0}' not found in instance."
-                                .format(dem_name))
+            if isinstance(str, data):
+                try:
+                    nodata_in = self.grid_props[data]['nodata']
+                except:
+                    raise NameError("nodata value for '{0}' not found in instance."
+                                    .format(data))
+            else:
+                raise KeyError("No 'nodata' value specified.")
         dem_mask = (dem == nodata_in)
         np.place(dem, dem_mask, np.iinfo(dem.dtype.type).max)
         # initialize indices of corners
@@ -566,15 +579,11 @@ class Grid(object):
                       # .apply(lambda x: x.map(dir_d), axis=1).values)
         np.place(outmap, dem_mask, nodata_out)
         np.place(dem, dem_mask, nodata_in)
-        is_regular = self.is_regular
-        private_props = {'nodata' : nodata_out, 'dirmap' : dirmap,
-                         'is_regular' : is_regular}
-        grid_props = self._generate_grid_props(**private_props)
         return self._output_handler(outmap, inplace, out_name=out_name, **grid_props)
 
     def catchment(self, x, y, data=None, pour_value=None, out_name='catch', dirmap=None,
-                  nodata=0, xytype='index', bbox=None, recursionlimit=15000,
-                  inplace=True, pad=True):
+                  nodata_out=0, xytype='index', bbox=None, recursionlimit=15000,
+                  inplace=True, pad=True, **kwargs):
         """
         Delineates a watershed from a given pour point (x, y).
  
@@ -597,8 +606,8 @@ class Grid(object):
                  List of integer values representing the following
                  cardinal and intercardinal directions (in order):
                  [N, NE, E, SE, S, SW, W, NW]
-        nodata : int
-                 Value to indicate nodata in output array.
+        nodata_out : int
+                     Value to indicate nodata in output array.
         xytype : 'index' or 'label'
                  How to interpret parameters 'x' and 'y'.
                      'index' : x and y represent the column and row
@@ -619,6 +628,7 @@ class Grid(object):
         # for each cell j, recursively search through grid to determine
         # if surrounding cells are in the contributing area, then add
         # flattened indices to self.collect
+
         def catchment_search(cells):
             nonlocal collect
             nonlocal cdir
@@ -631,12 +641,9 @@ class Grid(object):
         # TODO: No nodata_in attribute. Inconsistent.
         dirmap = self._set_dirmap(dirmap, data)
         # initialize array to collect catchment cells
-        collect = []
-        # if data not provided, use self.dir
-        # pad the flow direction grid with a rim of 'nodata' cells
-        # easy way to prevent catchment search from going out of bounds
-        # TODO: Need better way of doing this
-        cdir = self._input_handler(data, mask=False)
+        grid_props = {'nodata' : nodata_out, 'dirmap' : dirmap}
+        cdir = self._input_handler(data, mask=False, properties=grid_props,
+                                   bbox=bbox, **kwargs)
         # Pad the rim
         if pad:
             cdir = np.pad(cdir, (1,1), mode='constant')
@@ -665,12 +672,13 @@ class Grid(object):
             # set recursion limit (needed for large datasets)
             sys.setrecursionlimit(recursionlimit)
             # call catchment search starting at the pour point
+            collect = []
             catchment_search(pour_point)
             # initialize output array
             outcatch = np.zeros(padshape, dtype=int)
             # if nodata is not 0, replace 0 with nodata value in output array
-            if nodata != 0:
-                np.place(outcatch, outcatch == 0, nodata)
+            if nodata_out != 0:
+                np.place(outcatch, outcatch == 0, nodata_out)
             # set values of output array based on 'collected' cells
             outcatch.flat[collect] = cdir[collect]
             # remove outer rim, delete temporary arrays
@@ -689,10 +697,6 @@ class Grid(object):
                 cdir = cdir[1:-1, 1:-1]
             else:
                 self._replace_rim(cdir, left, right, top, bottom)
-        is_regular = self.is_regular
-        private_props = {'nodata' : nodata, 'dirmap' : dirmap,
-                         'is_regular' : is_regular}
-        grid_props = self._generate_grid_props(**private_props)
         return self._output_handler(outcatch, inplace, out_name=out_name, **grid_props)
 
     def fraction(self, other, nodata=0, out_name='frac', inplace=True):
@@ -755,8 +759,8 @@ class Grid(object):
         grid_props = self._generate_grid_props(**private_props)
         return self._output_handler(result, inplace, out_name=out_name, **grid_props)
 
-    def accumulation(self, data=None, weights=None, dirmap=None, direction_name='dir',
-                     nodata=0, out_name='acc', inplace=True, pad=False):
+    def accumulation(self, data=None, weights=None, dirmap=None, nodata_out=0,
+                     out_name='acc', inplace=True, pad=False, **kwargs):
         """
         Generates an array of flow accumulation, where cell values represent
         the number of upstream cells.
@@ -774,8 +778,8 @@ class Grid(object):
                  [N, NE, E, SE, S, SW, W, NW]
         direction_name : string
                          Name of attribute containing flow direction data.
-        nodata : int
-                 Value to indicate nodata in output array.
+        nodata_out : int
+                     Value to indicate nodata in output array.
         out_name : string
                    Name of attribute containing new accumulation array.
         inplace : bool
@@ -786,7 +790,9 @@ class Grid(object):
               the outer rim of cells in the computation.
         """
         dirmap = self._set_dirmap(dirmap, data)
-        fdir = self._input_handler(data, mask=False)
+        grid_props = {'nodata' : nodata_out}
+        fdir = self._input_handler(data, mask=False, properties=grid_props,
+                                   **kwargs)
         # Pad the rim
         if pad:
             fdir = np.pad(fdir, (1,1), mode='constant')
@@ -842,13 +848,11 @@ class Grid(object):
             else:
                 self._replace_rim(fdir, left, right, top, bottom)
             fdir = fdir.astype(fdir_orig_type)
-        is_regular = self.is_regular
-        private_props = {'nodata' : nodata, 'is_regular' : is_regular}
-        grid_props = self._generate_grid_props(**private_props)
         return self._output_handler(acc, inplace, out_name=out_name, **grid_props)
 
     def flow_distance(self, x, y, data, weights=None, dirmap=None, nodata_in=0,
-                      nodata_out=0, out_name='dist', inplace=True, pad_inplace=True):
+                      nodata_out=0, out_name='dist', inplace=True,
+                      bbox=None, xytype='index', **kwargs):
         """
         Generates an array representing the topological distance from each cell
         to the outlet.
@@ -876,21 +880,19 @@ class Grid(object):
         inplace : bool
                   If True, accumulation will be written to attribute 'acc'.
                   Otherwise, return the output array.
-        pad_inplace : bool
-                  If True, do not include the edges of the flow direction array in the
-                  accumulation computation. Otherwise, create a copy of the flow direction
-                  array with the edges padded (this is more expensive in terms of
-                  computational resources).
         """
         # TODO: Currently only accepts index-based x, y coords
         if not _HAS_SCIPY:
             raise ImportError('flow_distance requires scipy.sparse module')
         dirmap = self._set_dirmap(dirmap, data)
-        fdir = self._input_handler(data, mask=True)
+        grid_props = {'nodata' : nodata_out}
+        fdir = self._input_handler(data, mask=True, properties=grid_props, **kwargs)
         # Construct flat index onto flow direction array
         flat_idx = np.arange(fdir.size)
         startnodes, endnodes = self._construct_matching(fdir, flat_idx,
                                                         dirmap=dirmap)
+        if xytype == 'label':
+            x, y = self.nearest_cell(x, y, bbox, fdir.shape)
         # TODO: Currently the size of weights is hard to understand
         if weights:
             weights = weights.ravel()
@@ -909,9 +911,6 @@ class Grid(object):
         dist = dist.ravel()
         dist = dist.reshape(fdir.shape)
         # Prepare output
-        is_regular = self.is_regular
-        private_props = {'nodata' : nodata_out, 'is_regular' : is_regular}
-        grid_props = self._generate_grid_props(**private_props)
         return self._output_handler(dist, inplace, out_name=out_name, **grid_props)
 
     def cell_area(self, out_name='area', nodata=0, inplace=True, as_crs=None):
@@ -933,15 +932,12 @@ class Grid(object):
         dy = np.sqrt(dyy**2 + dyx**2)
         dx = np.sqrt(dxy**2 + dxx**2)
         area = dx * dy
-        private_props = {'nodata' : nodata, 'is_regular' : is_regular}
-        if not is_regular:
-            private_props.update({'grid_indices' : self._grid_indices})
+        private_props = {'nodata' : nodata}
         grid_props = self._generate_grid_props(**private_props)
         return self._output_handler(area, inplace, out_name=out_name, **grid_props)
 
     def cell_distances(self, direction_name, out_name='cdist',
                        inplace=True, as_crs=None):
-        is_regular = self.is_regular
         if self.crs.is_latlong():
             warnings.warn(('CRS is geographic. Area will not have meaningful'
                            'units.'))
@@ -970,9 +966,7 @@ class Grid(object):
             else:
                 cdist[fdir == direction] = ddiag[fdir == direction]
         # Prepare output
-        private_props = {'nodata' : nodata, 'is_regular' : is_regular}
-        if not is_regular:
-            private_props.update({'grid_indices' : self._grid_indices})
+        private_props = {'nodata' : nodata}
         grid_props = self._generate_grid_props(**private_props)
         return self._output_handler(cdist, inplace, out_name=out_name, **grid_props)
 
@@ -980,7 +974,6 @@ class Grid(object):
                     inplace=True, nodata_out=None, dirmap=None):
         if nodata_out is None:
             nodata_out = np.nan
-        is_regular = self.is_regular
         dem = self.view(dem_name, nodata=np.nan)
         fdir = self.view(direction_name)
         dirmap = self._set_dirmap(dirmap, direction_name)
@@ -991,9 +984,7 @@ class Grid(object):
         dh = (startelev - endelev).reshape(self.shape)
         dh[np.isnan(dh)] = nodata_out
         # Prepare output
-        private_props = {'nodata' : nodata_out, 'is_regular' : is_regular}
-        if not is_regular:
-            private_props.update({'grid_indices' : self._grid_indices})
+        private_props = {'nodata' : nodata_out}
         grid_props = self._generate_grid_props(**private_props)
         return self._output_handler(dh, inplace, out_name=out_name, **grid_props)
 
@@ -1001,26 +992,62 @@ class Grid(object):
                     inplace=True, nodata_out=None, dirmap=None, as_crs=None):
         if nodata_out is None:
             nodata_out = np.nan
-        is_regular = self.is_regular
         dh = self.cell_dh(direction_name, dem_name, out_name, inplace=False,
                           nodata_out=nodata_out, dirmap=dirmap)
         cdist = self.cell_distances(direction_name, inplace=False, as_crs=as_crs)
         slopes = np.where(self.mask, dh/cdist, nodata_out)
         # Prepare output
-        private_props = {'nodata' : nodata_out, 'is_regular' : is_regular}
-        if not is_regular:
-            private_props.update({'grid_indices' : self._grid_indices})
+        private_props = {'nodata' : nodata_out}
         grid_props = self._generate_grid_props(**private_props)
         return self._output_handler(slopes, inplace, out_name=out_name, **grid_props)
 
-    def _input_handler(self, data, view=True, mask=True, **kwargs):
+    def _input_handler(self, data, mask=True, properties={}, **kwargs):
+        required_params = ('bbox', 'shape', 'nodata', 'crs', 'bounds', 'is_regular')
+        conditional_params = {'is_regular' : {False: ('grid_indices',)}}
+        # Handle raw data
         if isinstance(data, np.ndarray):
+            for param in required_params:
+                if not param in properties:
+                    try:
+                        properties[param] = \
+                            properties.setdefault(param, kwargs[param])
+                    except:
+                        raise KeyError("Missing required parameter: {0}"
+                                       .format(param))
+            for conditional_param, predicates in conditional_params.items():
+                for bool_case, predicate_params in predicates.items():
+                    if properties[conditional_param] == bool_case:
+                        for predicate_param in predicate_params:
+                            try:
+                                properties[predicate_param] = \
+                                    (properties.setdefault(predicate_param,
+                                                        kwargs[predicate_param]))
+                            except:
+                                raise KeyError("Missing required parameter: {0}"
+                                            .format(predicate_param))
             return data
+        # Handle named dataset
         elif isinstance(data, str):
-            if view:
-                data = self.view(data, mask=mask, **kwargs)
-            else:
-                data = getattr(self, data)
+            for param in required_params:
+                try:
+                    properties[param] = properties.setdefault(param,
+                                                            getattr(self, param))
+                except:
+                    raise KeyError("Missing required parameter: {0}"
+                                    .format(param))
+            for conditional_param, predicates in conditional_params.items():
+                for bool_case, predicate_params in predicates.items():
+                    if properties[conditional_param] == bool_case:
+                        for predicate_param in predicate_params:
+                            try:
+                                properties[predicate_param] = \
+                                    (properties.setdefault(predicate_param,
+                                                           getattr(self,
+                                                                   predicate_param)))
+                            except:
+                                raise KeyError("Missing required parameter: {0}"
+                                            .format(predicate_param))
+            data = self.view(data, mask=mask)
             return data
         else:
             raise TypeError('Data must be a numpy ndarray or name string.')
@@ -1035,13 +1062,26 @@ class Grid(object):
             return data
 
     def _generate_grid_props(self, **kwargs):
-        grid_props = {}
-        required = ('bbox', 'shape', 'cellsize', 'nodata', 'crs', 'bounds')
-        grid_props.update(kwargs)
+        properties = {}
+        required = ('bbox', 'shape', 'nodata', 'crs', 'bounds', 'is_regular')
+        conditional_params = {'is_regular' : {False: ('grid_indices',)}}
+        properties.update(kwargs)
         for param in required:
-            grid_props[param] = grid_props.setdefault(param,
+            properties[param] = properties.setdefault(param,
                                                       getattr(self, param))
-        return grid_props
+        for conditional_param, predicates in conditional_params.items():
+            for bool_case, predicate_params in predicates.items():
+                if properties[conditional_param] == bool_case:
+                    for predicate_param in predicate_params:
+                        try:
+                            properties[predicate_param] = \
+                                (properties.setdefault(predicate_param,
+                                                    getattr(self,
+                                                            predicate_param)))
+                        except:
+                            raise KeyError("Missing required parameter: {0}"
+                                        .format(predicate_param))
+        return properties
 
     def _pop_rim(self, data):
         left, right, top, bottom = (data[:,0].copy(), data[:,-1].copy(),

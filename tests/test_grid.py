@@ -39,10 +39,11 @@ def test_clip():
     assert(grid.view('catch').shape == catch_shape)
 
 def test_accumulation():
-    grid.accumulation(grid.dir, dirmap=dirmap, pad_inplace=False, out_name='acc')
+    grid.accumulation(grid.dir, dirmap=dirmap, out_name='acc', pad=True)
     assert(grid.acc.max() == acc_in_frame)
-    # Should eventually assert: grid.acc.dtype == np.min_scalar_type(grid.acc.max())
-    grid.accumulation(direction_name='catch', dirmap=dirmap, pad_inplace=False, out_name='acc')
+    # TODO: Should eventually assert: grid.acc.dtype == np.min_scalar_type(grid.acc.max())
+    grid.accumulation(direction_name='catch', dirmap=dirmap, out_name='acc',
+                      pad=True)
     assert(grid.acc.max() == cells_in_catch)
 
 def test_flow_distance():

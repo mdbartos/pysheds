@@ -814,7 +814,8 @@ class Grid(object):
         return self._output_handler(result, inplace, out_name=out_name, **grid_props)
 
     def accumulation(self, data=None, weights=None, dirmap=(1, 2, 3, 4, 5, 6, 7, 8),
-                     direction_name='dir', nodata=0, out_name='acc', inplace=True):
+                     direction_name='dir', nodata=0, out_name='acc',
+                     inplace=True, pad=False):
         """
         Generates an array of flow accumulation, where cell values represent
         the number of upstream cells.
@@ -839,6 +840,9 @@ class Grid(object):
         inplace : bool
                   If True, accumulation will be written to attribute 'acc'.
                   Otherwise, return the output array.
+        pad : bool
+              If True, pad the rim of the input array with zeros. Else, ignore
+              the outer rim of cells in the computation.
         """
         dirmap = self._set_dirmap(dirmap, direction_name)
         if data is not None:
@@ -850,7 +854,10 @@ class Grid(object):
                 raise NameError("Flow direction grid '{0}' not found in instance."
                                 .format(direction_name))
         # Pad the rim
-        left, right, top, bottom = self._pop_rim(fdir)
+        if pad:
+            fdir = np.pad(fdir, (1,1), mode='constant')
+        else:
+            left, right, top, bottom = self._pop_rim(fdir)
         fdir_orig_type = fdir.dtype
         try:
             # Construct flat index onto flow direction array
@@ -891,11 +898,16 @@ class Grid(object):
             else:
                 acc -= 1
             acc = np.reshape(acc, fdir.shape)
+            if pad:
+                acc = acc[1:-1, 1:-1]
         except:
             raise
         # Clean up
         finally:
-            self._replace_rim(data, left, right, top, bottom)
+            if pad:
+                fdir = fdir[1:-1, 1:-1]
+            else:
+                self._replace_rim(fdir, left, right, top, bottom)
             fdir = fdir.astype(fdir_orig_type)
         is_regular = self.grid_props[direction_name].setdefault('is_regular', None)
         private_props = {'nodata' : nodata, 'is_regular' : is_regular}

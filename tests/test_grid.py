@@ -29,7 +29,7 @@ def test_catchment():
     # Specify pour point
     x, y = -97.2937, 32.7371
     # Delineate the catchment
-    grid.catchment(x, y, dirmap=dirmap, out_name='catch',
+    grid.catchment(x, y, data='dir', dirmap=dirmap, out_name='catch',
                 recursionlimit=15000, xytype='label')
     assert(np.count_nonzero(grid.catch) == cells_in_catch)
 

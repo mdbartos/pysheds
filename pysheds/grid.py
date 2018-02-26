@@ -84,7 +84,6 @@ class Grid(object):
     frac : fractional contributing area grid
     """
 
-
     def __init__(self):
         self.grid_props = {}
 
@@ -450,18 +449,6 @@ class Grid(object):
         desired_x = np.argmin(np.abs(x_ix - x))
         return desired_x, desired_y
 
-    def _input_handler(self, data, view=True, mask=True, **kwargs):
-        if isinstance(data, np.ndarray):
-            return data
-        elif isinstance(data, str):
-            if view:
-                data = self.view(data, mask=mask, **kwargs)
-            else:
-                data = getattr(self, data)
-            return data
-        else:
-            raise TypeError('Data must be a numpy ndarray or name string.')
-
     def flowdir(self, data=None, dem_name='dem', out_name='dir',
                 include_edges=True, nodata_in=None, nodata_out=0, flat=-1,
             dirmap=(1, 2, 3, 4, 5, 6, 7, 8), inplace=True):
@@ -579,15 +566,15 @@ class Grid(object):
                       # .apply(lambda x: x.map(dir_d), axis=1).values)
         np.place(outmap, dem_mask, nodata_out)
         np.place(dem, dem_mask, nodata_in)
-        is_regular = self.grid_props[dem_name].setdefault('is_regular', None)
+        is_regular = self.is_regular
         private_props = {'nodata' : nodata_out, 'dirmap' : dirmap,
                          'is_regular' : is_regular}
         grid_props = self._generate_grid_props(**private_props)
         return self._output_handler(outmap, inplace, out_name=out_name, **grid_props)
 
-    def catchment(self, x, y, data=None, pour_value=None, direction_name='dir',
-                  out_name='catch', dirmap=None,
-                  nodata=0, xytype='index', bbox=None, recursionlimit=15000, inplace=True):
+    def catchment(self, x, y, data=None, pour_value=None, out_name='catch', dirmap=None,
+                  nodata=0, xytype='index', bbox=None, recursionlimit=15000,
+                  inplace=True, pad=True):
         """
         Delineates a watershed from a given pour point (x, y).
  
@@ -628,52 +615,53 @@ class Grid(object):
                   If True, catchment will be written to attribute 'catch'.
                   Otherwise, return the output array.
         """
+        # Vectorized Recursive algorithm:
+        # for each cell j, recursively search through grid to determine
+        # if surrounding cells are in the contributing area, then add
+        # flattened indices to self.collect
+        def catchment_search(cells):
+            nonlocal collect
+            nonlocal cdir
+            collect.extend(cells)
+            selection = self._select_surround_ravel(cells, padshape)
+            next_idx = selection[np.where(cdir[selection] == r_dirmap)]
+            if next_idx.any():
+                return catchment_search(next_idx)
+
         # TODO: No nodata_in attribute. Inconsistent.
-        dirmap = self._set_dirmap(dirmap, direction_name)
+        dirmap = self._set_dirmap(dirmap, data)
         # initialize array to collect catchment cells
-        self.collect = []
+        collect = []
         # if data not provided, use self.dir
         # pad the flow direction grid with a rim of 'nodata' cells
         # easy way to prevent catchment search from going out of bounds
         # TODO: Need better way of doing this
-        if data is not None:
-            self.cdir = np.pad(data, 1, mode='constant')
+        cdir = self._input_handler(data, mask=False)
+        # Pad the rim
+        if pad:
+            cdir = np.pad(cdir, (1,1), mode='constant')
+            offset = 1
         else:
-            try:
-                self.cdir = np.pad(self.view(direction_name, mask=False),
-                    1, mode='constant',
-                    constant_values=np.asscalar(self.grid_props['dir']['nodata']))
-            except ValueError:
-                self.cdir = np.pad(self.view(direction_name, mask=False),
-                    1, mode='constant')
-            except NameError:
-                raise NameError("Flow direction grid '{0}' not found in instance."
-                                .format(direction_name))
-        # get shape of padded flow direction array, then flatten
-        padshape = self.cdir.shape
-        self.cdir = self.cdir.ravel()
-        # if xytype is 'label', delineate catchment based on cell nearest
-        # to given geographic coordinate
-        # TODO: This relies on the bbox of the grid instance, not the dataset
-        if xytype == 'label':
-            x, y = self.nearest_cell(x, y, bbox,
-                                     (padshape[0] - 1, padshape[1] - 1))
-        # get the flattened index of the pour point
-        pour_point = np.ravel_multi_index(np.array([y + 1, x + 1]), padshape)
-        # reorder direction mapping to work with select_surround_ravel()
-        r_dirmap = np.array(dirmap)[[4, 5, 6, 7, 0, 1, 2, 3]].tolist()
-        pour_point = np.array([pour_point])
-        # for each cell j, recursively search through grid to determine
-        # if surrounding cells are in the contributing area, then add
-        # flattened indices to self.collect
-        def catchment_search(j):
-            # self.collect = np.append(self.collect, j)
-            self.collect.extend(j)
-            selection = self._select_surround_ravel(j, padshape)
-            next_idx = selection[np.where(self.cdir[selection] == r_dirmap)]
-            if next_idx.any():
-                return catchment_search(next_idx)
+            left, right, top, bottom = self._pop_rim(fdir)
+            offset = 0
         try:
+            # get shape of padded flow direction array, then flatten
+            padshape = cdir.shape
+            cdir = cdir.ravel()
+            # if xytype is 'label', delineate catchment based on cell nearest
+            # to given geographic coordinate
+            # TODO: This relies on the bbox of the grid instance, not the dataset
+            # Valid if the dataset is a view.
+            if xytype == 'label':
+                x, y = self.nearest_cell(x, y, bbox,
+                                        (padshape[0] - offset,
+                                         padshape[1] - offset))
+            # get the flattened index of the pour point
+            pour_point = np.ravel_multi_index(np.array([y + offset, x + offset]),
+                                              padshape)
+            # reorder direction mapping to work with select_surround_ravel()
+            r_dirmap = np.array(dirmap)[[4, 5, 6, 7, 0, 1, 2, 3]].tolist()
+            pour_point = np.array([pour_point])
             # set recursion limit (needed for large datasets)
             sys.setrecursionlimit(recursionlimit)
             # call catchment search starting at the pour point
@@ -684,20 +672,24 @@ class Grid(object):
             if nodata != 0:
                 np.place(outcatch, outcatch == 0, nodata)
             # set values of output array based on 'collected' cells
-            outcatch.flat[self.collect] = self.cdir[self.collect]
+            outcatch.flat[collect] = cdir[collect]
             # remove outer rim, delete temporary arrays
-            outcatch = outcatch[1:-1, 1:-1]
-            del self.cdir
-            del self.collect
+            if pad:
+                outcatch = outcatch[1:-1, 1:-1]
             # if pour point needs to be a special value, set it
             if pour_value is not None:
                 outcatch[y, x] = pour_value
-            # reset recursion limit
         except:
             raise
         finally:
+            # reset recursion limit
             sys.setrecursionlimit(1000)
-        is_regular = self.grid_props[direction_name].setdefault('is_regular', None)
+            cdir = cdir.reshape(padshape)
+            if pad:
+                cdir = cdir[1:-1, 1:-1]
+            else:
+                self._replace_rim(cdir, left, right, top, bottom)
+        is_regular = self.is_regular
         private_props = {'nodata' : nodata, 'dirmap' : dirmap,
                          'is_regular' : is_regular}
         grid_props = self._generate_grid_props(**private_props)
@@ -850,7 +842,7 @@ class Grid(object):
             else:
                 self._replace_rim(fdir, left, right, top, bottom)
             fdir = fdir.astype(fdir_orig_type)
-        is_regular = self.grid_props[direction_name].setdefault('is_regular', None)
+        is_regular = self.is_regular
         private_props = {'nodata' : nodata, 'is_regular' : is_regular}
         grid_props = self._generate_grid_props(**private_props)
         return self._output_handler(acc, inplace, out_name=out_name, **grid_props)
@@ -917,7 +909,8 @@ class Grid(object):
         dist = dist.ravel()
         dist = dist.reshape(fdir.shape)
         # Prepare output
-        private_props = {'nodata' : nodata_out}
+        is_regular = self.is_regular
+        private_props = {'nodata' : nodata_out, 'is_regular' : is_regular}
         grid_props = self._generate_grid_props(**private_props)
         return self._output_handler(dist, inplace, out_name=out_name, **grid_props)
 
@@ -1019,6 +1012,18 @@ class Grid(object):
             private_props.update({'grid_indices' : self._grid_indices})
         grid_props = self._generate_grid_props(**private_props)
         return self._output_handler(slopes, inplace, out_name=out_name, **grid_props)
+
+    def _input_handler(self, data, view=True, mask=True, **kwargs):
+        if isinstance(data, np.ndarray):
+            return data
+        elif isinstance(data, str):
+            if view:
+                data = self.view(data, mask=mask, **kwargs)
+            else:
+                data = getattr(self, data)
+            return data
+        else:
+            raise TypeError('Data must be a numpy ndarray or name string.')
 
     def _output_handler(self, data, inplace, out_name, **kwargs):
         # TODO: Should this be rolled into add_data?

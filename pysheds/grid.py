@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import sys
 import ast
+import skimage.measure
 try:
     import scipy.sparse
     from scipy.sparse import csgraph
@@ -457,9 +458,9 @@ class Grid(object):
         desired_x = np.argmin(np.abs(x_ix - x))
         return desired_x, desired_y
 
-    def flowdir(self, data=None, out_name='dir', include_edges=True,
-                nodata_in=None, nodata_out=0, flat=-1,
-                dirmap=(1, 2, 3, 4, 5, 6, 7, 8), inplace=True, **kwargs):
+    def flowdir(self, data=None, out_name='dir', nodata_in=None, nodata_out=0,
+                pits=-1, flats=-1, dirmap=(1, 2, 3, 4, 5, 6, 7, 8), inplace=True,
+                **kwargs):
         """
         Generates a flow direction grid from a DEM grid.
  
@@ -493,11 +494,9 @@ class Grid(object):
         grid_props = {'nodata' : nodata_out, 'dirmap' : dirmap}
         dem = self._input_handler(data, mask=False, properties=grid_props,
                                   **kwargs)
-        # generate grid of indices
-        indices = np.indices(dem.shape, dtype=np.min_scalar_type(dem.shape))
         # handle nodata values in dem
         if nodata_in is None:
-            if isinstance(str, data):
+            if isinstance(data, str):
                 try:
                     nodata_in = self.grid_props[data]['nodata']
                 except:
@@ -505,81 +504,39 @@ class Grid(object):
                                     .format(data))
             else:
                 raise KeyError("No 'nodata' value specified.")
-        dem_mask = (dem == nodata_in)
-        np.place(dem, dem_mask, np.iinfo(dem.dtype.type).max)
-        # initialize indices of corners
-        corners = {
-        'nw' : {'k' : tuple(indices[:, 0, 0]),
-                'v' : [[0, 1, 1],  [1, 1, 0]],
-                'pad': np.array([3, 4, 5])},
-        'ne' : {'k' : tuple(indices[:, 0, -1]),
-                'v' : [[1, 1, 0],  [-1, -2, -2]],
-                'pad': np.array([5, 6, 7])},
-        'sw' : {'k' : tuple(indices[:, -1, 0]),
-                'v' : [[-2, -2, -1],  [0, 1, 1]],
-                'pad': np.array([1, 2, 3])},
-        'se' : {'k' : tuple(indices[:, -1, -1]),
-                'v' : [[-1, -2, -2],  [-2, -2, -1]],
-                'pad': np.array([7, 8, 1])}
-        }
-        # initialize indices of edges
-        edges = {
-        'n' : {'k' : tuple(indices[:, 0, 1:-1]),
-               'pad' : np.array([3, 4, 5, 6, 7])},
-        'w' : {'k' : tuple(indices[:, 1:-1, 0]),
-               'pad' : np.array([1, 2, 3, 4, 5])},
-        'e' : {'k' : tuple(indices[:, 1:-1, -1]),
-               'pad' : np.array([1, 5, 6, 7, 8])},
-        's' : {'k' : tuple(indices[:, -1, 1:-1]),
-               'pad' : np.array([1, 2, 3, 7, 8])}
-        }
-        # initialize indices of body (all cells except edges and corners)
-        body = indices[:, 1:-1, 1:-1]
-        # initialize output array
-        min_dir_dtype = np.min_scalar_type(min(dirmap))
-        max_dir_dtype = np.min_scalar_type(max(dirmap))
-        nodata_dtype = np.min_scalar_type(nodata_out)
-        min_out_dtype = np.find_common_type([], [min_dir_dtype, max_dir_dtype,
-                                            nodata_dtype])
-        outmap = np.full(self.shape, nodata_out, dtype=min_out_dtype)
-        # for each entry in "body" determine flow direction based
-        # on steepest neighboring slope
-        for i, j in np.nditer(tuple(body), flags=['external_loop']):
-            dat = dem[i, j]
-            sur = dem[self._select_surround(i, j)]
-            a = ((dat - sur) > 0).any(axis=0)
-            b = np.argmax((dat - sur), axis=0) + 1
-            c = flat
-            outmap[i, j] = np.where(a, b, c)
-        # determine flow direction for edges and corners, if desired
-        if include_edges:
-            # fill corners
-            for corner in corners.keys():
-                dat = dem[corners[corner]['k']]
-                sur = dem[corners[corner]['v']]
-                if ((dat - sur) > 0).any():
-                    outmap[corners[corner]['k']] = \
-                            corners[corner]['pad'][np.argmax(dat - sur)]
-                else:
-                    outmap[corners[corner]['k']] = flat
-            # fill edges
-            for edge in edges.keys():
-                dat = dem[edges[edge]['k']]
-                sur = dem[self._select_edge_sur(edges, edge)]
-                a = ((dat - sur) > 0).any(axis=0)
-                b = edges[edge]['pad'][np.argmax((dat - sur), axis=0)]
-                c = flat
-                outmap[edges[edge]['k']] = np.where(a, b, c)
-        # If direction numbering isn't default, convert values of output array.
-        if dirmap != (1, 2, 3, 4, 5, 6, 7, 8):
-            dir_d = dict(zip((1, 2, 3, 4, 5, 6, 7, 8), dirmap))
-            for k, v in dir_d.items():
-                outmap[outmap == k] = v
-            # outmap = (pd.DataFrame(outmap)
-                      # .apply(lambda x: x.map(dir_d), axis=1).values)
-        np.place(outmap, dem_mask, nodata_out)
-        np.place(dem, dem_mask, nodata_in)
-        return self._output_handler(outmap, inplace, out_name=out_name, **grid_props)
+        # TODO: Note that this won't work for nans
+        dem_mask = np.where(dem.ravel() == nodata_in)[0]
+        # Make sure nothing flows to the nodata cells
+        dem.flat[dem_mask] = dem.max() + 1
+        try:
+            a = np.arange(dem.size)
+            top = np.arange(dem.shape[1])[1:-1]
+            left = np.arange(0, dem.size, dem.shape[1])
+            right = np.arange(dem.shape[1] - 1, dem.size + 1, dem.shape[1])
+            bottom = np.arange(dem.size - dem.shape[1], dem.size)[1:-1]
+            exclude = np.unique(np.concatenate([top, left, right, bottom, dem_mask]))
+            inside = np.delete(a, exclude)
+            inner_neighbors, diff, fdir_defined = self._d8_diff(dem, inside)
+            fdir = np.where(fdir_defined, np.argmax(diff, axis=0), -1) + 1
+            if pits != flats:
+                pits_bool = (diff < 0).all(axis=0)
+                flats_bool = (~fdir_defined & ~pits)
+                fdir[pits_bool] = pits
+                fdir[flats_bool] = flats
+            else:
+                fdir[~fdir_defined] = flats
+            # If direction numbering isn't default, convert values of output array.
+            if dirmap != (1, 2, 3, 4, 5, 6, 7, 8):
+                dir_d = dict(zip((1, 2, 3, 4, 5, 6, 7, 8), dirmap))
+                for k, v in dir_d.items():
+                    fdir[fdir == k] = v
+            fdir_out = np.full(dem.shape, nodata_out)
+            fdir_out.flat[inside] = fdir
+        except:
+            raise
+        finally:
+            dem.flat[dem_mask] = nodata_in
+        return self._output_handler(fdir_out, inplace, out_name=out_name, **grid_props)
 
     def catchment(self, x, y, data=None, pour_value=None, out_name='catch', dirmap=None,
                   nodata_out=0, xytype='index', bbox=None, recursionlimit=15000,
@@ -1562,4 +1519,157 @@ class Grid(object):
         if len(dirmap) != 8:
             raise AssertionError('dirmap must be a sequence of length 8')
         return dirmap
+
+    def _grad_from_higher(self, high_edge_cells, inner_neighbors, diff,
+                          fdir_defined, in_bounds, labels, numlabels, crosswalk):
+        print("Constructing gradient from higher terrain")
+        z = np.zeros_like(labels)
+        max_iter = np.bincount(labels.ravel())[1:].max()
+        u = high_edge_cells.copy()
+        z[1:-1, 1:-1].flat[u] = 1
+        for i in range(2, max_iter):
+            # Select neighbors of high edge cells
+            hec_neighbors = inner_neighbors[:, u]
+            # Get neighbors with same elevation that are in bounds
+            u = np.unique(np.where((diff[:, u] == 0) & (in_bounds.flat[hec_neighbors] == 1), hec_neighbors, 0))
+            # Filter out entries that have already been incremented
+            not_got = (z.flat[u] == 0)
+            u = u[not_got]
+            # Get indices of inner cells from raw index
+            u = crosswalk.flat[u]
+            # Filter out neighbors that are in low edge_cells
+            u = u[(~fdir_defined[u])]
+            # Increment neighboring cells
+            z[1:-1, 1:-1].flat[u] = i
+            if u.size <= 1:
+                break
+        z[1:-1,1:-1].flat[0] = 0
+        # Flip increments
+        d = {}
+        for i in range(1, z.max()):
+            label = labels[z == i]
+            label = label[label != 0]
+            label = np.unique(label)
+            d.update({i : label})
+        max_incs = np.zeros(numlabels + 1)
+        for i in range(1, z.max()):
+            max_incs[d[i]] = i
+        max_incs = max_incs[labels.ravel()].reshape(labels.shape)
+        grad_from_higher = max_incs - z
+        return grad_from_higher
+
+    def _grad_towards_lower(self, low_edge_cells, inner_neighbors, diff,
+                          fdir_defined, in_bounds, labels, numlabels, crosswalk):
+        print("Constructing gradient towards lower terrain")
+        x = np.zeros_like(labels)
+        u = low_edge_cells.copy()
+        x[1:-1, 1:-1].flat[u] = 1
+        max_iter = np.bincount(labels.ravel())[1:].max()
+
+        for i in range(2, max_iter):
+            # Select neighbors of high edge cells
+            lec_neighbors = inner_neighbors[:, u]
+            # Get neighbors with same elevation that are in bounds
+            u = np.unique(
+                np.where((diff[:, u] == 0) & (in_bounds.flat[lec_neighbors] == 1),
+                         lec_neighbors, 0))
+            # Filter out entries that have already been incremented
+            not_got = (x.flat[u] == 0)
+            u = u[not_got]
+            # Get indices of inner cells from raw index
+            u = crosswalk.flat[u]
+            u = u[~fdir_defined.flat[u]]
+            # Increment neighboring cells
+            x[1:-1, 1:-1].flat[u] = i
+            if u.size == 0:
+                break
+        x[1:-1,1:-1].flat[0] = 0
+        grad_towards_lower = x
+        return grad_towards_lower
+
+    def _drainage_gradient(self, dem, inside):
+        inner_neighbors, diff, fdir_defined = self._d8_diff(dem, inside)
+        higher_cell = (diff < 0).any(axis=0)
+        same_elev_cell = (diff == 0).any(axis=0)
+        # High edge cells are defined as:
+        # (a) Flow direction is not defined
+        # (b) Has at least one neighboring cell at a higher elevation
+        print('Determining high edge cells')
+        high_edge_cells_bool = (~fdir_defined & higher_cell)
+        high_edge_cells = np.where(high_edge_cells_bool)[0]
+        # Low edge cells are defined as:
+        # (a) Flow direction is defined
+        # (b) Has at least one neighboring cell, n, at the same elevation
+        # (c) The flow direction for this cell n is undefined
+        # Need to check if neighboring cell has fdir undefined
+        print('Determining low edge cells')
+        low_edge_cell_candidates = (fdir_defined & same_elev_cell)
+        fdir_def_all = -1 * np.ones(dem.shape)
+        fdir_def_all[1:-1, 1:-1] = fdir_defined.reshape(dem.shape[0] - 2, dem.shape[1] - 2)
+        fdir_def_neighbors = fdir_def_all.flat[inner_neighbors[:, low_edge_cell_candidates]]
+        same_elev_neighbors = ((diff[:, low_edge_cell_candidates]) == 0)
+        low_edge_cell_passed = (fdir_def_neighbors == 0) & (same_elev_neighbors == 1)
+        low_edge_cells = (np.where(low_edge_cell_candidates)[0]
+                          [low_edge_cell_passed.any(axis=0)])
+        # Get flats to label
+        tolabel = (fdir_def_all == 0)
+        labels, numlabels = skimage.measure.label(tolabel, return_num=True)
+        # Make sure cells stay in bounds
+        in_bounds = np.ones_like(labels)
+        in_bounds[0, :] = 0
+        in_bounds[:, 0] = 0
+        in_bounds[-1, :] = 0
+        in_bounds[:, -1] = 0
+        crosswalk = np.zeros_like(labels)
+        crosswalk[1:-1, 1:-1] = (np.arange(inside.size)
+                                 .reshape(dem.shape[0] - 2, dem.shape[1] - 2))
+        grad_from_higher = self._grad_from_higher(high_edge_cells, inner_neighbors, diff,
+                          fdir_defined, in_bounds, labels, numlabels, crosswalk)
+        grad_towards_lower = self._grad_towards_lower(low_edge_cells, inner_neighbors, diff,
+                          fdir_defined, in_bounds, labels, numlabels, crosswalk)
+        drainage_grad = (2*grad_towards_lower + grad_from_higher).astype(int)
+        return drainage_grad
+
+    def _d8_diff(self, dem, inside):
+        inner_neighbors = self._select_surround_ravel(inside, dem.shape).T
+        inner_neighbors_elev = dem.flat[inner_neighbors]
+        diff = np.subtract(dem.flat[inside], inner_neighbors_elev)
+        fdir_defined = (diff > 0).any(axis=0)
+        return inner_neighbors, diff, fdir_defined
+
+    def resolve_flats(self, data=None, out_name='flats_dir', nodata_in=None, nodata_out=0,
+                pits=-1, flats=-1, dirmap=(1, 2, 3, 4, 5, 6, 7, 8), inplace=True,
+                **kwargs):
+        if len(dirmap) != 8:
+            raise AssertionError('dirmap must be a sequence of length 8')
+        # if data not provided, use self.dem
+        grid_props = {'nodata' : nodata_out, 'dirmap' : dirmap}
+        dem = self._input_handler(data, mask=False, properties=grid_props,
+                                  **kwargs)
+        # handle nodata values in dem
+        if nodata_in is None:
+            if isinstance(data, str):
+                try:
+                    nodata_in = self.grid_props[data]['nodata']
+                except:
+                    raise NameError("nodata value for '{0}' not found in instance."
+                                    .format(data))
+            else:
+                raise KeyError("No 'nodata' value specified.")
+        # TODO: Note that this won't work for nans
+        dem_mask = np.where(dem.ravel() == nodata_in)[0]
+
+        # TODO: This is repeated from flowdir
+        a = np.arange(dem.size)
+        top = np.arange(dem.shape[1])[1:-1]
+        left = np.arange(0, dem.size, dem.shape[1])
+        right = np.arange(dem.shape[1] - 1, dem.size + 1, dem.shape[1])
+        bottom = np.arange(dem.size - dem.shape[1], dem.size)[1:-1]
+        exclude = np.unique(np.concatenate([top, left, right, bottom, dem_mask]))
+        inside = np.delete(a, exclude)
+        drainage_grad = self._drainage_gradient(dem, inside)
+        fdir_flats = self.flowdir(data=drainage_grad, nodata_in=0,
+                                  nodata_out=0, inplace=False,
+                                  **self.grid_props['dem'])
+        return self._output_handler(fdir_flats, inplace, out_name=out_name, **grid_props)
 

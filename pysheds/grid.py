@@ -13,9 +13,9 @@ except:
     _HAS_SCIPY = False
 try:
     import skimage.measure
-    _HAS SKIMAGE = True
+    _HAS_SKIMAGE = True
 except:
-    _HAS SKIMAGE = False
+    _HAS_SKIMAGE = False
 try:
     import rasterio
     _HAS_RASTERIO = True

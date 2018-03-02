@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import sys
 import ast
+import copy
 try:
     import scipy.sparse
     from scipy.sparse import csgraph
@@ -1634,7 +1635,7 @@ class Grid(object):
         grad_towards_lower = self._grad_towards_lower(low_edge_cells, inner_neighbors, diff,
                           fdir_defined, in_bounds, labels, numlabels, crosswalk)
         drainage_grad = (2*grad_towards_lower + grad_from_higher).astype(int)
-        return drainage_grad
+        return drainage_grad, high_edge_cells, low_edge_cells
 
     def _d8_diff(self, dem, inside):
         inner_neighbors = self._select_surround_ravel(inside, dem.shape).T
@@ -1673,9 +1674,10 @@ class Grid(object):
         bottom = np.arange(dem.size - dem.shape[1], dem.size)[1:-1]
         exclude = np.unique(np.concatenate([top, left, right, bottom, dem_mask]))
         inside = np.delete(a, exclude)
-        drainage_grad = self._drainage_gradient(dem, inside)
-        fdir_flats = self.flowdir(data=drainage_grad, nodata_in=0,
-                                  nodata_out=0, inplace=False,
-                                  **self.grid_props['dem'])
+        drainage_grad, high_edge_cells, low_edge_cells = self._drainage_gradient(dem, inside)
+        sub_props = copy.deepcopy(grid_props)
+        sub_props.update({'nodata_in' : 0, 'nodata_out' : nodata_out})
+        fdir_flats = self.flowdir(data=drainage_grad, inplace=False, **sub_props)
+        fdir_flats[1:-1, 1:-1].flat[low_edge_cells] = nodata_out
         return self._output_handler(fdir_flats, inplace, out_name=out_name, **grid_props)
 

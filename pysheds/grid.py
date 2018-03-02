@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 import sys
 import ast
-import skimage.measure
 try:
     import scipy.sparse
     from scipy.sparse import csgraph
@@ -12,6 +11,11 @@ try:
     _HAS_SCIPY = True
 except:
     _HAS_SCIPY = False
+try:
+    import skimage.measure
+    _HAS SKIMAGE = True
+except:
+    _HAS SKIMAGE = False
 try:
     import rasterio
     _HAS_RASTERIO = True
@@ -1588,6 +1592,8 @@ class Grid(object):
         return grad_towards_lower
 
     def _drainage_gradient(self, dem, inside):
+        if not _HAS_SKIMAGE:
+            raise ImportError('resolve_flats requires skimage.measure module')
         inner_neighbors, diff, fdir_defined = self._d8_diff(dem, inside)
         higher_cell = (diff < 0).any(axis=0)
         same_elev_cell = (diff == 0).any(axis=0)

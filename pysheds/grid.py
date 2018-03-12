@@ -771,9 +771,9 @@ class Grid(object):
             # Get matching of start and end nodes
             startnodes, endnodes = self._construct_matching(fdir, flat_idx,
                                                             dirmap=dirmap)
-            if weights:
+            if weights is not None:
                 assert(weights.size == fdir.size)
-                acc = weights.ravel()
+                acc = weights.flatten()
             else:
                 acc = np.ones(fdir.shape).astype(int).ravel()
             indegree = np.bincount(endnodes)
@@ -794,7 +794,7 @@ class Grid(object):
             acc[0] = 1
             # Reshape and offset accumulation
             # TODO: Should subtract weights if weighted?
-            if weights:
+            if weights is not None:
                 acc -= weights
             else:
                 acc -= 1
@@ -848,7 +848,8 @@ class Grid(object):
             raise ImportError('flow_distance requires scipy.sparse module')
         dirmap = self._set_dirmap(dirmap, data)
         grid_props = {'nodata' : nodata_out}
-        fdir = self._input_handler(data, mask=True, properties=grid_props, **kwargs)
+        fdir = self._input_handler(data, mask=True, properties=grid_props,
+                                   bbox=bbox, **kwargs)
         # Construct flat index onto flow direction array
         flat_idx = np.arange(fdir.size)
         startnodes, endnodes = self._construct_matching(fdir, flat_idx,
@@ -881,14 +882,13 @@ class Grid(object):
             warnings.warn(('CRS is geographic. Area will not have meaningful'
                            'units.'))
         if is_regular:
-            indices = np.vstack(np.dstack(np.meshgrid(*self.bbox_indices,
+            indices = np.vstack(np.dstack(np.meshgrid(*self.bbox_indices(),
                                                       indexing='ij')))
         else:
             indices = self._grid_indices
         # TODO: Add to_crs conversion here
         if as_crs:
-            indices = self._convert_grid_indices(self.crs, as_crs,
-                                                 indices[:,1], indices[:,0])
+            indices = self._convert_grid_indices_crs(indices, self.crs, as_crs)
         dyy, dyx = np.gradient(indices[:, 0].reshape(self.shape))
         dxy, dxx = np.gradient(indices[:, 1].reshape(self.shape))
         dy = np.sqrt(dyy**2 + dyx**2)
@@ -904,13 +904,12 @@ class Grid(object):
             warnings.warn(('CRS is geographic. Area will not have meaningful'
                            'units.'))
         if self.is_regular:
-            indices = np.vstack(np.dstack(np.meshgrid(*self.bbox_indices,
+            indices = np.vstack(np.dstack(np.meshgrid(*self.bbox_indices(),
                                                       indexing='ij')))
         else:
             indices = self._grid_indices
         if as_crs:
-            indices = self._convert_grid_indices(self.crs, as_crs,
-                                                 indices[:,1], indices[:,0])
+            indices = self._convert_grid_indices_crs(indices, self.crs, as_crs)
         dyy, dyx = np.gradient(indices[:, 0].reshape(self.shape))
         dxy, dxx = np.gradient(indices[:, 1].reshape(self.shape))
         dy = np.sqrt(dyy**2 + dyx**2)
@@ -1665,7 +1664,6 @@ class Grid(object):
                 raise KeyError("No 'nodata' value specified.")
         # TODO: Note that this won't work for nans
         dem_mask = np.where(dem.ravel() == nodata_in)[0]
-
         # TODO: This is repeated from flowdir
         a = np.arange(dem.size)
         top = np.arange(dem.shape[1])[1:-1]

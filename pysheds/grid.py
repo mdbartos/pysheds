@@ -273,7 +273,7 @@ class Grid(object):
         if not _HAS_RASTERIO:
             raise ImportError('Requires rasterio module')
         f = rasterio.open(data, **kwargs)
-        crs = pyproj.Proj(f.crs)
+        crs = pyproj.Proj(f.crs, preserve_units=True)
         bbox = tuple(f.bounds)
         shape = f.shape
         cellsize = f.affine[0]

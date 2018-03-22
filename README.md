@@ -3,12 +3,23 @@ Simple and fast watershed delineation in python.
 
 ## Features
 
-- Flow Direction to Flow Accumulation
-- Catchment delineation from Flow Direction
-- Distance to outlet
-- Fractional contributing area between differently-sized grids
-- River network extraction
-- Read/write raster or ASCII files
+- Hydrologic Functions:
+  - `flowdir`: DEM to flow direction.
+  - `catchment`: Delineate catchment from flow direction.
+  - `accumulation`: Flow direction to flow accumulation.
+  - `flow_distance`: Compute flow distance to outlet.
+  - `resolve_flats`: Resolve flats in a DEM using the modified method of Garbrecht and Martz (1997).
+  - `fraction`: Compute fractional contributing area between differently-sized grids.
+  - `extract_river_network`: Extract river network at a given accumulation threshold.
+  - `cell_area`: Compute (projected) area of cells.
+  - `cell_distances`: Compute (projected) channel length within cells.
+  - `cell_dh`: Compute the elevation change between cells.
+  - `cell_slopes`: Compute the slope of cells.
+- Utilities
+  - `read_ascii`: Reads ascii gridded data.
+  - `read_raster`: Reads raster gridded data.
+  - `to_crs`: Converts the coordinate reference system of the grid.
+  - `to_ascii`: Write grids to ascii files.
 
 `pysheds` currently only supports a d8 routing scheme
 

@@ -1,28 +1,6 @@
 # pysheds [![Build Status](https://travis-ci.org/mdbartos/pysheds.svg?branch=master)](https://travis-ci.org/mdbartos/pysheds)
 Simple and fast watershed delineation in python.
 
-## Features
-
-- Hydrologic Functions:
-  - `flowdir`: DEM to flow direction.
-  - `catchment`: Delineate catchment from flow direction.
-  - `accumulation`: Flow direction to flow accumulation.
-  - `flow_distance`: Compute flow distance to outlet.
-  - `resolve_flats`: Resolve flats in a DEM using the modified method of Garbrecht and Martz (1997).
-  - `fraction`: Compute fractional contributing area between differently-sized grids.
-  - `extract_river_network`: Extract river network at a given accumulation threshold.
-  - `cell_area`: Compute (projected) area of cells.
-  - `cell_distances`: Compute (projected) channel length within cells.
-  - `cell_dh`: Compute the elevation change between cells.
-  - `cell_slopes`: Compute the slope of cells.
-- Utilities
-  - `read_ascii`: Reads ascii gridded data.
-  - `read_raster`: Reads raster gridded data.
-  - `to_crs`: Converts the coordinate reference system of the grid.
-  - `to_ascii`: Write grids to ascii files.
-
-`pysheds` currently only supports a d8 routing scheme
-
 ## Example usage
 
 See [examples/quickstart](https://github.com/mdbartos/pysheds/blob/master/examples/quickstart.ipynb) for more details.
@@ -83,10 +61,33 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
 ```python
     # Extract river network
     # ---------------------
-    branches, yx = grid.extract_river_network(threshold=200)
+    branches, yx = grid.extract_river_network(threshold=50)
 ```
 
 ![Example 5](examples/img/river_network.png)
+
+
+## Features
+
+- Hydrologic Functions:
+  - `flowdir`: DEM to flow direction.
+  - `catchment`: Delineate catchment from flow direction.
+  - `accumulation`: Flow direction to flow accumulation.
+  - `flow_distance`: Compute flow distance to outlet.
+  - `resolve_flats`: Resolve flats in a DEM using the modified method of Garbrecht and Martz (1997).
+  - `fraction`: Compute fractional contributing area between differently-sized grids.
+  - `extract_river_network`: Extract river network at a given accumulation threshold.
+  - `cell_area`: Compute (projected) area of cells.
+  - `cell_distances`: Compute (projected) channel length within cells.
+  - `cell_dh`: Compute the elevation change between cells.
+  - `cell_slopes`: Compute the slope of cells.
+- Utilities
+  - `read_ascii`: Reads ascii gridded data.
+  - `read_raster`: Reads raster gridded data.
+  - `to_crs`: Converts the coordinate reference system of the grid.
+  - `to_ascii`: Write grids to ascii files.
+
+`pysheds` currently only supports a d8 routing scheme
 
 ## Installation
 
@@ -102,12 +103,5 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
 # Performance
 Performance benchmarks on a 2015 MacBook Pro:
 
-- Flow Direction --> Flow Accumulation: 36 million grid cells in 15 seconds.
-- Flow Direction --> Catchment: 9.8 million grid cells in 4.55 seconds.
-
-# To-do's:
-- DEM to Flow Direction doesn't handle flats
-- Float-based bbox indexing is problematic
-- Add graph routines
-- Allow conversion of CRS
-- Raster to vector conversion and shapefile output
+- Flow Direction to Flow Accumulation: 36 million grid cells in 15 seconds.
+- Flow Direction to Catchment: 9.8 million grid cells in 4.55 seconds.

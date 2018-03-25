@@ -879,7 +879,7 @@ class Grid(object):
     def cell_area(self, out_name='area', nodata=0, inplace=True, as_crs=None):
         is_regular = self.is_regular
         if self.crs.is_latlong():
-            warnings.warn(('CRS is geographic. Area will not have meaningful'
+            warnings.warn(('CRS is geographic. Area will not have meaningful '
                            'units.'))
         if is_regular:
             indices = np.vstack(np.dstack(np.meshgrid(*self.bbox_indices(),
@@ -901,7 +901,7 @@ class Grid(object):
     def cell_distances(self, direction_name, out_name='cdist',
                        inplace=True, as_crs=None):
         if self.crs.is_latlong():
-            warnings.warn(('CRS is geographic. Area will not have meaningful'
+            warnings.warn(('CRS is geographic. Area will not have meaningful '
                            'units.'))
         if self.is_regular:
             indices = np.vstack(np.dstack(np.meshgrid(*self.bbox_indices(),
@@ -922,7 +922,7 @@ class Grid(object):
         for i, direction in enumerate(dirmap):
             if i in (0, 4):
                 cdist[fdir == direction] = dy[fdir == direction]
-            if i in (2, 6):
+            elif i in (2, 6):
                 cdist[fdir == direction] = dx[fdir == direction]
             else:
                 cdist[fdir == direction] = ddiag[fdir == direction]

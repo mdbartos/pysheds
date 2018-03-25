@@ -5,8 +5,7 @@ import pandas as pd
 import pyproj
 from pysheds.grid import Grid
 try:
-    import scipy.sparse
-    from scipy.sparse import csgraph
+    import scipy.signal
     _HAS_SCIPY = True
 except:
     _HAS_SCIPY = False
@@ -15,20 +14,21 @@ class SwmmIngester(object):
     """
     Container class for writing SWMM output files
     """
-    def __init__(self, grid_instance, dem, fdir, catch, acc, projection):
+    def __init__(self, grid_instance, dem, fdir, catch, acc, projection,
+                 control=False, initialize=False):
         self.grid = grid_instance
         self.dem = dem
         self.fdir = fdir
         self.catch = catch
         self.acc = acc
         self.projection = projection
-        self.control = False
-        self.initialize = False
+        self.control = control
+        self.initialize = initialize
         self.in_catch = np.where(grid.mask.ravel())
         self.dists = self.grid.cell_distances(catch, inplace=False, as_crs=projection)
         self.areas = self.grid.cell_area(catch, inplace=False, as_crs=projection)
         self.slopes = self.grid.cell_slopes(catch, dem, inplace=False, as_crs=projection)
-        self.widths = self.areas / self.dists
+        self.widths = np.where(self.grid.mask, self.areas / (self.dists / 2), 0)
         self.flat_idx = np.arange(self.grid.view(fdir).size)
         self.startnodes, self.endnodes = self.grid._construct_matching(self.grid.view(catch).copy(),
                                                                        self.flat_idx, dirmap)
@@ -111,7 +111,7 @@ class SwmmIngester(object):
         raingages['rain_type'] = 'VOLUME'
         raingages['time_interval'] = 0.083333
         raingages['snow_catch'] = 1.0
-        raingages['data_source'] = 'TIMESERIES STEP INPUT'
+        raingages['data_source'] = 'TIMESERIES STEP_INPUT'
         raingages = pd.DataFrame.from_dict(raingages, orient='index').T
         # Manual overrides
         for key, value in kwargs.items():
@@ -290,7 +290,7 @@ class SwmmIngester(object):
         timeseries['date'] = ''
         timeseries['time'] = pd.Series(pd.date_range('20140705', periods=timelen,
                                                      freq='5min').strftime('%H:%M'))
-        timeseries['value'] = pd.Series(np.repeat(0.1, timelen))
+        timeseries['value'] = pd.Series(1.5*scipy.signal.unit_impulse(timelen))
         timeseries = pd.DataFrame.from_dict(timeseries)
         # Manual overrides
         for key, value in kwargs.items():
@@ -537,7 +537,7 @@ class SwmmIngester(object):
 
     def to_file(self, filename, **kwargs):
         with open(filename, 'w') as outfile:
-            outfile.writelines(lines)
+            outfile.writelines(self.lines)
 
 if __name__ == "__main__":
     grid = Grid.from_raster('../data/n30w100_con',
@@ -554,8 +554,18 @@ if __name__ == "__main__":
     grid.clip_to('catch', precision=5)
     grid.accumulation(data='catch', dirmap=dirmap, pad_inplace=False, out_name='acc')
     projection = pyproj.Proj('+init=epsg:3083')
-    swmm = SwmmIngester(grid, 'dem', 'dir', 'catch', 'acc', projection)
-    ixes = [20365, 5701, 8564, 15619]
+    node_depths = pd.read_csv('../../eecs-598-a455/notebooks/other/node_depths.csv', index_col=0)
+    node_depths = node_depths.iloc[-1]
+    link_flows = pd.read_csv('../../eecs-598-a455/notebooks/other/link_flows.csv', index_col=0)
+    link_flows = link_flows.iloc[-1]
+    link_flows.index = (pd.Series(link_flows.index).str.split('link_')
+                        .str[-1].str.split('_Flow_rate').str[0].values)
+    node_depths.index = (pd.Series(node_depths.index).str.split('node_')
+                         .str[-1].str.split('_Depth_above_invert').str[0].values)
+    swmm = SwmmIngester(grid, 'dem', 'dir', 'catch', 'acc',
+                        projection, control=False, initialize=True)
+    # ixes = [20365, 5701, 8564, 15619]
+    ixes = [19857, 8395, 16298, 15140, 10255, 2835, 636]
     swmm.generate_title()
     swmm.generate_options()
     swmm.generate_evaporation()
@@ -564,6 +574,9 @@ if __name__ == "__main__":
     swmm.generate_subcatchments()
     swmm.generate_subareas()
     swmm.generate_infiltration()
+    # TODO: Make this better
+    swmm.node_depths = node_depths
+    swmm.link_flows = link_flows
     swmm.generate_junctions()
     swmm.generate_conduits()
     swmm.generate_channel_dims()
@@ -580,3 +593,4 @@ if __name__ == "__main__":
     swmm.generate_control_points(ixes)
     swmm.generate_controls()
     swmm.generate_lines()
+    swmm.to_file('swmm_test.inp')

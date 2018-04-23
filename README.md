@@ -29,8 +29,8 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
     dirmap=(64, 128, 1, 2, 4, 8, 16, 32)
 
     # Delineate the catchment
-    grid.catchment(x, y, dirmap=dirmap, recursionlimit=15000,
-                   xytype='label')
+    grid.catchment(data='dir', x=x, y=y, dirmap=dirmap, out_name='catch',
+               recursionlimit=15000, xytype='label')
 
     # Crop and plot the catchment
     # ---------------------------
@@ -43,7 +43,7 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
 ```python
     # Calculate flow accumulation
     # --------------------------
-    grid.accumulation(catch, dirmap=dirmap, pad_inplace=False)
+    grid.accumulation(data='catch', dirmap=dirmap, out_name='acc')
 ```
 
 ![Example 3](examples/img/flow_accumulation.png)
@@ -51,9 +51,8 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
 ```python
     # Calculate distance to outlet from each cell
     # -------------------------------------------
-    pour_point_y, pour_point_x = np.unravel_index(np.argmax(grid.view('catch')),
-                                                  grid.shape)
-    grid.flow_distance(pour_point_x, pour_point_y, dirmap=dirmap)
+    grid.flow_distance(data='catch', x=x, y=y, dirmap=dirmap,
+                   out_name='dist', xytype='label')
 ```
 
 ![Example 4](examples/img/flow_distance.png)
@@ -80,7 +79,7 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
   - `cell_area`: Compute (projected) area of cells.
   - `cell_distances`: Compute (projected) channel length within cells.
   - `cell_dh`: Compute the elevation change between cells.
-  - `cell_slopes`: Compute the slope of cells.
+  - `cell_slopes`: Compute the slopes of cells.
 - Utilities
   - `read_ascii`: Reads ascii gridded data.
   - `read_raster`: Reads raster gridded data.
@@ -91,7 +90,7 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
 
 ## Installation
 
-`pysheds` currently only supports Python3
+`pysheds` currently only supports Python 3
 
 ```bash
     $ git clone https://github.com/mdbartos/pysheds.git

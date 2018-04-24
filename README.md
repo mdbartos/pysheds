@@ -12,10 +12,8 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
     # ----------------------------
     from pysheds.grid import Grid
 
-    grid = Grid.from_raster('n30w100_con',
-                             data_name='dem', input_type='ascii')
-    grid.read_raster('n30w100_dir',
-                      data_name='dir', input_type='ascii')
+    grid = Grid.from_raster('n30w100_con', data_name='dem')
+    grid.read_raster('n30w100_dir', data_name='dir')
 ```
 
 ![Example 1](examples/img/conditioned_dem.png)

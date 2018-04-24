@@ -40,7 +40,7 @@ def test_clip():
 
 def test_accumulation():
     grid.accumulation(grid.dir, dirmap=dirmap, out_name='acc', pad=True,
-                      **grid.grid_props['dir'])
+                      nodata_in=0, ignore_metadata=True)
     assert(grid.acc.max() == acc_in_frame)
     # TODO: Should eventually assert: grid.acc.dtype == np.min_scalar_type(grid.acc.max())
     grid.accumulation(data='catch', dirmap=dirmap, out_name='acc',

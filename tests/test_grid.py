@@ -13,7 +13,7 @@ crs = pyproj.Proj('+init=epsg:4326')
 grid.read_ascii(data_path, 'dir', dtype=np.uint8, crs=crs)
 # Initialize parameters
 dirmap = (64,  128,  1,   2,    4,   8,    16,  32)
-acc_in_frame = 77259
+acc_in_frame = 77260
 cells_in_catch = 11422
 catch_shape = (159, 169)
 max_distance = 208

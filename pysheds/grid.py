@@ -336,7 +336,8 @@ class Grid(object):
         newinstance.read_raster(path, data_name, **kwargs)
         return newinstance
 
-    def bbox_indices(self, bbox=None, shape=None, precision=7):
+    def bbox_indices(self, bbox=None, shape=None, precision=7, col_ascending=True,
+                     row_ascending=False):
         """
         Return row and column coordinates of a bounding box at a
         given cellsize.
@@ -355,10 +356,14 @@ class Grid(object):
             bbox = self._bbox
         if shape is None:
             shape = self.shape
-        rows = np.around(np.linspace(bbox[1], bbox[3],
-               shape[0], endpoint=False)[::-1], precision)
-        cols = np.around(np.linspace(bbox[0], bbox[2],
-               shape[1], endpoint=False), precision)
+        rows = np.linspace(bbox[1], bbox[3], shape[0], endpoint=False)
+        cols = np.linspace(bbox[0], bbox[2], shape[1], endpoint=False)
+        if not row_ascending:
+            rows = rows[::-1]
+        if not col_ascending:
+            cols = cols[::-1]
+        rows = np.around(rows, precision)
+        cols = np.around(cols, precision)
         return rows, cols
 
     def view(self, data_name, mask=True, nodata=None, method='nearest',
@@ -1407,6 +1412,7 @@ class Grid(object):
                            round(ncols), endpoint=False)
         # set class attributes
         self._bbox = tuple(new_bbox)
+        self._bounds = tuple(new_bbox)
         self.shape = tuple([len(rows), len(cols)])
         if hasattr(self, 'catch'):
             self.catchment_mask()

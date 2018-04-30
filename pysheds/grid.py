@@ -23,7 +23,7 @@ try:
     _HAS_RASTERIO = True
 except:
     _HAS_RASTERIO = False
-
+from pysheds.view import ViewFinder, IrregularViewFinder, RegularGridViewer, IrregularGridViewer
 
 class Grid(object):
     """
@@ -92,15 +92,11 @@ class Grid(object):
     """
 
     def __init__(self, bbox=(0,0,0,0), shape=(0,0), nodata=0,
-                 crs=pyproj.Proj('+init=epsg:4326'),
-                 bounds=(0,0,0,0), is_regular=True, grid_indices=None):
+                 crs=pyproj.Proj('+init=epsg:4326')):
         self._bbox = bbox
         self.shape = shape
         self.nodata = nodata
         self._crs = crs
-        self._bounds = bounds
-        self.is_regular = is_regular
-        self._grid_indices = grid_indices
         self.grid_props = {}
 
     @property
@@ -110,13 +106,11 @@ class Grid(object):
             'shape' : (0,0),
             'nodata' : 0,
             'crs' : pyproj.Proj('+init=epsg:4326'),
-            'bounds' : (0,0,0,0),
-            'is_regular' : True
         }
         return props
 
-    def add_data(self, data, data_name, bbox=None, shape=None, cellsize=None,
-            crs=None, nodata=None, is_regular=None, data_attrs={}):
+    def add_gridded_data(self, data, data_name, bbox=None, shape=None, cellsize=None,
+                         crs=None, nodata=None, mask=None, data_attrs={}):
         """
         A generic method for adding data into a Grid instance.
         Inserts data into a named attribute of Grid (name of attribute
@@ -184,15 +178,6 @@ class Grid(object):
             self.mask = np.ones(self.shape, dtype=np.bool)
             self.shape_min = np.min_scalar_type(max(self.shape))
             self.size_min = np.min_scalar_type(data.size)
-            self.is_regular = is_regular
-            if is_regular:
-                self._bounds = bbox
-            else:
-                try:
-                    self._bounds = data_attrs['bounds']
-                except:
-                    self._bounds = bbox
-                    warnings.warn("No bounds set. Assuming equal to bbox.")
         # assign new data to attribute; record nodata value
         self.grid_props.update({data_name : {}})
         self.grid_props[data_name].update({'bbox' : bbox})
@@ -200,14 +185,10 @@ class Grid(object):
         self.grid_props[data_name].update({'cellsize' : cellsize})
         self.grid_props[data_name].update({'nodata' : nodata})
         self.grid_props[data_name].update({'crs' : crs})
-        self.grid_props[data_name].update({'is_regular' : is_regular})
+        view = ViewFinder(bbox=bbox, shape=shape, mask=mask, nodata=nodata, crs=crs)
+        self.grid_props[data_name].update({'view' : view})
         for other_name, other_value in data_attrs.items():
             self.grid_props[data_name].update({other_name : other_value})
-        if (is_regular) and (not 'bounds' in data_attrs):
-            self.grid_props[data_name].update({'bounds' : bbox})
-        else:
-            if not 'bounds' in self.grid_props[data_name]:
-                warnings.warn("No bounds set for dataset.")
         setattr(self, data_name, data)
 
     def read_ascii(self, data, data_name, skiprows=6, crs=None, data_attrs={}, **kwargs):
@@ -252,8 +233,8 @@ class Grid(object):
             bbox = (xll, yll, xll + ncols * cellsize, yll + nrows * cellsize)
         data = np.loadtxt(data, skiprows=skiprows, **kwargs)
         nodata = data.dtype.type(nodata)
-        self.add_data(data, data_name, bbox, shape, cellsize, crs, nodata,
-                      is_regular=True, data_attrs=data_attrs)
+        self.add_gridded_data(data, data_name, bbox, shape, cellsize, crs, nodata,
+                              data_attrs=data_attrs)
 
     def read_raster(self, data, data_name, band=1, window=None, window_crs=None,
                     data_attrs={}, **kwargs):
@@ -321,8 +302,8 @@ class Grid(object):
             data = data.reshape(shape)
         if nodata is not None:
             nodata = data.dtype.type(nodata)
-        self.add_data(data, data_name, bbox, shape, cellsize, crs, nodata,
-                      is_regular=True, data_attrs=data_attrs)
+        self.add_gridded_data(data, data_name, bbox, shape, cellsize, crs, nodata,
+                              data_attrs=data_attrs)
 
     @classmethod
     def from_ascii(cls, path, data_name, **kwargs):
@@ -366,8 +347,9 @@ class Grid(object):
         cols = np.around(cols, precision)
         return rows, cols
 
-    def view(self, data_name, mask=True, nodata=None, method='nearest',
-             return_coords=False, tolerance=0.01):
+    def view(self, data, data_view=None, target_view=None, apply_mask=True,
+             nodata=None, interpolation='nearest', as_crs=None, return_coords=False,
+             kx=3, ky=3, s=0, tolerance=0.01):
         """
         Return a copy of a gridded dataset clipped to the bounding box
         (self.bbox) with cells outside the catchment mask (self.mask)
@@ -383,111 +365,100 @@ class Grid(object):
                  Value indicating no data. Defaults to
                  self.grid_props[data_name]['nodata']
         """
-        data_crs = self.grid_props[data_name]['crs']
-        data_regular = self.grid_props[data_name]['is_regular']
-        same_crs = self.crs.srs == data_crs.srs
-        if self.is_regular and data_regular and same_crs:
-            return self._regular_view(data_name, mask, nodata, return_coords, tolerance)
+        # Check interpolation method
+        try:
+            interpolation = interpolation.lower()
+            assert(interpolation in ('nearest', 'linear', 'cubic', 'spline'))
+        except:
+            raise ValueError("Interpolation method must be one of: "
+                             "'nearest', 'linear', 'cubic', 'spline'")
+        # Parse data
+        if isinstance(data, str):
+            if nodata is None:
+                nodata = self.grid_props[data]['nodata']
+            if data_view is None:
+                data_view = self.grid_props[data]['view']
+            data = getattr(self, data)
         else:
-            return self._irregular_view(data_name, mask, nodata, method,
-                                        return_coords, tolerance=tolerance)
-
-    def _regular_view(self, data_name, mask=True, nodata=None,
-                      return_coords=False, tolerance=0.01):
-        data_bbox = self.grid_props[data_name]['bbox']
-        data_shape = self.grid_props[data_name]['shape']
-        dy, dx = self._dy_dx()
-        x_tolerance = dx * tolerance
-        y_tolerance = dy * tolerance
-        if nodata is None:
-            nodata = self.grid_props[data_name]['nodata']
-        selfrows, selfcols = self.bbox_indices(self.bbox, self.shape)
-        rows, cols = self.bbox_indices(data_bbox,
-                                       data_shape)
-        outview = (pd.DataFrame(getattr(self, data_name),
-                                index=rows, columns=cols)
-                   .reindex(selfrows, tolerance=y_tolerance, method='nearest')
-                   .reindex(selfcols, axis=1, tolerance=x_tolerance,
-                            method='nearest')
-                   .fillna(nodata).values)
-        if mask:
-            outview = np.where(self.mask, outview, nodata)
+            # If not using a named dataset, make sure the data and view are properly defined
+            try:
+                assert(isinstance(data, np.ndarray))
+            except:
+                raise
+            if nodata is None:
+                nodata = data_view.nodata
+        # Set default target crs to grid crs
+        if as_crs is None:
+            as_crs = self.crs
+        # If no target view provided, construct one based on grid parameters
+        if target_view is None:
+            target_view = ViewFinder(bbox=self.bbox, shape=self.shape,
+                                     mask=self.mask, crs=as_crs,
+                                     nodata=nodata)
+        # Make sure views are ViewFinder instances
+        assert(isinstance(data_view, ViewFinder) or isinstance(data_view, IrregularViewFinder))
+        assert(isinstance(target_view, ViewFinder) or isinstance(target_view, IrregularViewFinder))
+        same_crs = target_view.crs.srs == data_view.crs.srs
+        # If crs does not match, convert coords of data array to target array
+        if not same_crs:
+            data_coords = data_view.coords
+            # TODO: x and y order might be different
+            new_x, new_y = pyproj.transform(data_view.crs, target_view.crs,
+                                            data_coords[:,1], data_coords[:,0])
+            # TODO: In general, crs conversion will yield irregular grid (though not necessarily)
+            data_view = IrregularViewFinder(coords=np.column_stack([new_y, new_x]),
+                                            shape=data_view.shape, crs=target_view.crs,
+                                            nodata=data_view.nodata)
+        # Check if data can be described by regular grid
+        data_is_grid = isinstance(data_view, ViewFinder)
+        view_is_grid = isinstance(target_view, ViewFinder)
+        # If data is on a grid, use the following speedup
+        if data_is_grid and view_is_grid:
+            # If doing nearest neighbor search, use fast sorted search
+            if interpolation == 'nearest':
+                array_view = RegularGridViewer._view_searchsorted(data, data_view, target_view,
+                                                                  apply_mask=apply_mask)
+            # If spline interpolation is needed, use RectBivariate
+            elif interpolation == 'spline':
+                # If latitude/longitude, use RectSphereBivariate
+                if target_view.crs.is_latlong():
+                    array_view = RegularGridViewer._view_rectspherebivariate(data, data_view,
+                                                                             target_view,
+                                                                             tolerance=tolerance,
+                                                                             kx=kx, ky=ky, s=s,
+                                                                             apply_mask=apply_mask)
+                # If not latitude/longitude, use RectBivariate
+                else:
+                    array_view = RegularGridViewer._view_rectbivariate(data, data_view,
+                                                                       target_view,
+                                                                       tolerance=tolerance,
+                                                                       kx=kx, ky=ky, s=s,
+                                                                       apply_mask=apply_mask)
+            # If some other interpolation method is needed, use griddata
+            else:
+                array_view = IrregularGridViewer._view_griddata(data, data_view, target_view,
+                                                                method=interpolation,
+                                                                apply_mask=apply_mask)
+        # If either view is irregular, use griddata
+        else:
+            array_view = IrregularGridViewer._view_griddata(data, data_view, target_view,
+                                                            method=interpolation,
+                                                            apply_mask=apply_mask)
         if return_coords:
-            coords = np.vstack(np.dstack(np.meshgrid(selfrows, selfcols,
-                                                     indexing='ij')))
-            return outview, coords
+            return array_view, data_view.coords
         else:
-            return outview
-
-    def _irregular_view(self, data_name, mask=True, nodata=None,
-                        method='nearest', return_coords=False, tolerance=0.01):
-        data_bbox = self.grid_props[data_name]['bbox']
-        data_shape = self.grid_props[data_name]['shape']
-        data_crs = self.grid_props[data_name]['crs']
-        data_regular = self.grid_props[data_name]['is_regular']
-        if nodata is None:
-            nodata = self.grid_props[data_name]['nodata']
-        xmin = self.bounds[0]
-        ymin = self.bounds[1]
-        xmax = self.bounds[2]
-        ymax = self.bounds[3]
-        # If data is defined on a regular grid, run a pre-filter
-        if data_regular:
-            # Filter data by master grid bbox
-            by, uy, lx, rx = self._convert_outer_indices_crs(data_bbox, data_shape,
-                                                             data_crs, self.crs)
-            # TODO: Should use max of cornerpoints instead of bbox
-            by_bool = (by >= ymin) & (by <= ymax)
-            uy_bool = (uy >= ymin) & (uy <= ymax)
-            lx_bool = (lx >= xmin) & (lx <= xmax)
-            rx_bool = (rx >= xmin) & (rx <= xmax)
-            y_bool = (by_bool | uy_bool)
-            x_bool = (lx_bool | rx_bool)
-            # Ensure contiguous range
-            y_bool[np.nonzero(y_bool)[0].min() : np.nonzero(y_bool)[0].max()] = 1
-            x_bool[np.nonzero(x_bool)[0].min() : np.nonzero(x_bool)[0].max()] = 1
-            data_y, data_x = self.bbox_indices(data_bbox, data_shape)
-            data_y = data_y[y_bool]
-            data_x = data_x[x_bool]
-            yx_data = np.vstack(np.dstack(np.meshgrid(data_y, data_x, indexing='ij')))
-            search_grid = getattr(self, data_name)[y_bool][:, x_bool].ravel()
-            if self.crs.srs != data_crs.srs:
-                yx_data = self._convert_grid_indices_crs(yx_data, data_crs, self.crs)
-        else:
-            #TODO: Is it possible to prefilter irregular data?
-            yx_data = self.grid_props[data_name]['grid_indices']
-            if self.crs.srs != data_crs.srs:
-                yx_data = self._convert_grid_indices_crs(yx_data, data_crs, self.crs)
-            y_bool = (yx_data[:, 0] >= ymin) & (yx_data[:, 0] <= ymax)
-            x_bool = (yx_data[:, 1] >= xmin) & (yx_data[:, 1] <= xmax)
-            yx_bool = (y_bool & x_bool)
-            yx_data = yx_data[yx_bool]
-            search_grid = getattr(self, data_name).ravel()[yx_bool]
-        # Prepare master grid
-        if not self.is_regular:
-            yx_grid = self._grid_indices
-        else:
-            yx_grid = np.vstack(np.dstack(
-                np.meshgrid(*self.bbox_indices(), indexing='ij')))
-        outview = scipy.interpolate.griddata(yx_data, search_grid,
-                                             yx_grid,
-                                             method='nearest').reshape(self.shape)
-        if mask:
-            outview = np.where(self.mask, outview, nodata)
-        if return_coords:
-            return outview, yx_grid
-        else:
-            return outview
+            return array_view
 
     def resize(self, data, new_shape, out_suffix='_resized', inplace=True,
-               nodata_in=None, nodata_out=np.nan, mask=False, ignore_metadata=True, **kwargs):
+               nodata_in=None, nodata_out=np.nan, apply_mask=False, ignore_metadata=True, **kwargs):
         nodata_in = self._check_nodata_in(data, nodata_in)
         if isinstance(data, str):
             out_name = '{0}{1}'.format(data, out_suffix)
         else:
             out_name = 'data_{1}'.format(out_suffix)
         grid_props = {'nodata' : nodata_out}
-        data = self._input_handler(data, mask=mask, nodata_view=nodata_in, properties=grid_props,
+        data = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
+                                   properties=grid_props,
                                   ignore_metadata=ignore_metadata, **kwargs)
         data = skimage.transform.resize(data, new_shape, **kwargs)
         return self._output_handler(data, inplace, out_name=out_name, **grid_props)
@@ -519,7 +490,7 @@ class Grid(object):
 
     def flowdir(self, data=None, out_name='dir', nodata_in=None, nodata_out=0,
                 pits=-1, flats=-1, dirmap=(1, 2, 3, 4, 5, 6, 7, 8), inplace=True,
-                mask=False, ignore_metadata=False, **kwargs):
+                apply_mask=False, ignore_metadata=False, **kwargs):
         """
         Generates a flow direction grid from a DEM grid.
  
@@ -550,7 +521,7 @@ class Grid(object):
         dirmap = self._set_dirmap(dirmap, data)
         nodata_in = self._check_nodata_in(data, nodata_in)
         grid_props = {'nodata' : nodata_out, 'dirmap' : dirmap}
-        dem = self._input_handler(data, mask=mask, nodata_view=nodata_in, properties=grid_props,
+        dem = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in, properties=grid_props,
                                   ignore_metadata=ignore_metadata, **kwargs)
         if nodata_in is None:
             dem_mask = np.array([]).astype(int)
@@ -594,7 +565,7 @@ class Grid(object):
 
     def catchment(self, x, y, data=None, pour_value=None, out_name='catch', dirmap=None,
                   nodata_in=None, nodata_out=0, xytype='index', recursionlimit=15000,
-                  inplace=True, pad=True, mask=False, ignore_metadata=False, **kwargs):
+                  inplace=True, pad=True, apply_mask=False, ignore_metadata=False, **kwargs):
         """
         Delineates a watershed from a given pour point (x, y).
  
@@ -650,7 +621,7 @@ class Grid(object):
         nodata_in = self._check_nodata_in(data, nodata_in)
         grid_props = {'nodata' : nodata_out, 'dirmap' : dirmap}
         # initialize array to collect catchment cells
-        cdir = self._input_handler(data, mask=mask, nodata_view=nodata_in,
+        cdir = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
                                    properties=grid_props, ignore_metadata=ignore_metadata,
                                    **kwargs)
         bbox = grid_props['bbox']
@@ -740,7 +711,7 @@ class Grid(object):
         # create DataFrames for self and other with geographic coordinates
         # as row and column labels. entries in selfdf represent cell indices.
         selfdf = pd.DataFrame(
-            np.arange(self.view('dir', mask=False).size).reshape(self.shape),
+            np.arange(self.view('dir', apply_mask=False).size).reshape(self.shape),
             index=np.linspace(self.bbox[1], self.bbox[3],
                               self.shape[0], endpoint=False)[::-1],
             columns=np.linspace(self.bbox[0], self.bbox[2],
@@ -770,7 +741,7 @@ class Grid(object):
         return self._output_handler(result, inplace, out_name=out_name, **grid_props)
 
     def accumulation(self, data=None, weights=None, dirmap=None, nodata_in=None, nodata_out=0,
-                     out_name='acc', inplace=True, pad=False, mask=False, ignore_metadata=False,
+                     out_name='acc', inplace=True, pad=False, apply_mask=False, ignore_metadata=False,
                      **kwargs):
         """
         Generates an array of flow accumulation, where cell values represent
@@ -807,7 +778,7 @@ class Grid(object):
         dirmap = self._set_dirmap(dirmap, data)
         nodata_in = self._check_nodata_in(data, nodata_in)
         grid_props = {'nodata' : nodata_out}
-        fdir = self._input_handler(data, mask=mask, nodata_view=nodata_in, properties=grid_props,
+        fdir = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in, properties=grid_props,
                                    ignore_metadata=ignore_metadata, **kwargs)
         # Pad the rim
         if pad:
@@ -875,7 +846,7 @@ class Grid(object):
 
     def flow_distance(self, x, y, data, weights=None, dirmap=None, nodata_in=None,
                       nodata_out=0, out_name='dist', inplace=True,
-                      xytype='index', mask=True, ignore_metadata=False, **kwargs):
+                      xytype='index', apply_mask=True, ignore_metadata=False, **kwargs):
         """
         Generates an array representing the topological distance from each cell
         to the outlet.
@@ -909,7 +880,7 @@ class Grid(object):
         dirmap = self._set_dirmap(dirmap, data)
         nodata_in = self._check_nodata_in(data, nodata_in)
         grid_props = {'nodata' : nodata_out}
-        fdir = self._input_handler(data, mask=mask, nodata_view=nodata_in,
+        fdir = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
                                    properties=grid_props, ignore_metadata=ignore_metadata,
                                    **kwargs)
         bbox = grid_props['bbox']
@@ -952,7 +923,6 @@ class Grid(object):
         return self._output_handler(dist, inplace, out_name=out_name, **grid_props)
 
     def cell_area(self, out_name='area', nodata_out=0, inplace=True, as_crs=None):
-        is_regular = self.is_regular
         if as_crs is None:
             if self.crs.is_latlong():
                 warnings.warn(('CRS is geographic. Area will not have meaningful '
@@ -961,11 +931,8 @@ class Grid(object):
             if as_crs.is_latlong():
                 warnings.warn(('CRS is geographic. Area will not have meaningful '
                             'units.'))
-        if is_regular:
-            indices = np.vstack(np.dstack(np.meshgrid(*self.bbox_indices(),
-                                                      indexing='ij')))
-        else:
-            indices = self._grid_indices
+        indices = np.vstack(np.dstack(np.meshgrid(*self.bbox_indices(),
+                                                  indexing='ij')))
         # TODO: Add to_crs conversion here
         if as_crs:
             indices = self._convert_grid_indices_crs(indices, self.crs, as_crs)
@@ -988,17 +955,14 @@ class Grid(object):
             if as_crs.is_latlong():
                 warnings.warn(('CRS is geographic. Area will not have meaningful '
                             'units.'))
-        if self.is_regular:
-            indices = np.vstack(np.dstack(np.meshgrid(*self.bbox_indices(),
-                                                      indexing='ij')))
-        else:
-            indices = self._grid_indices
+        indices = np.vstack(np.dstack(np.meshgrid(*self.bbox_indices(),
+                                                  indexing='ij')))
         if as_crs:
             indices = self._convert_grid_indices_crs(indices, self.crs, as_crs)
         dirmap = self._set_dirmap(dirmap, data)
         nodata_in = self._check_nodata_in(data, nodata_in)
         grid_props = {'nodata' : nodata_out}
-        fdir = self._input_handler(data, mask=mask, nodata_view=nodata_in,
+        fdir = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
                                    properties=grid_props, ignore_metadata=ignore_metadata,
                                    **kwargs)
         dyy, dyx = np.gradient(indices[:, 0].reshape(self.shape))
@@ -1021,11 +985,11 @@ class Grid(object):
                 nodata_out=np.nan, dirmap=None):
         nodata_in = self._check_nodata_in(data, nodata_in)
         fdir_props = {'nodata' : nodata_out}
-        fdir = self._input_handler(fdir, mask=mask, nodata_view=nodata_in,
+        fdir = self._input_handler(fdir, apply_mask=apply_mask, nodata_view=nodata_in,
                                    properties=grid_props, ignore_metadata=ignore_metadata,
                                    **kwargs)
         dem_props = {'nodata' : nodata_out}
-        dem = self._input_handler(dem, mask=mask, nodata_view=nodata_in,
+        dem = self._input_handler(dem, apply_mask=apply_mask, nodata_view=nodata_in,
                                    properties=grid_props, ignore_metadata=ignore_metadata,
                                    **kwargs)
         dirmap = self._set_dirmap(dirmap, fdir)
@@ -1076,10 +1040,9 @@ class Grid(object):
             nodata_in = override
         return nodata_in
 
-    def _input_handler(self, data, mask=True, nodata_view=None, properties={},
+    def _input_handler(self, data, apply_mask=True, nodata_view=None, properties={},
                        ignore_metadata=False, **kwargs):
-        required_params = ('bbox', 'shape', 'nodata', 'crs', 'bounds', 'is_regular')
-        conditional_params = {'is_regular' : {False: ('grid_indices',)}}
+        required_params = ('bbox', 'shape', 'nodata', 'crs')
         defaults = self.defaults
         # Handle raw data
         if isinstance(data, np.ndarray):
@@ -1092,18 +1055,8 @@ class Grid(object):
                     else:
                         raise KeyError("Missing required parameter: {0}"
                                        .format(param))
-            for conditional_param, predicates in conditional_params.items():
-                for bool_case, predicate_params in predicates.items():
-                    if properties[conditional_param] == bool_case:
-                        for predicate_param in predicate_params:
-                            if not predictate_param in properties:
-                                if predicate_param in kwargs:
-                                    properties[predicate_param] = kwargs[predicate_param]
-                                elif ignore_metadata:
-                                    properties[predicate_param] = defaults[predicate_param]
-                                else:
-                                    raise KeyError("Missing required parameter: {0}"
-                                                .format(predicate_param))
+            viewfinder = ViewFinder(**properties)
+            properties.update({'view': viewfinder})
             return data
         # Handle named dataset
         elif isinstance(data, str):
@@ -1118,19 +1071,9 @@ class Grid(object):
                     else:
                         raise KeyError("Missing required parameter: {0}"
                                         .format(param))
-            for conditional_param, predicates in conditional_params.items():
-                for bool_case, predicate_params in predicates.items():
-                    if properties[conditional_param] == bool_case:
-                        for predicate_param in predicate_params:
-                            if not predictate_param in properties:
-                                if predicate_param in kwargs:
-                                    properties[predicate_param] = kwargs[predicate_param]
-                                elif ignore_metadata:
-                                    properties[predicate_param] = defaults[predicate_param]
-                                else:
-                                    raise KeyError("Missing required parameter: {0}"
-                                                .format(predicate_param))
-            data = self.view(data, mask=mask, nodata=nodata_view)
+            viewfinder = ViewFinder(**properties)
+            properties.update({'view': viewfinder})
+            data = self.view(data, apply_mask=apply_mask, nodata=nodata_view)
             return data
         else:
             raise TypeError('Data must be a numpy ndarray or name string.')
@@ -1146,24 +1089,11 @@ class Grid(object):
 
     def _generate_grid_props(self, **kwargs):
         properties = {}
-        required = ('bbox', 'shape', 'nodata', 'crs', 'bounds', 'is_regular')
-        conditional_params = {'is_regular' : {False: ('grid_indices',)}}
+        required = ('bbox', 'shape', 'nodata', 'crs')
         properties.update(kwargs)
         for param in required:
             properties[param] = properties.setdefault(param,
                                                       getattr(self, param))
-        for conditional_param, predicates in conditional_params.items():
-            for bool_case, predicate_params in predicates.items():
-                if properties[conditional_param] == bool_case:
-                    for predicate_param in predicate_params:
-                        try:
-                            properties[predicate_param] = \
-                                (properties.setdefault(predicate_param,
-                                                    getattr(self,
-                                                            predicate_param)))
-                        except:
-                            raise KeyError("Missing required parameter: {0}"
-                                        .format(predicate_param))
         return properties
 
     def _pop_rim(self, data, nodata=0):
@@ -1225,25 +1155,26 @@ class Grid(object):
                                   np.repeat(x1[-1], len(y1)), y1)
         return by, uy, lx, rx
 
-    def to_crs(self, new_crs, old_crs=None, to_regular=False, preserve_units=False):
-        old_bbox = self.bbox
-        if old_crs is None:
-            old_crs = self.crs
-        if (isinstance(new_crs, str) or isinstance(new_crs, dict)):
-            new_crs = pyproj.Proj(new_crs, preserve_units=preserve_units)
-        # TODO: Should test for regularity instead
-        self.is_regular = to_regular
-        self._grid_indices = self._convert_bbox_indices_crs(old_bbox,
-                                                            self.shape,
-                                                            old_crs,
-                                                            new_crs)
-        ymin = self._grid_indices[:, 0].min()
-        ymax = self._grid_indices[:, 0].max()
-        xmin = self._grid_indices[:, 1].min()
-        xmax = self._grid_indices[:, 1].max()
-        self._bounds = (xmin, ymin, xmax, ymax)
-        self._bbox = self._convert_bbox_crs(self.bbox, old_crs, new_crs)
-        self.crs = new_crs
+    # Not a good idea to do it this way
+    # def to_crs(self, new_crs, old_crs=None, to_regular=False, preserve_units=False):
+    #     old_bbox = self.bbox
+    #     if old_crs is None:
+    #         old_crs = self.crs
+    #     if (isinstance(new_crs, str) or isinstance(new_crs, dict)):
+    #         new_crs = pyproj.Proj(new_crs, preserve_units=preserve_units)
+    #     # TODO: Should test for regularity instead
+    #     self.is_regular = to_regular
+    #     self._grid_indices = self._convert_bbox_indices_crs(old_bbox,
+    #                                                         self.shape,
+    #                                                         old_crs,
+    #                                                         new_crs)
+    #     ymin = self._grid_indices[:, 0].min()
+    #     ymax = self._grid_indices[:, 0].max()
+    #     xmin = self._grid_indices[:, 1].min()
+    #     xmax = self._grid_indices[:, 1].max()
+    #     self._bounds = (xmin, ymin, xmax, ymax)
+    #     self._bbox = self._convert_bbox_crs(self.bbox, old_crs, new_crs)
+    #     self.crs = new_crs
 
     def _flatten_fdir(self, fdir, flat_idx, dirmap, copy=False):
         # WARNING: This modifies fdir in place if copy is set to False!
@@ -1341,10 +1272,6 @@ class Grid(object):
         return np.prod(self.shape)
 
     @property
-    def bounds(self):
-        return self._bounds
-
-    @property
     def extent(self):
         extent = (self._bbox[0], self.bbox[2], self._bbox[1], self._bbox[3])
         return extent
@@ -1412,7 +1339,6 @@ class Grid(object):
                            round(ncols), endpoint=False)
         # set class attributes
         self._bbox = tuple(new_bbox)
-        self._bounds = tuple(new_bbox)
         self.shape = tuple([len(rows), len(cols)])
         if hasattr(self, 'catch'):
             self.catchment_mask()
@@ -1451,10 +1377,10 @@ class Grid(object):
         mask_source : string (optional)
                       Dataset on which mask is based (defaults to 'catch')
         """
-        self.mask = (self.view(mask_source, mask=False) !=
+        self.mask = (self.view(mask_source, apply_mask=False) !=
                      self.grid_props[mask_source]['nodata'])
 
-    def to_ascii(self, data_name=None, file_name=None, view=True, mask=False, delimiter=' ',
+    def to_ascii(self, data_name=None, file_name=None, view=True, apply_mask=False, delimiter=' ',
                  **kwargs):
         """
         Writes current "view" of grid data to ascii grid files.
@@ -1508,14 +1434,14 @@ class Grid(object):
                               cellsize,
                               nodata))
             if view:
-                np.savetxt(out_name, self.view(in_name, mask=mask), delimiter=delimiter,
+                np.savetxt(out_name, self.view(in_name, apply_mask=apply_mask), delimiter=delimiter,
                         header=header, comments='', **kwargs)
             else:
                 np.savetxt(out_name, getattr(self, in_name), delimiter=delimiter,
                         header=header, comments='', **kwargs)
 
     def extract_river_network(self, fdir, acc, threshold=100,
-                              dirmap=None, nodata_in=None, mask=True,
+                              dirmap=None, nodata_in=None, apply_mask=True,
                               ignore_metadata=False, **kwargs):
         """
         Generates river segments from accumulation and flow_direction arrays.
@@ -1559,9 +1485,9 @@ class Grid(object):
         nodata_in = self._check_nodata_in(fdir, nodata_in)
         fdir_props = {}
         acc_props = {}
-        fdir = self._input_handler(fdir, mask=mask, nodata_view=nodata_in, properties=fdir_props,
+        fdir = self._input_handler(fdir, apply_mask=apply_mask, nodata_view=nodata_in, properties=fdir_props,
                                    ignore_metadata=ignore_metadata, **kwargs)
-        acc = self._input_handler(acc, mask=mask, nodata_view=nodata_in, properties=acc_props,
+        acc = self._input_handler(acc, apply_mask=apply_mask, nodata_view=nodata_in, properties=acc_props,
                                    ignore_metadata=ignore_metadata, **kwargs)
         dirmap = self._set_dirmap(dirmap, fdir)
         flat_idx = np.arange(fdir.size)
@@ -1797,7 +1723,7 @@ class Grid(object):
 
     def resolve_flats(self, data=None, out_name='flats_dir', nodata_in=None, nodata_out=0,
                       pits=-1, flats=-1, dirmap=(1, 2, 3, 4, 5, 6, 7, 8), inplace=True,
-                      mask=False, ignore_metadata=False, **kwargs):
+                      apply_mask=False, ignore_metadata=False, **kwargs):
         if len(dirmap) != 8:
             raise AssertionError('dirmap must be a sequence of length 8')
         # if data not provided, use self.dem
@@ -1812,7 +1738,7 @@ class Grid(object):
             else:
                 raise KeyError("No 'nodata' value specified.")
         grid_props = {'nodata' : nodata_out, 'dirmap' : dirmap}
-        dem = self._input_handler(data, mask=mask, properties=grid_props,
+        dem = self._input_handler(data, apply_mask=apply_mask, properties=grid_props,
                                   ignore_metadata=ignore_metadata, **kwargs)
         # TODO: Note that this won't work for nans
         dem_mask = np.where(dem.ravel() == nodata_in)[0]

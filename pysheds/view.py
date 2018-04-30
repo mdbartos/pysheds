@@ -5,7 +5,7 @@ import pyproj
 
 class ViewFinder():
     def __init__(self, bbox, shape, mask=None, nodata=0,
-                 crs=pyproj.Proj('+init=epsg:4326')):
+                 crs=pyproj.Proj('+init=epsg:4326'), **kwargs):
         self._bbox = bbox
         self._shape = shape
         self._crs = crs
@@ -14,6 +14,8 @@ class ViewFinder():
             self._mask = np.ones(shape).astype(bool)
         else:
             self._mask = mask
+        for k, v in kwargs.items():
+            setattr(self, k, v)
 
     @property
     def bbox(self):
@@ -46,6 +48,14 @@ class ViewFinder():
     @nodata.setter
     def nodata(self, new_nodata):
         self._nodata = new_nodata
+
+    @property
+    def crs(self):
+        return self._crs
+
+    @crs.setter
+    def crs(self, new_crs):
+        self._crs = new_crs
 
     @property
     def size(self):
@@ -118,11 +128,14 @@ class ViewFinder():
         return dy, dx
 
 class IrregularViewFinder():
-    def __init__(self, coords, shape, mask=None, nodata=0,
+    def __init__(self, coords, shape=None, mask=None, nodata=0,
                  crs=pyproj.Proj('+init=epsg:4326'),
-                 y_coord_ix=0, x_coord_ix=1):
+                 y_coord_ix=0, x_coord_ix=1, **kwargs):
         self._coords = coords
-        self._shape = shape
+        if shape is None:
+            self._shape = len(coords)
+        else:
+            self._shape = shape
         self._crs = crs
         self._nodata = nodata
         if mask is None:
@@ -131,6 +144,8 @@ class IrregularViewFinder():
             self._mask = mask
         self.y_coord_ix = y_coord_ix
         self.x_coord_ix = x_coord_ix
+        for k, v in kwargs.items():
+            setattr(self, k, v)
 
     @property
     def coords(self):
@@ -165,6 +180,14 @@ class IrregularViewFinder():
         self._nodata = new_nodata
 
     @property
+    def crs(self):
+        return self._crs
+
+    @crs.setter
+    def crs(self, new_crs):
+        self._crs = new_crs
+
+    @property
     def size(self):
         return np.prod(self.shape)
 
@@ -186,7 +209,25 @@ class RegularGridViewer():
         pass
 
     @classmethod
-    def _view_kd(cls, data, data_view, target_view, tolerance=0.1):
+    def _view_df(cls, data, data_view, target_view, tolerance=0.1, apply_mask=True):
+        mask = target_view.mask
+        nodata = target_view.nodata
+        dy, dx = self._dy_dx()
+        x_tolerance = dx * tolerance
+        y_tolerance = dy * tolerance
+        viewrows, viewcols = target_view.bbox_indices(target_view.bbox, target_view.shape)
+        rows, cols = data_view.bbox_indices(data_view.bbox, data_view.shape)
+        view = (pd.DataFrame(data, index=rows, columns=cols)
+                .reindex(selfrows, tolerance=y_tolerance, method='nearest')
+                .reindex(selfcols, axis=1, tolerance=x_tolerance,
+                         method='nearest')
+                .fillna(nodata).values)
+        if apply_mask:
+            np.place(view, ~mask, nodata)
+        return view
+
+    @classmethod
+    def _view_kd(cls, data, data_view, target_view, tolerance=0.1, apply_mask=True):
         """
         Appropriate if:
             - Grid is regular
@@ -208,11 +249,12 @@ class RegularGridViewer():
         y_passed = ydist < y_tolerance
         x_passed = xdist < x_tolerance
         view[np.ix_(y_passed, x_passed)] = data[y_ix[y_passed]][:, x_ix[x_passed]]
-        np.place(view, ~mask, nodata)
+        if apply_mask:
+            np.place(view, ~mask, nodata)
         return view
 
     @classmethod
-    def _view_searchsorted(cls, data, data_view, target_view, tolerance=0.1):
+    def _view_searchsorted(cls, data, data_view, target_view, tolerance=0.1, apply_mask=True):
         """
         Appropriate if:
             - Grid is regular
@@ -241,11 +283,12 @@ class RegularGridViewer():
         y_ix = rows.size - y_ix[y_passed][::-1]
         x_ix = x_ix[x_passed]
         view[np.ix_(y_passed[::-1], x_passed)] = data[y_ix][:, x_ix]
-        np.place(view, ~mask, nodata)
+        if apply_mask:
+            np.place(view, ~mask, nodata)
         return view
 
     @classmethod
-    def _view_kd_2d(cls, data, data_view, target_view, tolerance=0.1):
+    def _view_kd_2d(cls, data, data_view, target_view, tolerance=0.1, apply_mask=True):
         t_xmin, t_ymin, t_xmax, t_ymax = target_view.bbox
         d_xmin, d_ymin, d_xmax, d_ymax = data_view.bbox
         mask = target_view.mask
@@ -265,11 +308,13 @@ class RegularGridViewer():
         yx_dist, yx_ix = tree.query(yx_query)
         yx_passed = yx_dist < yx_tolerance
         view.flat[yx_passed] = data[np.ix_(row_bool, col_bool)].flat[yx_ix[yx_passed]]
-        np.place(view, ~mask, nodata)
+        if apply_mask:
+            np.place(view, ~mask, nodata)
         return view
 
     @classmethod
-    def _view_rectbivariate(cls, data, data_view, target_view, kx=3, ky=3, s=0, tolerance=0.1):
+    def _view_rectbivariate(cls, data, data_view, target_view, kx=3, ky=3, s=0, tolerance=0.1,
+                            apply_mask=True):
         t_xmin, t_ymin, t_xmax, t_ymax = target_view.bbox
         d_xmin, d_ymin, d_xmax, d_ymax = data_view.bbox
         mask = target_view.mask
@@ -295,12 +340,13 @@ class RegularGridViewer():
                                                 kx=kx, ky=ky, s=s))
         xy_query = np.vstack(np.dstack(np.meshgrid(viewrows, viewcols, indexing='ij')))
         view = rbs_interpolator.ev(xy_query[:,0], xy_query[:,1]).reshape(target_view.shape)
-        np.place(view, ~mask, nodata)
+        if apply_mask:
+            np.place(view, ~mask, nodata)
         return view
 
     @classmethod
     def _view_rectspherebivariate(cls, data, data_view, target_view, coords_in_radians=False,
-                                  kx=3, ky=3, s=0, tolerance=0.1):
+                                  kx=3, ky=3, s=0, tolerance=0.1, apply_mask=True):
         t_xmin, t_ymin, t_xmax, t_ymax = target_view.bbox
         d_xmin, d_ymin, d_xmax, d_ymax = data_view.bbox
         mask = target_view.mask
@@ -331,7 +377,8 @@ class RegularGridViewer():
                                                 kx=kx, ky=ky, s=s))
         xy_query = np.vstack(np.dstack(np.meshgrid(viewrows, viewcols, indexing='ij')))
         view = rsbs_interpolator.ev(xy_query[:,0], xy_query[:,1]).reshape(target_view.shape)
-        np.place(view, ~mask, nodata)
+        if apply_mask:
+            np.place(view, ~mask, nodata)
         return view
 
 class IrregularGridViewer():
@@ -339,7 +386,8 @@ class IrregularGridViewer():
         pass
 
     @classmethod
-    def _view_kd_2d(cls, data, data_view, target_view, abs_tolerance=1e-5):
+    def _view_kd_2d(cls, data, data_view, target_view, abs_tolerance=1e-5,
+                    apply_mask=True):
         t_xmin, t_ymin, t_xmax, t_ymax = target_view.bbox
         d_xmin, d_ymin, d_xmax, d_ymax = data_view.bbox
         mask = target_view.mask
@@ -357,12 +405,13 @@ class IrregularGridViewer():
         yx_passed = yx_dist <= abs_tolerance
         view.flat[yx_passed] = data.flat[row_bool & col_bool].flat[yx_ix[yx_passed]]
         # TODO: This only makes sense if target view is regular
-        np.place(view, ~mask, nodata)
+        if apply_mask:
+            np.place(view, ~mask, nodata)
         return view
 
     @classmethod
     def _view_griddata(cls, data, data_view, target_view, method='nearest',
-                       abs_tolerance=1e-5):
+                       abs_tolerance=1e-5, apply_mask=True):
         t_xmin, t_ymin, t_xmax, t_ymax = target_view.bbox
         d_xmin, d_ymin, d_xmax, d_ymax = data_view.bbox
         mask = target_view.mask
@@ -381,5 +430,6 @@ class IrregularGridViewer():
                                     fill_value=nodata)
         # TODO: This only makes sense if target view is regular
         view = view.reshape(target_view.shape)
-        np.place(view, ~mask, nodata)
+        if apply_mask:
+            np.place(view, ~mask, nodata)
         return view

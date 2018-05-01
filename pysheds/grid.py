@@ -349,7 +349,7 @@ class Grid(object):
 
     def view(self, data, data_view=None, target_view=None, apply_mask=True,
              nodata=None, interpolation='nearest', as_crs=None, return_coords=False,
-             kx=3, ky=3, s=0, tolerance=0.01):
+             kx=3, ky=3, s=0, tolerance=0.01, dtype=None):
         """
         Return a copy of a gridded dataset clipped to the bounding box
         (self.bbox) with cells outside the catchment mask (self.mask)
@@ -375,7 +375,7 @@ class Grid(object):
         # Parse data
         if isinstance(data, str):
             if nodata is None:
-                nodata = self.grid_props[data]['nodata']
+                nodata = self.grid_props[data]['view'].nodata
             if data_view is None:
                 data_view = self.grid_props[data]['view']
             data = getattr(self, data)
@@ -387,14 +387,23 @@ class Grid(object):
                 raise
             if nodata is None:
                 nodata = data_view.nodata
-        # Set default target crs to grid crs
-        if as_crs is None:
-            as_crs = self.crs
         # If no target view provided, construct one based on grid parameters
         if target_view is None:
             target_view = ViewFinder(bbox=self.bbox, shape=self.shape,
-                                     mask=self.mask, crs=as_crs,
+                                     mask=self.mask, crs=self.crs,
                                      nodata=nodata)
+        # If viewing at a different crs, convert coordinates
+        if as_crs is not None:
+            assert(isinstance(as_crs, pyproj.Proj))
+            target_coords = target_view.coords
+            new_x, new_y = pyproj.transform(target_view.crs, as_crs,
+                                            target_coords[:,1], target_coords[:,0])
+            # TODO: In general, crs conversion will yield irregular grid (though not necessarily)
+            target_view = IrregularViewFinder(coords=np.column_stack([new_y, new_x]),
+                                            shape=target_view.shape, crs=as_crs,
+                                            nodata=target_view.nodata)
+        # Specify mask
+        mask = target_view.mask
         # Make sure views are ViewFinder instances
         assert(isinstance(data_view, ViewFinder) or isinstance(data_view, IrregularViewFinder))
         assert(isinstance(target_view, ViewFinder) or isinstance(target_view, IrregularViewFinder))
@@ -416,8 +425,7 @@ class Grid(object):
         if data_is_grid and view_is_grid:
             # If doing nearest neighbor search, use fast sorted search
             if interpolation == 'nearest':
-                array_view = RegularGridViewer._view_searchsorted(data, data_view, target_view,
-                                                                  apply_mask=apply_mask)
+                array_view = RegularGridViewer._view_searchsorted(data, data_view, target_view)
             # If spline interpolation is needed, use RectBivariate
             elif interpolation == 'spline':
                 # If latitude/longitude, use RectSphereBivariate
@@ -425,27 +433,32 @@ class Grid(object):
                     array_view = RegularGridViewer._view_rectspherebivariate(data, data_view,
                                                                              target_view,
                                                                              tolerance=tolerance,
-                                                                             kx=kx, ky=ky, s=s,
-                                                                             apply_mask=apply_mask)
+                                                                             kx=kx, ky=ky, s=s)
                 # If not latitude/longitude, use RectBivariate
                 else:
                     array_view = RegularGridViewer._view_rectbivariate(data, data_view,
                                                                        target_view,
                                                                        tolerance=tolerance,
-                                                                       kx=kx, ky=ky, s=s,
-                                                                       apply_mask=apply_mask)
+                                                                       kx=kx, ky=ky, s=s)
             # If some other interpolation method is needed, use griddata
             else:
                 array_view = IrregularGridViewer._view_griddata(data, data_view, target_view,
-                                                                method=interpolation,
-                                                                apply_mask=apply_mask)
+                                                                method=interpolation)
         # If either view is irregular, use griddata
         else:
             array_view = IrregularGridViewer._view_griddata(data, data_view, target_view,
-                                                            method=interpolation,
-                                                            apply_mask=apply_mask)
+                                                            method=interpolation)
+        # Ensure masking is safe
+        if dtype is None:
+            dtype = max(np.min_scalar_type(nodata), np.min_scalar_type(array_view.max()),
+                        np.min_scalar_type(array_view.min()))
+            if issubclass(dtype.type, np.floating):
+                dtype = max(dtype, np.dtype(np.float32))
+        array_view = array_view.astype(dtype)
+        if apply_mask:
+            np.place(array_view, ~mask, nodata)
         if return_coords:
-            return array_view, data_view.coords
+            return array_view, target_view.coords
         else:
             return array_view
 
@@ -741,8 +754,8 @@ class Grid(object):
         return self._output_handler(result, inplace, out_name=out_name, **grid_props)
 
     def accumulation(self, data=None, weights=None, dirmap=None, nodata_in=None, nodata_out=0,
-                     out_name='acc', inplace=True, pad=False, apply_mask=False, ignore_metadata=False,
-                     **kwargs):
+                     out_name='acc', inplace=True, pad=False, apply_mask=False,
+                     ignore_metadata=False, **kwargs):
         """
         Generates an array of flow accumulation, where cell values represent
         the number of upstream cells.
@@ -778,7 +791,8 @@ class Grid(object):
         dirmap = self._set_dirmap(dirmap, data)
         nodata_in = self._check_nodata_in(data, nodata_in)
         grid_props = {'nodata' : nodata_out}
-        fdir = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in, properties=grid_props,
+        fdir = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
+                                   properties=grid_props,
                                    ignore_metadata=ignore_metadata, **kwargs)
         # Pad the rim
         if pad:
@@ -786,9 +800,9 @@ class Grid(object):
         else:
             left, right, top, bottom = self._pop_rim(fdir, nodata=0)
         fdir_orig_type = fdir.dtype
+        # Construct flat index onto flow direction array
+        flat_idx = np.arange(fdir.size)
         try:
-            # Construct flat index onto flow direction array
-            flat_idx = np.arange(fdir.size)
             if nodata_in is None:
                 nodata_cells = np.zeros_like(fdir).astype(bool)
             else:
@@ -796,12 +810,12 @@ class Grid(object):
                     nodata_cells = (np.isnan(fdir))
                 else:
                     nodata_cells = (fdir == nodata_in)
-            # Set nodata cells to zero
-            fdir[nodata_cells] = 0
             # Ensure consistent types
             mintype = np.min_scalar_type(fdir.size)
             fdir = fdir.astype(mintype)
             flat_idx = flat_idx.astype(mintype)
+            # Set nodata cells to zero
+            fdir[nodata_cells] = 0
             # Get matching of start and end nodes
             startnodes, endnodes = self._construct_matching(fdir, flat_idx,
                                                             dirmap=dirmap)
@@ -886,6 +900,7 @@ class Grid(object):
         bbox = grid_props['bbox']
         # Construct flat index onto flow direction array
         flat_idx = np.arange(fdir.size)
+        fdir_orig_type = fdir.dtype
         if nodata_in is None:
             nodata_cells = np.zeros_like(fdir).astype(bool)
         else:
@@ -894,6 +909,9 @@ class Grid(object):
             else:
                 nodata_cells = (fdir == nodata_in)
         try:
+            mintype = np.min_scalar_type(fdir.size)
+            fdir = fdir.astype(mintype)
+            flat_idx = flat_idx.astype(mintype)
             startnodes, endnodes = self._construct_matching(fdir, flat_idx,
                                                             dirmap=dirmap)
             if xytype == 'label':
@@ -919,6 +937,7 @@ class Grid(object):
             raise
         finally:
             self._unflatten_fdir(fdir, flat_idx, dirmap)
+            fdir = fdir.astype(fdir_orig_type)
         # Prepare output
         return self._output_handler(dist, inplace, out_name=out_name, **grid_props)
 
@@ -994,6 +1013,7 @@ class Grid(object):
                                    **kwargs)
         dirmap = self._set_dirmap(dirmap, fdir)
         flat_idx = np.arange(fdir.size)
+        fdir_orig_type = fdir.dtype
         if nodata_in is None:
             nodata_cells = np.zeros_like(fdir).astype(bool)
         else:
@@ -1002,6 +1022,9 @@ class Grid(object):
             else:
                 nodata_cells = (fdir == nodata_in)
         try:
+            mintype = np.min_scalar_type(fdir.size)
+            fdir = fdir.astype(mintype)
+            flat_idx = flat_idx.astype(mintype)
             startnodes, endnodes = self._construct_matching(fdir, flat_idx, dirmap)
             startelev = dem.ravel()[startnodes].astype(np.float64)
             endelev = dem.ravel()[endnodes].astype(np.float64)
@@ -1011,6 +1034,7 @@ class Grid(object):
             raise
         finally:
             self._unflatten_fdir(fdir, flat_idx, dirmap)
+            fdir = fdir.astype(fdir_orig_type)
         # Prepare output
         private_props = {'nodata' : nodata_out}
         grid_props = self._generate_grid_props(**private_props)
@@ -1491,7 +1515,11 @@ class Grid(object):
                                    ignore_metadata=ignore_metadata, **kwargs)
         dirmap = self._set_dirmap(dirmap, fdir)
         flat_idx = np.arange(fdir.size)
+        fdir_orig_type = fdir.dtype
         try:
+            mintype = np.min_scalar_type(fdir.size)
+            fdir = fdir.astype(mintype)
+            flat_idx = flat_idx.astype(mintype)
             startnodes, endnodes = self._construct_matching(fdir, flat_idx,
                                                             dirmap=dirmap)
             start = startnodes[acc.flat[startnodes] > threshold]
@@ -1542,6 +1570,7 @@ class Grid(object):
             raise
         finally:
             self._unflatten_fdir(fdir, flat_idx, dirmap)
+            fdir = fdir.astype(fdir_orig_type)
         return branches, yx
 
     def _select_surround(self, i, j):

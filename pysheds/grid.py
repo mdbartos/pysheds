@@ -23,7 +23,10 @@ try:
     _HAS_RASTERIO = True
 except:
     _HAS_RASTERIO = False
-from pysheds.view import ViewFinder, IrregularViewFinder, RegularGridViewer, IrregularGridViewer
+
+from pysheds.view import Dataset
+from pysheds.view import BaseViewFinder, RegularViewFinder, IrregularViewFinder
+from pysheds.view import RegularGridViewer, IrregularGridViewer
 
 class Grid(object):
     """
@@ -97,7 +100,7 @@ class Grid(object):
         self.shape = shape
         self.nodata = nodata
         self._crs = crs
-        self.grid_props = {}
+        self.grids = []
 
     @property
     def defaults(self):
@@ -145,11 +148,13 @@ class Grid(object):
                      data_attrs={'dirmap' : (1, 2, 3, 4, 5, 6, 7, 8),
                                  'routing' : 'd8'}
         """
+        if mask is None:
+            mask = np.ones(self.shape, dtype=np.bool)
         if not isinstance(data, np.ndarray):
             raise TypeError('Input data must be ndarray')
         # if there are no datasets, initialize bbox, shape,
         # cellsize and crs based on incoming data
-        if len(self.grid_props) < 1:
+        if len(self.grids) < 1:
             # check validity of bbox
             if ((hasattr(bbox, "__len__")) and (not isinstance(bbox, str))
                     and (len(bbox) == 4)):
@@ -173,22 +178,13 @@ class Grid(object):
             # initialize instance metadata
             self._bbox = bbox
             self.shape = shape
-            self._crs = crs
+            self.crs = crs
             self.nodata = nodata
-            self.mask = np.ones(self.shape, dtype=np.bool)
-            self.shape_min = np.min_scalar_type(max(self.shape))
-            self.size_min = np.min_scalar_type(data.size)
+            self.mask = mask
         # assign new data to attribute; record nodata value
-        self.grid_props.update({data_name : {}})
-        self.grid_props[data_name].update({'bbox' : bbox})
-        self.grid_props[data_name].update({'shape' : shape})
-        self.grid_props[data_name].update({'cellsize' : cellsize})
-        self.grid_props[data_name].update({'nodata' : nodata})
-        self.grid_props[data_name].update({'crs' : crs})
-        view = ViewFinder(bbox=bbox, shape=shape, mask=mask, nodata=nodata, crs=crs)
-        self.grid_props[data_name].update({'view' : view})
-        for other_name, other_value in data_attrs.items():
-            self.grid_props[data_name].update({other_name : other_value})
+        viewfinder = RegularViewFinder(bbox=bbox, shape=shape, mask=mask, nodata=nodata, crs=crs)
+        data = Dataset(data, viewfinder, metadata=data_attrs)
+        self.grids.append(data_name)
         setattr(self, data_name, data)
 
     def read_ascii(self, data, data_name, skiprows=6, crs=None, data_attrs={}, **kwargs):
@@ -233,7 +229,8 @@ class Grid(object):
             bbox = (xll, yll, xll + ncols * cellsize, yll + nrows * cellsize)
         data = np.loadtxt(data, skiprows=skiprows, **kwargs)
         nodata = data.dtype.type(nodata)
-        self.add_gridded_data(data, data_name, bbox, shape, cellsize, crs, nodata,
+        self.add_gridded_data(data=data, data_name=data_name, bbox=bbox, shape=shape,
+                              cellsize=cellsize, crs=crs, nodata=nodata,
                               data_attrs=data_attrs)
 
     def read_raster(self, data, data_name, band=1, window=None, window_crs=None,
@@ -302,7 +299,8 @@ class Grid(object):
             data = data.reshape(shape)
         if nodata is not None:
             nodata = data.dtype.type(nodata)
-        self.add_gridded_data(data, data_name, bbox, shape, cellsize, crs, nodata,
+        self.add_gridded_data(data=data, data_name=data_name, bbox=bbox, shape=shape,
+                              cellsize=cellsize, crs=crs, nodata=nodata,
                               data_attrs=data_attrs)
 
     @classmethod
@@ -349,7 +347,7 @@ class Grid(object):
 
     def view(self, data, data_view=None, target_view=None, apply_mask=True,
              nodata=None, interpolation='nearest', as_crs=None, return_coords=False,
-             kx=3, ky=3, s=0, tolerance=0.01, dtype=None):
+             kx=3, ky=3, s=0, tolerance=0.01, dtype=None, metadata={}):
         """
         Return a copy of a gridded dataset clipped to the bounding box
         (self.bbox) with cells outside the catchment mask (self.mask)
@@ -374,22 +372,28 @@ class Grid(object):
                              "'nearest', 'linear', 'cubic', 'spline'")
         # Parse data
         if isinstance(data, str):
-            if nodata is None:
-                nodata = self.grid_props[data]['view'].nodata
-            if data_view is None:
-                data_view = self.grid_props[data]['view']
             data = getattr(self, data)
+            if nodata is None:
+                nodata = data.nodata
+            if data_view is None:
+                data_view = data.viewfinder
+        elif isinstance(data, Dataset):
+            if nodata is None:
+                nodata = data.nodata
+            if data_view is None:
+                data_view = data.viewfinder
         else:
             # If not using a named dataset, make sure the data and view are properly defined
             try:
                 assert(isinstance(data, np.ndarray))
             except:
                 raise
+            # TODO: Should convert array to dataset here
             if nodata is None:
                 nodata = data_view.nodata
         # If no target view provided, construct one based on grid parameters
         if target_view is None:
-            target_view = ViewFinder(bbox=self.bbox, shape=self.shape,
+            target_view = RegularViewFinder(bbox=self.bbox, shape=self.shape,
                                      mask=self.mask, crs=self.crs,
                                      nodata=nodata)
         # If viewing at a different crs, convert coordinates
@@ -405,8 +409,8 @@ class Grid(object):
         # Specify mask
         mask = target_view.mask
         # Make sure views are ViewFinder instances
-        assert(isinstance(data_view, ViewFinder) or isinstance(data_view, IrregularViewFinder))
-        assert(isinstance(target_view, ViewFinder) or isinstance(target_view, IrregularViewFinder))
+        assert(issubclass(type(data_view), BaseViewFinder))
+        assert(issubclass(type(target_view), BaseViewFinder))
         same_crs = target_view.crs.srs == data_view.crs.srs
         # If crs does not match, convert coords of data array to target array
         if not same_crs:
@@ -419,8 +423,8 @@ class Grid(object):
                                             shape=data_view.shape, crs=target_view.crs,
                                             nodata=data_view.nodata)
         # Check if data can be described by regular grid
-        data_is_grid = isinstance(data_view, ViewFinder)
-        view_is_grid = isinstance(target_view, ViewFinder)
+        data_is_grid = isinstance(data_view, RegularViewFinder)
+        view_is_grid = isinstance(target_view, RegularViewFinder)
         # If data is on a grid, use the following speedup
         if data_is_grid and view_is_grid:
             # If doing nearest neighbor search, use fast sorted search
@@ -448,6 +452,7 @@ class Grid(object):
         else:
             array_view = IrregularGridViewer._view_griddata(data, data_view, target_view,
                                                             method=interpolation)
+        array_view = Dataset(array_view, target_view, metadata=metadata)
         # Ensure masking is safe
         if dtype is None:
             dtype = max(np.min_scalar_type(nodata), np.min_scalar_type(array_view.max()),
@@ -470,11 +475,13 @@ class Grid(object):
         else:
             out_name = 'data_{1}'.format(out_suffix)
         grid_props = {'nodata' : nodata_out}
+        metadata = {}
         data = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
-                                   properties=grid_props,
-                                  ignore_metadata=ignore_metadata, **kwargs)
+                                   properties=grid_props, ignore_metadata=ignore_metadata,
+                                   metadata=metadata)
         data = skimage.transform.resize(data, new_shape, **kwargs)
-        return self._output_handler(data, inplace, out_name=out_name, **grid_props)
+        return self._output_handler(data=data, out_name=out_name, properties=grid_props,
+                                    inplace=inplace, metadata=metadata)
 
     def nearest_cell(self, x, y, bbox=None, shape=None):
         """
@@ -533,9 +540,11 @@ class Grid(object):
         """
         dirmap = self._set_dirmap(dirmap, data)
         nodata_in = self._check_nodata_in(data, nodata_in)
-        grid_props = {'nodata' : nodata_out, 'dirmap' : dirmap}
-        dem = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in, properties=grid_props,
-                                  ignore_metadata=ignore_metadata, **kwargs)
+        grid_props = {'nodata' : nodata_out}
+        metadata = {'dirmap' : dirmap}
+        dem = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
+                                  properties=grid_props, ignore_metadata=ignore_metadata,
+                                  **kwargs)
         if nodata_in is None:
             dem_mask = np.array([]).astype(int)
         else:
@@ -574,7 +583,8 @@ class Grid(object):
         finally:
             if nodata_in is not None:
                 dem.flat[dem_mask] = nodata_in
-        return self._output_handler(fdir_out, inplace, out_name=out_name, **grid_props)
+        return self._output_handler(data=fdir_out, out_name=out_name, properties=grid_props,
+                                    inplace=inplace, metadata=metadata)
 
     def catchment(self, x, y, data=None, pour_value=None, out_name='catch', dirmap=None,
                   nodata_in=None, nodata_out=0, xytype='index', recursionlimit=15000,
@@ -632,7 +642,8 @@ class Grid(object):
 
         dirmap = self._set_dirmap(dirmap, data)
         nodata_in = self._check_nodata_in(data, nodata_in)
-        grid_props = {'nodata' : nodata_out, 'dirmap' : dirmap}
+        grid_props = {'nodata' : nodata_out}
+        metadata = {'dirmap' : dirmap}
         # initialize array to collect catchment cells
         cdir = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
                                    properties=grid_props, ignore_metadata=ignore_metadata,
@@ -691,7 +702,8 @@ class Grid(object):
                 cdir = cdir[1:-1, 1:-1]
             else:
                 self._replace_rim(cdir, left, right, top, bottom)
-        return self._output_handler(outcatch, inplace, out_name=out_name, **grid_props)
+        return self._output_handler(data=outcatch, out_name=out_name, properties=grid_props,
+                                    inplace=inplace, metadata=metadata)
 
     def fraction(self, other, nodata=0, out_name='frac', inplace=True):
         """
@@ -791,6 +803,7 @@ class Grid(object):
         dirmap = self._set_dirmap(dirmap, data)
         nodata_in = self._check_nodata_in(data, nodata_in)
         grid_props = {'nodata' : nodata_out}
+        metadata = {}
         fdir = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
                                    properties=grid_props,
                                    ignore_metadata=ignore_metadata, **kwargs)
@@ -856,7 +869,8 @@ class Grid(object):
             else:
                 self._replace_rim(fdir, left, right, top, bottom)
             fdir = fdir.astype(fdir_orig_type)
-        return self._output_handler(acc, inplace, out_name=out_name, **grid_props)
+        return self._output_handler(data=acc, out_name=out_name, properties=grid_props,
+                                    inplace=inplace, metadata=metadata)
 
     def flow_distance(self, x, y, data, weights=None, dirmap=None, nodata_in=None,
                       nodata_out=0, out_name='dist', inplace=True,
@@ -894,6 +908,7 @@ class Grid(object):
         dirmap = self._set_dirmap(dirmap, data)
         nodata_in = self._check_nodata_in(data, nodata_in)
         grid_props = {'nodata' : nodata_out}
+        metadata = {}
         fdir = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
                                    properties=grid_props, ignore_metadata=ignore_metadata,
                                    **kwargs)
@@ -939,7 +954,8 @@ class Grid(object):
             self._unflatten_fdir(fdir, flat_idx, dirmap)
             fdir = fdir.astype(fdir_orig_type)
         # Prepare output
-        return self._output_handler(dist, inplace, out_name=out_name, **grid_props)
+        return self._output_handler(data=dist, out_name=out_name, properties=grid_props,
+                                    inplace=inplace, metadata=metadata)
 
     def cell_area(self, out_name='area', nodata_out=0, inplace=True, as_crs=None):
         if as_crs is None:
@@ -960,9 +976,11 @@ class Grid(object):
         dy = np.sqrt(dyy**2 + dyx**2)
         dx = np.sqrt(dxy**2 + dxx**2)
         area = dx * dy
+        metadata = {}
         private_props = {'nodata' : nodata_out}
         grid_props = self._generate_grid_props(**private_props)
-        return self._output_handler(area, inplace, out_name=out_name, **grid_props)
+        return self._output_handler(data=area, out_name=out_name, properties=grid_props,
+                                    inplace=inplace, metadata=metadata)
 
     def cell_distances(self, data, out_name='cdist', nodata_in=None, nodata_out=0,
                        inplace=True, as_crs=None, ignore_metadata=False):
@@ -981,6 +999,7 @@ class Grid(object):
         dirmap = self._set_dirmap(dirmap, data)
         nodata_in = self._check_nodata_in(data, nodata_in)
         grid_props = {'nodata' : nodata_out}
+        metadata = {}
         fdir = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
                                    properties=grid_props, ignore_metadata=ignore_metadata,
                                    **kwargs)
@@ -998,7 +1017,8 @@ class Grid(object):
             else:
                 cdist[fdir == direction] = ddiag[fdir == direction]
         # Prepare output
-        return self._output_handler(cdist, inplace, out_name=out_name, **grid_props)
+        return self._output_handler(data=cdist, out_name=out_name, properties=grid_props,
+                                    inplace=inplace, metadata=metadata)
 
     def cell_dh(self, fdir, dem, out_name='dh', inplace=True, nodata_in=None,
                 nodata_out=np.nan, dirmap=None):
@@ -1008,6 +1028,7 @@ class Grid(object):
                                    properties=grid_props, ignore_metadata=ignore_metadata,
                                    **kwargs)
         dem_props = {'nodata' : nodata_out}
+        metadata = {}
         dem = self._input_handler(dem, apply_mask=apply_mask, nodata_view=nodata_in,
                                    properties=grid_props, ignore_metadata=ignore_metadata,
                                    **kwargs)
@@ -1038,7 +1059,8 @@ class Grid(object):
         # Prepare output
         private_props = {'nodata' : nodata_out}
         grid_props = self._generate_grid_props(**private_props)
-        return self._output_handler(dh, inplace, out_name=out_name, **grid_props)
+        return self._output_handler(data=dh, out_name=out_name, properties=grid_props,
+                                    inplace=inplace, metadata=metadata)
 
     def cell_slopes(self, fdir, dem, out_name='slopes',
                     inplace=True, nodata_in=None, nodata_out=np.nan, dirmap=None, as_crs=None):
@@ -1048,15 +1070,17 @@ class Grid(object):
         cdist = self.cell_distances(direction_name, inplace=False, as_crs=as_crs)
         slopes = np.where(self.mask, dh/cdist, nodata_out)
         # Prepare output
+        metadata = {}
         private_props = {'nodata' : nodata_out}
         grid_props = self._generate_grid_props(**private_props)
-        return self._output_handler(slopes, inplace, out_name=out_name, **grid_props)
+        return self._output_handler(data=slopes, out_name=out_name, properties=grid_props,
+                                    inplace=inplace, metadata=metadata)
 
     def _check_nodata_in(self, data, nodata_in, override=None):
         if nodata_in is None:
             if isinstance(data, str):
                 try:
-                    nodata_in = self.grid_props[data]['nodata']
+                    nodata_in = getattr(self, data).viewfinder.nodata
                 except:
                     raise NameError("nodata value for '{0}' not found in instance."
                                     .format(data))
@@ -1065,7 +1089,7 @@ class Grid(object):
         return nodata_in
 
     def _input_handler(self, data, apply_mask=True, nodata_view=None, properties={},
-                       ignore_metadata=False, **kwargs):
+                       ignore_metadata=False, metadata={}, **kwargs):
         required_params = ('bbox', 'shape', 'nodata', 'crs')
         defaults = self.defaults
         # Handle raw data
@@ -1079,9 +1103,9 @@ class Grid(object):
                     else:
                         raise KeyError("Missing required parameter: {0}"
                                        .format(param))
-            viewfinder = ViewFinder(**properties)
-            properties.update({'view': viewfinder})
-            return data
+            viewfinder = RegularViewFinder(**properties)
+            dataset = Dataset(data, viewfinder, metadata=metadata)
+            return dataset
         # Handle named dataset
         elif isinstance(data, str):
             for param in required_params:
@@ -1095,21 +1119,22 @@ class Grid(object):
                     else:
                         raise KeyError("Missing required parameter: {0}"
                                         .format(param))
-            viewfinder = ViewFinder(**properties)
-            properties.update({'view': viewfinder})
+            viewfinder = RegularViewFinder(**properties)
             data = self.view(data, apply_mask=apply_mask, nodata=nodata_view)
-            return data
+            dataset = Dataset(data, viewfinder, metadata=metadata)
+            return dataset
         else:
             raise TypeError('Data must be a numpy ndarray or name string.')
 
-    def _output_handler(self, data, inplace, out_name, **kwargs):
+    def _output_handler(self, data, out_name, properties, inplace, metadata={}):
         # TODO: Should this be rolled into add_data?
+        viewfinder = RegularViewFinder(**properties)
+        dataset = Dataset(data, viewfinder, metadata=metadata)
         if inplace:
-            setattr(self, out_name, data)
-            self.grid_props.update({out_name : {}})
-            self.grid_props[out_name].update(kwargs)
+            setattr(self, out_name, dataset)
+            self.grids.append(out_name)
         else:
-            return data
+            return dataset
 
     def _generate_grid_props(self, **kwargs):
         properties = {}
@@ -1179,27 +1204,6 @@ class Grid(object):
                                   np.repeat(x1[-1], len(y1)), y1)
         return by, uy, lx, rx
 
-    # Not a good idea to do it this way
-    # def to_crs(self, new_crs, old_crs=None, to_regular=False, preserve_units=False):
-    #     old_bbox = self.bbox
-    #     if old_crs is None:
-    #         old_crs = self.crs
-    #     if (isinstance(new_crs, str) or isinstance(new_crs, dict)):
-    #         new_crs = pyproj.Proj(new_crs, preserve_units=preserve_units)
-    #     # TODO: Should test for regularity instead
-    #     self.is_regular = to_regular
-    #     self._grid_indices = self._convert_bbox_indices_crs(old_bbox,
-    #                                                         self.shape,
-    #                                                         old_crs,
-    #                                                         new_crs)
-    #     ymin = self._grid_indices[:, 0].min()
-    #     ymax = self._grid_indices[:, 0].max()
-    #     xmin = self._grid_indices[:, 1].min()
-    #     xmax = self._grid_indices[:, 1].max()
-    #     self._bounds = (xmin, ymin, xmax, ymax)
-    #     self._bbox = self._convert_bbox_crs(self.bbox, old_crs, new_crs)
-    #     self.crs = new_crs
-
     def _flatten_fdir(self, fdir, flat_idx, dirmap, copy=False):
         # WARNING: This modifies fdir in place if copy is set to False!
         if copy:
@@ -1264,7 +1268,7 @@ class Grid(object):
         """
         # get class attributes
         data = getattr(self, data_name)
-        nodata = self.grid_props[data_name]['nodata']
+        nodata = data.nodata
         # get bbox of nonzero entries
         # TODO: This won't work for nans
         nz = np.nonzero(data != nodata)
@@ -1272,8 +1276,8 @@ class Grid(object):
         # if inplace is True, clip all grids to new bbox and set self.bbox
         if inplace:
             selfrows, selfcols = \
-                    self.bbox_indices(self.grid_props[data_name]['bbox'],
-                                      self.grid_props[data_name]['shape'],
+                    self.bbox_indices(data.bbox,
+                                      data.view_shape,
                                       precision=precision)
             new_bbox = (selfcols[nz_ix[2]], selfrows[nz_ix[1]],
                         selfcols[nz_ix[3]], selfrows[nz_ix[0]])
@@ -1297,7 +1301,8 @@ class Grid(object):
 
     @property
     def extent(self):
-        extent = (self._bbox[0], self.bbox[2], self._bbox[1], self._bbox[3])
+        bbox = self.bbox
+        extent = (self.bbox[0], self.bbox[2], self.bbox[1], self.bbox[3])
         return extent
 
     @property
@@ -1384,10 +1389,13 @@ class Grid(object):
                      self.grid_props[data_name]['nodata']
         """
         if old_nodata is None:
-            old_nodata = self.grid_props[data_name]['nodata']
+            old_nodata = getattr(self, data_name).nodata
         data = getattr(self, data_name)
-        np.place(data, data == old_nodata, new_nodata)
-        self.grid_props[data_name]['nodata'] = new_nodata
+        if np.isnan(old_nodata):
+            np.place(data, np.isnan(data), new_nodata)
+        else:
+            np.place(data, data == old_nodata, new_nodata)
+        data.nodata = new_nodata
 
     def catchment_mask(self, mask_source='catch'):
         """
@@ -1401,8 +1409,11 @@ class Grid(object):
         mask_source : string (optional)
                       Dataset on which mask is based (defaults to 'catch')
         """
-        self.mask = (self.view(mask_source, apply_mask=False) !=
-                     self.grid_props[mask_source]['nodata'])
+        nodata = getattr(self, mask_source).nodata
+        if np.isnan(nodata):
+            self.mask = (~np.isnan(self.view(mask_source, apply_mask=False)))
+        else:
+            self.mask = (self.view(mask_source, apply_mask=False) != nodata)
 
     def to_ascii(self, data_name=None, file_name=None, view=True, apply_mask=False, delimiter=' ',
                  **kwargs):
@@ -1428,16 +1439,16 @@ class Grid(object):
         Additional keyword arguments are passed to numpy.savetxt
         """
         if data_name is None:
-            data_name = self.grid_props.keys()
+            data_name = self.grids
         if file_name is None:
-            file_name = self.grid_props.keys()
+            file_name = self.grids
         if isinstance(data_name, str):
             data_name = [data_name]
         if isinstance(file_name, str):
             file_name = [file_name]
         header_space = 9*' '
         for in_name, out_name in zip(data_name, file_name):
-            nodata = self.grid_props[in_name]['nodata']
+            nodata = getattr(self, in_name).nodata
             if view:
                 shape = self.shape
                 bbox = self.bbox
@@ -1445,9 +1456,9 @@ class Grid(object):
                 # format
                 cellsize = self.cellsize
             else:
-                shape = self.grid_props[in_name]['shape']
-                bbox = self.grid_props[in_name]['bbox']
-                cellsize = self.grid_props[in_name]['cellsize']
+                shape = getattr(self, in_name).view_shape
+                bbox = getattr(self, in_name).bbox
+                cellsize = getattr(self, in_name).cellsize
             header = (("ncols{0}{1}\nnrows{0}{2}\nxllcorner{0}{3}\n"
                       "yllcorner{0}{4}\ncellsize{0}{5}\nNODATA_value{0}{6}")
                       .format(header_space,
@@ -1509,10 +1520,12 @@ class Grid(object):
         nodata_in = self._check_nodata_in(fdir, nodata_in)
         fdir_props = {}
         acc_props = {}
-        fdir = self._input_handler(fdir, apply_mask=apply_mask, nodata_view=nodata_in, properties=fdir_props,
+        fdir = self._input_handler(fdir, apply_mask=apply_mask, nodata_view=nodata_in,
+                                   properties=fdir_props,
                                    ignore_metadata=ignore_metadata, **kwargs)
-        acc = self._input_handler(acc, apply_mask=apply_mask, nodata_view=nodata_in, properties=acc_props,
-                                   ignore_metadata=ignore_metadata, **kwargs)
+        acc = self._input_handler(acc, apply_mask=apply_mask, nodata_view=nodata_in,
+                                  properties=acc_props,
+                                  ignore_metadata=ignore_metadata, **kwargs)
         dirmap = self._set_dirmap(dirmap, fdir)
         flat_idx = np.arange(fdir.size)
         fdir_orig_type = fdir.dtype
@@ -1615,9 +1628,9 @@ class Grid(object):
     def _set_dirmap(self, dirmap, direction_name, default_dirmap=(1, 2, 3, 4, 5, 6, 7, 8)):
         if dirmap is None:
             if isinstance(direction_name, str):
-                if direction_name in self.grid_props:
-                    dirmap = self.grid_props[direction_name].setdefault(
-                        'dirmap', default_dirmap)
+                if direction_name in self.grids:
+                    dirmap = (getattr(self, direction_name).metadata
+                              .setdefault('dirmap', default_dirmap))
                 else:
                     raise KeyError("{0} not found in grid instance"
                                    .format(direction_name))
@@ -1760,15 +1773,16 @@ class Grid(object):
         if nodata_in is None:
             if isinstance(data, str):
                 try:
-                    nodata_in = self.grid_props[data]['nodata']
+                    nodata_in = getattr(self, data).nodata
                 except:
                     raise NameError("nodata value for '{0}' not found in instance."
                                     .format(data))
             else:
                 raise KeyError("No 'nodata' value specified.")
-        grid_props = {'nodata' : nodata_out, 'dirmap' : dirmap}
+        grid_props = {'nodata' : nodata_out}
+        metadata = {'dirmap' : dirmap}
         dem = self._input_handler(data, apply_mask=apply_mask, properties=grid_props,
-                                  ignore_metadata=ignore_metadata, **kwargs)
+                                  ignore_metadata=ignore_metadata, metadata=metadata, **kwargs)
         # TODO: Note that this won't work for nans
         dem_mask = np.where(dem.ravel() == nodata_in)[0]
         # TODO: This is repeated from flowdir
@@ -1784,5 +1798,6 @@ class Grid(object):
         sub_props.update({'nodata_in' : 0, 'nodata_out' : nodata_out})
         fdir_flats = self.flowdir(data=drainage_grad, inplace=False, **sub_props)
         fdir_flats[1:-1, 1:-1].flat[low_edge_cells] = nodata_out
-        return self._output_handler(fdir_flats, inplace, out_name=out_name, **grid_props)
+        return self._output_handler(data=fdir_flats, out_name=out_name, inplace=inplace,
+                                    metadata=metadata, **grid_props)
 

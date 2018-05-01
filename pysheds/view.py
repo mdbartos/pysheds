@@ -3,96 +3,189 @@ from scipy import spatial
 from scipy import interpolate
 import pyproj
 
-class ViewFinder():
-    def __init__(self, bbox, shape, mask=None, nodata=None,
-                 crs=pyproj.Proj('+init=epsg:4326'), **kwargs):
-        self._bbox = bbox
-        self._shape = shape
-        self._crs = crs
+class Dataset(np.ndarray):
+    def __new__(cls, input_array, viewfinder, metadata=None):
+        obj = np.asarray(input_array).view(cls)
+        try:
+            assert(issubclass(type(viewfinder), BaseViewFinder))
+        except:
+            raise ValueError("Must initialize with a ViewFinder")
+        obj.viewfinder = viewfinder
+        obj.metadata = metadata
+        return obj
+
+    def __array_finalize__(self, obj):
+        if obj is None:
+            return
+        self.viewfinder = getattr(obj, 'viewfinder', None)
+        self.metadata = getattr(obj, 'metadata', None)
+
+    @property
+    def bbox(self):
+        return self.viewfinder.bbox
+    @bbox.setter
+    def bbox(self, new_bbox):
+        self.viewfinder.bbox = new_bbox
+    @property
+    def coords(self):
+        return self.viewfinder.coords
+    @coords.setter
+    def coords(self, new_coords):
+        self.viewfinder.coords = new_coords
+    @property
+    def view_shape(self):
+        return self.viewfinder.shape
+    @view_shape.setter
+    def view_shape(self, new_shape):
+        self.viewfinder.shape = new_shape
+    @property
+    def mask(self):
+        return self.viewfinder.mask
+    @mask.setter
+    def mask(self, new_mask):
+        self.viewfinder.mask = new_mask
+    @property
+    def nodata(self):
+        return self.viewfinder.nodata
+    @nodata.setter
+    def nodata(self, new_nodata):
+        self.viewfinder.nodata = new_nodata
+    @property
+    def crs(self):
+        return self.viewfinder.crs
+    @crs.setter
+    def crs(self, new_crs):
+        self.viewfinder.crs = new_crs
+    @property
+    def view_size(self):
+        return np.prod(self.viewfinder.shape)
+    @property
+    def extent(self):
+        bbox = self.viewfinder.bbox
+        extent = (bbox[0], bbox[2], bbox[1], bbox[3])
+        return extent
+    @property
+    def cellsize(self):
+        dy, dx = self._dy_dx()
+        # TODO: Assuming square cells
+        cellsize = (dy + dx) / 2
+        return cellsize
+    @property
+    def properties(self):
+        property_dict = {
+            'bbox' : self.viewfinder.bbox,
+            'shape' : self.viewfinder.shape,
+            'crs' : self.viewfinder.crs,
+            'nodata' : self.viewfinder.nodata
+        }
+        return property_dict
+
+    def _dy_dx(self):
+        x0, y0, x1, y1 = self.bbox
+        dy = np.abs(y1 - y0) / (self.viewfinder.shape[0])
+        dx = np.abs(x1 - x0) / (self.viewfinder.shape[1])
+        return dy, dx
+
+class BaseViewFinder():
+    def __init__(self, bbox=None, coords=None, shape=None, mask=None, nodata=None,
+                 crs=pyproj.Proj('+init=epsg:4326'), y_coord_ix=0, x_coord_ix=1):
+        if bbox is not None:
+            self.bbox = bbox
+        else:
+            self.bbox = (0,0,0,0)
+        if coords is not None:
+            self.coords = coords
+        else:
+            self.coords = np.asarray([0, 0]).reshape(1, 2)
+        if shape is not None:
+            self.shape = shape
+        else:
+            self.shape = (0,0)
+        self.crs = crs
         if nodata is None:
-            self._nodata = np.nan
+            self.nodata = np.nan
         else:
-            self._nodata = nodata
+            self.nodata = nodata
         if mask is None:
-            self._mask = np.ones(shape).astype(bool)
+            self.mask = np.ones(shape).astype(bool)
         else:
-            self._mask = mask
-        for k, v in kwargs.items():
-            setattr(self, k, v)
+            self.mask = mask
+        self.y_coord_ix = y_coord_ix
+        self.x_coord_ix = x_coord_ix
 
     @property
     def bbox(self):
         return self._bbox
-
     @bbox.setter
     def bbox(self, new_bbox):
         self._bbox = new_bbox
-
+    @property
+    def coords(self):
+        return self._coords
+    @coords.setter
+    def coords(self, new_coords):
+        self._coords = new_coords
     @property
     def shape(self):
         return self._shape
-
     @shape.setter
     def shape(self, new_shape):
         self._shape = new_shape
-
     @property
     def mask(self):
         return self._mask
-
     @mask.setter
     def mask(self, new_mask):
         self._mask = new_mask
-
     @property
     def nodata(self):
         return self._nodata
-
     @nodata.setter
     def nodata(self, new_nodata):
         self._nodata = new_nodata
-
     @property
     def crs(self):
         return self._crs
-
     @crs.setter
     def crs(self, new_crs):
         self._crs = new_crs
-
     @property
     def size(self):
         return np.prod(self.shape)
-
     @property
     def extent(self):
-        extent = (self._bbox[0], self._bbox[2], self._bbox[1], self._bbox[3])
+        bbox = self.bbox
+        extent = (bbox[0], bbox[2], bbox[1], bbox[3])
         return extent
+    @property
+    def properties(self):
+        property_dict = {
+            'bbox' : self.bbox,
+            'shape' : self.shape,
+            'crs' : self.crs,
+            'nodata' : self.nodata
+        }
+        return property_dict
 
+class RegularViewFinder(BaseViewFinder):
+    def __init__(self, bbox, shape, mask=None, nodata=None,
+                 crs=pyproj.Proj('+init=epsg:4326'),
+                 y_coord_ix=0, x_coord_ix=1):
+        super().__init__(bbox=bbox, shape=shape, mask=mask, nodata=nodata, crs=crs)
+
+    @property
+    def bbox(self):
+        return self._bbox
+    @bbox.setter
+    def bbox(self, new_bbox):
+        self._bbox = new_bbox
     @property
     def coords(self):
         coordinates = np.meshgrid(*self.bbox_indices(self.bbox, self.shape), indexing='ij')
         return np.vstack(np.dstack(coordinates))
-
-    def move_window(self, dxmin, dymin, dxmax, dymax):
-        """
-        Move bounding box window by integer indices
-        """
-        cell_height, cell_width  = self._dy_dx()
-        nrows_old, ncols_old = self.shape
-        xmin_old, ymin_old, xmax_old, ymax_old = self.bbox
-        new_bbox = (xmin_old + dxmin*cell_width, ymin_old + dymin*cell_height,
-                    xmax_old + dxmax*cell_width, ymax_old + dymax*cell_height)
-        new_shape = (nrows_old + dymax - dymin,
-                     ncols_old + dxmax - dxmin)
-        new_mask = np.ones(new_shape).astype(bool)
-        mask_values = self._mask[max(dymin, 0):min(nrows_old + dymax, nrows_old),
-                                 max(dxmin, 0):min(ncols_old + dxmax, ncols_old)]
-        new_mask[max(0, dymax):max(0, dymax) + mask_values.shape[0],
-                 max(0, -dxmin):max(0, -dxmin) + mask_values.shape[1]] = mask_values
-        self.bbox = new_bbox
-        self.shape = new_shape
-        self.mask = new_mask
+    @coords.setter
+    def coords(self, new_coords):
+        pass
 
     def bbox_indices(self, bbox=None, shape=None, precision=7, col_ascending=True,
                      row_ascending=False):
@@ -130,78 +223,40 @@ class ViewFinder():
         dx = np.abs(x1 - x0) / (self.shape[1])
         return dy, dx
 
-class IrregularViewFinder():
+    def move_window(self, dxmin, dymin, dxmax, dymax):
+        """
+        Move bounding box window by integer indices
+        """
+        cell_height, cell_width  = self._dy_dx()
+        nrows_old, ncols_old = self.shape
+        xmin_old, ymin_old, xmax_old, ymax_old = self.bbox
+        new_bbox = (xmin_old + dxmin*cell_width, ymin_old + dymin*cell_height,
+                    xmax_old + dxmax*cell_width, ymax_old + dymax*cell_height)
+        new_shape = (nrows_old + dymax - dymin,
+                     ncols_old + dxmax - dxmin)
+        new_mask = np.ones(new_shape).astype(bool)
+        mask_values = self._mask[max(dymin, 0):min(nrows_old + dymax, nrows_old),
+                                 max(dxmin, 0):min(ncols_old + dxmax, ncols_old)]
+        new_mask[max(0, dymax):max(0, dymax) + mask_values.shape[0],
+                 max(0, -dxmin):max(0, -dxmin) + mask_values.shape[1]] = mask_values
+        self.bbox = new_bbox
+        self.shape = new_shape
+        self.mask = new_mask
+
+class IrregularViewFinder(BaseViewFinder):
     def __init__(self, coords, shape=None, mask=None, nodata=None,
                  crs=pyproj.Proj('+init=epsg:4326'),
-                 y_coord_ix=0, x_coord_ix=1, **kwargs):
-        self._coords = coords
+                 y_coord_ix=0, x_coord_ix=1):
         if shape is None:
-            self._shape = len(coords)
-        else:
-            self._shape = shape
-        self._crs = crs
-        if nodata is None:
-            self._nodata = np.nan
-        else:
-            self._nodata = nodata
-        if mask is None:
-            self._mask = np.ones(shape).astype(bool)
-        else:
-            self._mask = mask
-        self.y_coord_ix = y_coord_ix
-        self.x_coord_ix = x_coord_ix
-        for k, v in kwargs.items():
-            setattr(self, k, v)
-
+            shape = len(coords)
+        super().__init__(coords=coords, shape=shape, mask=mask, nodata=nodata, crs=crs,
+                         y_coord_ix=y_coord_ix, x_coord_ix=x_coord_ix)
     @property
     def coords(self):
         return self._coords
-
     @coords.setter
     def coords(self, new_coords):
         self._coords = new_coords
-
-    @property
-    def shape(self):
-        return self._shape
-
-    @shape.setter
-    def shape(self, new_shape):
-        self._shape = new_shape
-
-    @property
-    def mask(self):
-        return self._mask
-
-    @mask.setter
-    def mask(self, new_mask):
-        self._mask = new_mask
-
-    @property
-    def nodata(self):
-        return self._nodata
-
-    @nodata.setter
-    def nodata(self, new_nodata):
-        self._nodata = new_nodata
-
-    @property
-    def crs(self):
-        return self._crs
-
-    @crs.setter
-    def crs(self, new_crs):
-        self._crs = new_crs
-
-    @property
-    def size(self):
-        return np.prod(self.shape)
-
-    @property
-    def extent(self):
-        extent = (self._bbox[0], self._bbox[2], self._bbox[1], self._bbox[3])
-        return extent
-
     @property
     def bbox(self):
         ymin = self.coords[:, self.y_coord_ix].min()
@@ -209,6 +264,9 @@ class IrregularViewFinder():
         xmin = self.coords[:, self.x_coord_ix].min()
         xmax = self.coords[:, self.x_coord_ix].max()
         return xmin, ymin, xmax, ymax
+    @bbox.setter
+    def bbox(self, new_bbox):
+        pass
 
 class RegularGridViewer():
     def __init__(self):

@@ -64,7 +64,7 @@ def test_to_ascii():
     grid.catchment(x, y, data='dir', dirmap=dirmap, out_name='catch',
                 recursionlimit=15000, xytype='label')
     grid.read_ascii('test_dir.asc', 'dir_output', dtype=np.uint8)
-    assert((grid.dir_output == grid.view('catch')).all())
+    assert((grid.dir_output == grid.view('catch', nodata=255)).all())
 
 # def test_crs_conversion():
 #     catch = grid.view('catch')

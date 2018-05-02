@@ -5,6 +5,7 @@ import pandas as pd
 import sys
 import ast
 import copy
+from affine import Affine
 try:
     import scipy.sparse
     from scipy.sparse import csgraph
@@ -94,26 +95,29 @@ class Grid(object):
     frac : fractional contributing area grid
     """
 
-    def __init__(self, bbox=(0,0,0,0), shape=(0,0), nodata=0,
-                 crs=pyproj.Proj('+init=epsg:4326')):
-        self._bbox = bbox
+    def __init__(self, affine=Affine(0,0,0,0,0,0), shape=(1,1), nodata=0,
+                 crs=pyproj.Proj('+init=epsg:4326'),
+                 mask=None):
+        self.affine = affine
         self.shape = shape
         self.nodata = nodata
-        self._crs = crs
+        self.crs = crs
+        if mask is None:
+            self.mask = np.ones(shape)
         self.grids = []
 
     @property
     def defaults(self):
         props = {
-            'bbox' : (0,0,0,0),
-            'shape' : (0,0),
+            'affine' : Affine(0,0,0,0,0,0),
+            'shape' : (1,1),
             'nodata' : 0,
             'crs' : pyproj.Proj('+init=epsg:4326'),
         }
         return props
 
-    def add_gridded_data(self, data, data_name, bbox=None, shape=None, cellsize=None,
-                         crs=None, nodata=None, mask=None, data_attrs={}):
+    def add_gridded_data(self, data, data_name, affine=None, shape=None, crs=None,
+                         nodata=None, mask=None, data_attrs={}):
         """
         A generic method for adding data into a Grid instance.
         Inserts data into a named attribute of Grid (name of attribute
@@ -132,8 +136,6 @@ class Grid(object):
                          'acc' : flow accumulation (upstream area) data
                          'catch' : catchment grid
                          'frac' : fractional contributing area
-        bbox : tuple (length 4)
-               Bounding box of data.
         shape : tuple of ints (length 2)
                 Shape (rows, columns) of data.
         cellsize : float or int
@@ -149,45 +151,45 @@ class Grid(object):
                                  'routing' : 'd8'}
         """
         if mask is None:
-            mask = np.ones(self.shape, dtype=np.bool)
+            mask = np.ones(shape, dtype=np.bool)
         if not isinstance(data, np.ndarray):
             raise TypeError('Input data must be ndarray')
         # if there are no datasets, initialize bbox, shape,
         # cellsize and crs based on incoming data
         if len(self.grids) < 1:
-            # check validity of bbox
-            if ((hasattr(bbox, "__len__")) and (not isinstance(bbox, str))
-                    and (len(bbox) == 4)):
-                bbox = tuple(bbox)
-            else:
-                raise TypeError('bbox must be a tuple of length 4.')
             # check validity of shape
             if ((hasattr(shape, "__len__")) and (not isinstance(shape, str))
                     and (len(shape) == 2) and (isinstance(sum(shape), int))):
                 shape = tuple(shape)
             else:
                 raise TypeError('shape must be a tuple of ints of length 2.')
-            # check validity of cellsize
-            if not isinstance(cellsize, (int, float)):
-                raise TypeError('cellsize must be an int or float.')
             if crs is not None:
                 if isinstance(crs, pyproj.Proj):
                     pass
-                if isinstance(crs, dict) or isinstance(crs, str):
+                elif isinstance(crs, dict) or isinstance(crs, str):
                     crs = pyproj.Proj(crs)
+                else:
+                    raise TypeError('Valid crs required')
+            if isinstance(affine, Affine):
+                pass
+            else:
+                raise TypeError('affine transformation matrix required')
+
             # initialize instance metadata
-            self._bbox = bbox
+            self.affine = affine
             self.shape = shape
             self.crs = crs
             self.nodata = nodata
             self.mask = mask
         # assign new data to attribute; record nodata value
-        viewfinder = RegularViewFinder(bbox=bbox, shape=shape, mask=mask, nodata=nodata, crs=crs)
+        viewfinder = RegularViewFinder(affine=affine, shape=shape, mask=mask, nodata=nodata,
+                                       crs=crs)
         data = Dataset(data, viewfinder, metadata=data_attrs)
         self.grids.append(data_name)
         setattr(self, data_name, data)
 
-    def read_ascii(self, data, data_name, skiprows=6, crs=None, data_attrs={}, **kwargs):
+    def read_ascii(self, data, data_name, skiprows=6, crs=pyproj.Proj('+init=epsg:4326'),
+                   xll='lower', yll='lower', data_attrs={}, **kwargs):
         """
         Reads data from an ascii file into a named attribute of Grid
         instance (name of attribute determined by 'data_name').
@@ -226,12 +228,11 @@ class Grid(object):
             cellsize = ast.literal_eval(header.readline().split()[1])
             nodata = ast.literal_eval(header.readline().split()[1])
             shape = (nrows, ncols)
-            bbox = (xll, yll, xll + ncols * cellsize, yll + nrows * cellsize)
         data = np.loadtxt(data, skiprows=skiprows, **kwargs)
         nodata = data.dtype.type(nodata)
-        self.add_gridded_data(data=data, data_name=data_name, bbox=bbox, shape=shape,
-                              cellsize=cellsize, crs=crs, nodata=nodata,
-                              data_attrs=data_attrs)
+        affine = Affine(cellsize, 0, xll, 0, -cellsize, yll + nrows * cellsize)
+        self.add_gridded_data(data=data, data_name=data_name, affine=affine, shape=shape,
+                              crs=crs, nodata=nodata, data_attrs=data_attrs)
 
     def read_raster(self, data, data_name, band=1, window=None, window_crs=None,
                     data_attrs={}, **kwargs):
@@ -272,12 +273,12 @@ class Grid(object):
         with rasterio.open(data, **kwargs) as f:
             crs = pyproj.Proj(f.crs, preserve_units=True)
             if window is None:
-                bbox = tuple(f.bounds)
                 shape = f.shape
                 if len(f.indexes) > 1:
                     data = np.ma.filled(f.read_band(band))
                 else:
                     data = np.ma.filled(f.read())
+                affine = f.affine
             else:
                 if window_crs is not None:
                     if window_crs.srs != crs.srs:
@@ -287,21 +288,19 @@ class Grid(object):
                         window = (extent[0][0], extent[1][0], extent[0][1], extent[1][1])
                 # If window crs not specified, assume it's in raster crs
                 ix_window = f.window(*window)
-                bbox = tuple(window)
                 shape = (ix_window[0][1] - ix_window[0][0],
                          ix_window[1][1] - ix_window[1][0])
                 if len(f.indexes) > 1:
                     data = np.ma.filled(f.read_band(band, window=ix_window))
                 else:
                     data = np.ma.filled(f.read(window=ix_window))
-            cellsize = f.affine[0]
+                affine = f.window_transform(ix_window)
             nodata = f.nodatavals[0]
             data = data.reshape(shape)
         if nodata is not None:
             nodata = data.dtype.type(nodata)
-        self.add_gridded_data(data=data, data_name=data_name, bbox=bbox, shape=shape,
-                              cellsize=cellsize, crs=crs, nodata=nodata,
-                              data_attrs=data_attrs)
+        self.add_gridded_data(data=data, data_name=data_name, affine=affine, shape=shape,
+                              crs=crs, nodata=nodata, data_attrs=data_attrs)
 
     @classmethod
     def from_ascii(cls, path, data_name, **kwargs):
@@ -315,39 +314,36 @@ class Grid(object):
         newinstance.read_raster(path, data_name, **kwargs)
         return newinstance
 
-    def bbox_indices(self, bbox=None, shape=None, precision=7, col_ascending=True,
-                     row_ascending=False):
+    def grid_indices(self, affine=None, shape=None, col_ascending=True, row_ascending=False):
         """
         Return row and column coordinates of a bounding box at a
         given cellsize.
  
         Parameters
         ----------
-        bbox : tuple of floats or ints (length 4)
-               bbox of new data. Defaults to instance bbox.
         shape : tuple of ints (length 2)
                 The shape of the 2D array (rows, columns). Defaults
                 to instance shape.
         precision : int
                     Precision to use when matching geographic coordinates.
         """
-        if bbox is None:
-            bbox = self._bbox
+        if affine is None:
+            affine = self.affine
         if shape is None:
             shape = self.shape
-        rows = np.linspace(bbox[1], bbox[3], shape[0], endpoint=False)
-        cols = np.linspace(bbox[0], bbox[2], shape[1], endpoint=False)
-        if not row_ascending:
-            rows = rows[::-1]
+        y_ix = np.arange(shape[0])
+        x_ix = np.arange(shape[1])
+        if row_ascending:
+            y_ix = y_ix[::-1]
         if not col_ascending:
-            cols = cols[::-1]
-        rows = np.around(rows, precision)
-        cols = np.around(cols, precision)
-        return rows, cols
+            x_ix = x_ix[::-1]
+        x, _ = affine * np.vstack([x_ix, np.zeros(shape[1])])
+        _, y = affine * np.vstack([np.zeros(shape[0]), y_ix])
+        return y, x
 
     def view(self, data, data_view=None, target_view=None, apply_mask=True,
              nodata=None, interpolation='nearest', as_crs=None, return_coords=False,
-             kx=3, ky=3, s=0, tolerance=0.01, dtype=None, metadata={}):
+             kx=3, ky=3, s=0, tolerance=1e-3, dtype=None, metadata={}):
         """
         Return a copy of a gridded dataset clipped to the bounding box
         (self.bbox) with cells outside the catchment mask (self.mask)
@@ -393,9 +389,8 @@ class Grid(object):
                 nodata = data_view.nodata
         # If no target view provided, construct one based on grid parameters
         if target_view is None:
-            target_view = RegularViewFinder(bbox=self.bbox, shape=self.shape,
-                                     mask=self.mask, crs=self.crs,
-                                     nodata=nodata)
+            target_view = RegularViewFinder(affine=self.affine, shape=self.shape,
+                                            mask=self.mask, crs=self.crs, nodata=nodata)
         # If viewing at a different crs, convert coordinates
         if as_crs is not None:
             assert(isinstance(as_crs, pyproj.Proj))
@@ -429,20 +424,22 @@ class Grid(object):
         if data_is_grid and view_is_grid:
             # If doing nearest neighbor search, use fast sorted search
             if interpolation == 'nearest':
-                array_view = RegularGridViewer._view_searchsorted(data, data_view, target_view)
+                array_view = RegularGridViewer._view_affine(data, data_view, target_view)
             # If spline interpolation is needed, use RectBivariate
             elif interpolation == 'spline':
                 # If latitude/longitude, use RectSphereBivariate
                 if target_view.crs.is_latlong():
                     array_view = RegularGridViewer._view_rectspherebivariate(data, data_view,
                                                                              target_view,
-                                                                             tolerance=tolerance,
+                                                                             x_tolerance=tolerance,
+                                                                             y_tolerance=tolerance,
                                                                              kx=kx, ky=ky, s=s)
                 # If not latitude/longitude, use RectBivariate
                 else:
                     array_view = RegularGridViewer._view_rectbivariate(data, data_view,
                                                                        target_view,
-                                                                       tolerance=tolerance,
+                                                                       x_tolerance=tolerance,
+                                                                       y_tolerance=tolerance,
                                                                        kx=kx, ky=ky, s=s)
             # If some other interpolation method is needed, use griddata
             else:
@@ -452,16 +449,20 @@ class Grid(object):
         else:
             array_view = IrregularGridViewer._view_griddata(data, data_view, target_view,
                                                             method=interpolation)
+        # TODO: This could be dangerous if it returns an irregular view
         array_view = Dataset(array_view, target_view, metadata=metadata)
-        # Ensure masking is safe
+        # Ensure masking is safe by checking datatype
         if dtype is None:
             dtype = max(np.min_scalar_type(nodata), np.min_scalar_type(array_view.max()),
                         np.min_scalar_type(array_view.min()))
+            # For matplotlib imshow compatibility
             if issubclass(dtype.type, np.floating):
                 dtype = max(dtype, np.dtype(np.float32))
         array_view = array_view.astype(dtype)
+        # Apply mask
         if apply_mask:
             np.place(array_view, ~mask, nodata)
+        # Return output
         if return_coords:
             return array_view, target_view.coords
         else:
@@ -483,7 +484,7 @@ class Grid(object):
         return self._output_handler(data=data, out_name=out_name, properties=grid_props,
                                     inplace=inplace, metadata=metadata)
 
-    def nearest_cell(self, x, y, bbox=None, shape=None):
+    def nearest_cell(self, x, y, affine=None, shape=None):
         """
         Returns the index of the cell (column, row) closest
         to a given geographical coordinate.
@@ -495,18 +496,12 @@ class Grid(object):
         y : int or float
             y coordinate.
         """
-        if not bbox:
-            bbox = self._bbox
+        if not affine:
+            bbox = self.affine
         if not shape:
             shape = self.shape
-        dy, dx = self._dy_dx()
-        # Note: this speedup assumes grid cells are square
-        y_ix, x_ix = self.bbox_indices(self._bbox, self.shape)
-        y_ix += dy / 2.0
-        x_ix += dx / 2.0
-        desired_y = np.argmin(np.abs(y_ix - y))
-        desired_x = np.argmin(np.abs(x_ix - x))
-        return desired_x, desired_y
+        col, row = np.around(~affine * (x, y)).astype(int)
+        return col, row
 
     def flowdir(self, data=None, out_name='dir', nodata_in=None, nodata_out=0,
                 pits=-1, flats=-1, dirmap=(1, 2, 3, 4, 5, 6, 7, 8), inplace=True,
@@ -588,7 +583,7 @@ class Grid(object):
 
     def catchment(self, x, y, data=None, pour_value=None, out_name='catch', dirmap=None,
                   nodata_in=None, nodata_out=0, xytype='index', recursionlimit=15000,
-                  inplace=True, pad=True, apply_mask=False, ignore_metadata=False, **kwargs):
+                  inplace=True, apply_mask=False, ignore_metadata=False, **kwargs):
         """
         Delineates a watershed from a given pour point (x, y).
  
@@ -648,14 +643,8 @@ class Grid(object):
         cdir = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
                                    properties=grid_props, ignore_metadata=ignore_metadata,
                                    **kwargs)
-        bbox = grid_props['bbox']
         # Pad the rim
-        if pad:
-            cdir = np.pad(cdir, (1,1), mode='constant')
-            offset = 1
-        else:
-            left, right, top, bottom = self._pop_rim(fdir, nodata=nodata_in)
-            offset = 0
+        left, right, top, bottom = self._pop_rim(cdir, nodata=nodata_in)
         try:
             # get shape of padded flow direction array, then flatten
             padshape = cdir.shape
@@ -665,11 +654,9 @@ class Grid(object):
             # TODO: This relies on the bbox of the grid instance, not the dataset
             # Valid if the dataset is a view.
             if xytype == 'label':
-                x, y = self.nearest_cell(x, y, bbox,
-                                        (padshape[0] - offset,
-                                         padshape[1] - offset))
+                x, y = self.nearest_cell(x, y, cdir.affine, padshape)
             # get the flattened index of the pour point
-            pour_point = np.ravel_multi_index(np.array([y + offset, x + offset]),
+            pour_point = np.ravel_multi_index(np.array([y, x]),
                                               padshape)
             # reorder direction mapping to work with select_surround_ravel()
             r_dirmap = np.array(dirmap)[[4, 5, 6, 7, 0, 1, 2, 3]].tolist()
@@ -686,9 +673,6 @@ class Grid(object):
                 np.place(outcatch, outcatch == 0, nodata_out)
             # set values of output array based on 'collected' cells
             outcatch.flat[collect] = cdir[collect]
-            # remove outer rim, delete temporary arrays
-            if pad:
-                outcatch = outcatch[1:-1, 1:-1]
             # if pour point needs to be a special value, set it
             if pour_value is not None:
                 outcatch[y, x] = pour_value
@@ -698,10 +682,7 @@ class Grid(object):
             # reset recursion limit
             sys.setrecursionlimit(1000)
             cdir = cdir.reshape(padshape)
-            if pad:
-                cdir = cdir[1:-1, 1:-1]
-            else:
-                self._replace_rim(cdir, left, right, top, bottom)
+            self._replace_rim(cdir, left, right, top, bottom)
         return self._output_handler(data=outcatch, out_name=out_name, properties=grid_props,
                                     inplace=inplace, metadata=metadata)
 
@@ -742,7 +723,7 @@ class Grid(object):
             columns=np.linspace(self.bbox[0], self.bbox[2],
                                 self.shape[1], endpoint=False)
                 )
-        otherrows, othercols = self.bbox_indices(other.bbox, other.shape)
+        otherrows, othercols = self.grid_indices(other.affine, other.shape)
         # reindex self to other based on column labels and fill nulls with
         # nearest neighbor
         result = (selfdf.reindex(otherrows, method='nearest')
@@ -912,7 +893,6 @@ class Grid(object):
         fdir = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
                                    properties=grid_props, ignore_metadata=ignore_metadata,
                                    **kwargs)
-        bbox = grid_props['bbox']
         # Construct flat index onto flow direction array
         flat_idx = np.arange(fdir.size)
         fdir_orig_type = fdir.dtype
@@ -930,7 +910,7 @@ class Grid(object):
             startnodes, endnodes = self._construct_matching(fdir, flat_idx,
                                                             dirmap=dirmap)
             if xytype == 'label':
-                x, y = self.nearest_cell(x, y, bbox, fdir.shape)
+                x, y = self.nearest_cell(x, y, fdir.affine, fdir.shape)
             # TODO: Currently the size of weights is hard to understand
             if weights is not None:
                 weights = weights.ravel()
@@ -966,7 +946,7 @@ class Grid(object):
             if as_crs.is_latlong():
                 warnings.warn(('CRS is geographic. Area will not have meaningful '
                             'units.'))
-        indices = np.vstack(np.dstack(np.meshgrid(*self.bbox_indices(),
+        indices = np.vstack(np.dstack(np.meshgrid(*self.grid_indices(),
                                                   indexing='ij')))
         # TODO: Add to_crs conversion here
         if as_crs:
@@ -992,7 +972,7 @@ class Grid(object):
             if as_crs.is_latlong():
                 warnings.warn(('CRS is geographic. Area will not have meaningful '
                             'units.'))
-        indices = np.vstack(np.dstack(np.meshgrid(*self.bbox_indices(),
+        indices = np.vstack(np.dstack(np.meshgrid(*self.grid_indices(),
                                                   indexing='ij')))
         if as_crs:
             indices = self._convert_grid_indices_crs(indices, self.crs, as_crs)
@@ -1090,10 +1070,10 @@ class Grid(object):
 
     def _input_handler(self, data, apply_mask=True, nodata_view=None, properties={},
                        ignore_metadata=False, metadata={}, **kwargs):
-        required_params = ('bbox', 'shape', 'nodata', 'crs')
+        required_params = ('affine', 'shape', 'nodata', 'crs')
         defaults = self.defaults
         # Handle raw data
-        if isinstance(data, np.ndarray):
+        if (isinstance(data, np.ndarray) or isinstance(data, Dataset)):
             for param in required_params:
                 if not param in properties:
                     if param in kwargs:
@@ -1138,7 +1118,7 @@ class Grid(object):
 
     def _generate_grid_props(self, **kwargs):
         properties = {}
-        required = ('bbox', 'shape', 'nodata', 'crs')
+        required = ('affine', 'shape', 'nodata', 'crs')
         properties.update(kwargs)
         for param in required:
             properties[param] = properties.setdefault(param,
@@ -1180,8 +1160,8 @@ class Grid(object):
         new_bbox = (x2[0], y2[0], x2[1], y2[1])
         return new_bbox
 
-    def _convert_bbox_indices_crs(self, bbox, shape, old_crs, new_crs):
-        y1, x1 = self.bbox_indices(bbox=bbox, shape=shape)
+    def _convert_grid_indices_crs(self, affine, shape, old_crs, new_crs):
+        y1, x1 = self.grid_indices(affine=affine, shape=shape)
         yx1 = np.vstack(np.dstack(np.meshgrid(y1, x1, indexing='ij')))
         yx2 = self._convert_grid_indices_crs(yx1, old_crs, new_crs)
         return yx2
@@ -1192,8 +1172,8 @@ class Grid(object):
         yx2 = np.column_stack([y2, x2])
         return yx2
 
-    def _convert_outer_indices_crs(self, bbox, shape, old_crs, new_crs):
-        y1, x1 = self.bbox_indices(bbox=bbox, shape=shape)
+    def _convert_outer_indices_crs(self, affine, shape, old_crs, new_crs):
+        y1, x1 = self.grid_indices(affine=affine, shape=shape)
         lx, _ = pyproj.transform(old_crs, new_crs,
                                   x1, np.repeat(y1[0], len(x1)))
         rx, _ = pyproj.transform(old_crs, new_crs,
@@ -1249,7 +1229,8 @@ class Grid(object):
         endnodes = fdir.flat[flat_idx]
         return startnodes, endnodes
 
-    def clip_to(self, data_name, precision=7, inplace=True, **kwargs):
+    def clip_to(self, data_name, precision=7, inplace=True, apply_mask=True, pad=(0,0,0,0),
+                **kwargs):
         """
         Clip grid to bbox representing the smallest area that contains all
         non-null data for a given dataset. If inplace is True, will set
@@ -1270,30 +1251,48 @@ class Grid(object):
         data = getattr(self, data_name)
         nodata = data.nodata
         # get bbox of nonzero entries
-        # TODO: This won't work for nans
-        nz = np.nonzero(data != nodata)
-        nz_ix = (nz[0].min() - 1, nz[0].max(), nz[1].min(), nz[1].max() + 1)
+        if np.isnan(data.nodata):
+            mask = (~np.isnan(data))
+            nz = np.nonzero(mask)
+        else:
+            mask = (data != nodata)
+            nz = np.nonzero(mask)
+        # TODO: Something is messed up with the padding
+        yi_min = nz[0].min() - pad[1]
+        yi_max = nz[0].max() + pad[3]
+        xi_min = nz[1].min() - pad[0]
+        xi_max = nz[1].max() + pad[2]
+        xul, yul = data.affine * (xi_min, yi_min)
+        xlr, ylr = data.affine * (xi_max + 1, yi_max + 1)
         # if inplace is True, clip all grids to new bbox and set self.bbox
         if inplace:
-            selfrows, selfcols = \
-                    self.bbox_indices(data.bbox,
-                                      data.view_shape,
-                                      precision=precision)
-            new_bbox = (selfcols[nz_ix[2]], selfrows[nz_ix[1]],
-                        selfcols[nz_ix[3]], selfrows[nz_ix[0]])
-            # set self.bbox to clipped bbox
-            self.set_bbox(new_bbox, **kwargs)
+            new_affine = Affine(data.affine.a, data.affine.b, xul,
+                                data.affine.d, data.affine.e, yul)
+            ncols, nrows = ~new_affine * (xlr, ylr)
+            np.testing.assert_almost_equal(nrows, round(nrows), decimal=precision)
+            np.testing.assert_almost_equal(ncols, round(ncols), decimal=precision)
+            ncols, nrows = np.around([ncols, nrows]).astype(int)
+            self.affine = new_affine
+            self.shape = (nrows, ncols)
+            if apply_mask:
+                mask = np.pad(mask, ((pad[1], pad[3]),(pad[0], pad[2])), mode='constant',
+                              constant_values=0).astype(bool)
+                self.mask = mask[yi_min + pad[1] : yi_max + pad[3] + 1,
+                                 xi_min + pad[0] : xi_max + pad[2] + 1]
+            else:
+                self.mask = np.ones((nrows, ncols)).astype(bool)
         else:
             # if inplace is False, return the clipped data
-            return data[nz_ix[0]:nz_ix[1], nz_ix[2]:nz_ix[3]]
+            # TODO: This will fail if there is padding because of negative index
+            return data[yi_min:yi_max+1, xi_min:xi_max+1]
 
     @property
     def bbox(self):
-        return self._bbox
-
-    @bbox.setter
-    def bbox(self, new_bbox):
-        self.set_bbox(new_bbox)
+        shape = self.shape
+        xmin, ymax = self.affine * (0,0)
+        xmax, ymin = self.affine * (shape[1] + 1, shape[0] + 1)
+        _bbox = (xmin, ymin, xmax, ymax)
+        return _bbox
 
     @property
     def size(self):
@@ -1315,64 +1314,20 @@ class Grid(object):
         self._crs = new_crs
 
     @property
+    def affine(self):
+        return self._affine
+
+    @affine.setter
+    def affine(self, new_affine):
+        assert isinstance(new_affine, Affine)
+        self._affine = new_affine
+
+    @property
     def cellsize(self):
         dy, dx = self._dy_dx()
         # TODO: Assuming square cells
         cellsize = (dy + dx) / 2
         return cellsize
-
-    def set_bbox(self, new_bbox, precision=7):
-        """
-        Set the bounding box of the class instance (self.bbox). If the new
-        bbox is not alignable to self.cellsize, each entry is automatically
-        rounded such that the bbox is alignable.
- 
-        Parameters
-        ----------
-        new_bbox : tuple
-                   New bbox to use (xmin, ymin, xmax, ymax).
-        precision : int
-                    Precision to use when matching geographic coordinates.
-        """
-        # check validity of new bbox
-        if ((hasattr(new_bbox, "__len__")) and (not isinstance(new_bbox, str))
-                and (len(new_bbox) == 4)):
-            new_bbox = tuple(new_bbox)
-        else:
-            raise TypeError('new_bbox must be a tuple of length 4.')
-        # check if alignable; if not, round unaligned bbox entries to nearest
-        dy, dx = self._dy_dx()
-        new_bbox = np.asarray(new_bbox)
-        err = np.abs(new_bbox)
-        err[[1, 3]] = err[[1, 3]] % dy
-        err[[0, 2]] = err[[0, 2]] % dx
-        try:
-            np.testing.assert_almost_equal(err, np.zeros(len(new_bbox)),
-                                           decimal=precision)
-        except AssertionError:
-            err_bbox = new_bbox
-            direction = np.where(new_bbox > 0.0, 1, -1)
-            new_bbox = new_bbox - (err * direction)
-            print('Unalignable bbox provided: {0}.\nRounding to {1}'.format(err_bbox,
-                  new_bbox))
-        # construct arrays representing old bbox coords
-        selfrows, selfcols = self.bbox_indices(self.bbox, self.shape)
-        # construct arrays representing coordinates of new grid
-        nrows = ((new_bbox[3] - new_bbox[1]) / dy)
-        ncols = ((new_bbox[2] - new_bbox[0]) / dx)
-        np.testing.assert_almost_equal(nrows, round(nrows), decimal=precision)
-        np.testing.assert_almost_equal(ncols, round(ncols), decimal=precision)
-        rows = np.linspace(new_bbox[1], new_bbox[3],
-                           round(nrows), endpoint=False)
-        cols = np.linspace(new_bbox[0], new_bbox[2],
-                           round(ncols), endpoint=False)
-        # set class attributes
-        self._bbox = tuple(new_bbox)
-        self.shape = tuple([len(rows), len(cols)])
-        if hasattr(self, 'catch'):
-            self.catchment_mask()
-        else:
-            self.mask = np.ones(self.shape, dtype=np.bool)
 
     def set_nodata(self, data_name, new_nodata, old_nodata=None):
         """
@@ -1396,24 +1351,6 @@ class Grid(object):
         else:
             np.place(data, data == old_nodata, new_nodata)
         data.nodata = new_nodata
-
-    def catchment_mask(self, mask_source='catch'):
-        """
-        Masks grid cells not included in catchment. The catchment mask is saved
-        to self.mask.
- 
-        Parameters
-        ----------
-        to_mask : string
-                  Name of dataset to mask
-        mask_source : string (optional)
-                      Dataset on which mask is based (defaults to 'catch')
-        """
-        nodata = getattr(self, mask_source).nodata
-        if np.isnan(nodata):
-            self.mask = (~np.isnan(self.view(mask_source, apply_mask=False)))
-        else:
-            self.mask = (self.view(mask_source, apply_mask=False) != nodata)
 
     def to_ascii(self, data_name=None, file_name=None, view=True, apply_mask=False, delimiter=' ',
                  **kwargs):
@@ -1578,7 +1515,7 @@ class Grid(object):
                 branches.append([fork_start, fork_end])
             # Get x, y coordinates for plotting
             yx = np.vstack(np.dstack(
-                        np.meshgrid(*self.bbox_indices(self.bbox, self.shape), indexing='ij')))
+                        np.meshgrid(*self.grid_indices(), indexing='ij')))
         except:
             raise
         finally:

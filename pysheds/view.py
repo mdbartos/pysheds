@@ -2,6 +2,7 @@ import numpy as np
 from scipy import spatial
 from scipy import interpolate
 import pyproj
+from affine import Affine
 
 class Dataset(np.ndarray):
     def __new__(cls, input_array, viewfinder, metadata=None):
@@ -23,27 +24,15 @@ class Dataset(np.ndarray):
     @property
     def bbox(self):
         return self.viewfinder.bbox
-    @bbox.setter
-    def bbox(self, new_bbox):
-        self.viewfinder.bbox = new_bbox
     @property
     def coords(self):
         return self.viewfinder.coords
-    @coords.setter
-    def coords(self, new_coords):
-        self.viewfinder.coords = new_coords
     @property
     def view_shape(self):
         return self.viewfinder.shape
-    @view_shape.setter
-    def view_shape(self, new_shape):
-        self.viewfinder.shape = new_shape
     @property
     def mask(self):
         return self.viewfinder.mask
-    @mask.setter
-    def mask(self, new_mask):
-        self.viewfinder.mask = new_mask
     @property
     def nodata(self):
         return self.viewfinder.nodata
@@ -53,9 +42,6 @@ class Dataset(np.ndarray):
     @property
     def crs(self):
         return self.viewfinder.crs
-    @crs.setter
-    def crs(self, new_crs):
-        self.viewfinder.crs = new_crs
     @property
     def view_size(self):
         return np.prod(self.viewfinder.shape)
@@ -66,37 +52,29 @@ class Dataset(np.ndarray):
         return extent
     @property
     def cellsize(self):
-        dy, dx = self._dy_dx()
-        # TODO: Assuming square cells
+        dy, dx = self.dy_dx
         cellsize = (dy + dx) / 2
         return cellsize
     @property
+    def affine(self):
+        return self.viewfinder.affine
+    @property
     def properties(self):
         property_dict = {
+            'affine' : self.viewfinder.affine,
             'bbox' : self.viewfinder.bbox,
             'shape' : self.viewfinder.shape,
             'crs' : self.viewfinder.crs,
             'nodata' : self.viewfinder.nodata
         }
         return property_dict
-
-    def _dy_dx(self):
-        x0, y0, x1, y1 = self.bbox
-        dy = np.abs(y1 - y0) / (self.viewfinder.shape[0])
-        dx = np.abs(x1 - x0) / (self.viewfinder.shape[1])
-        return dy, dx
+    @property
+    def dy_dx(self):
+        return (-self.affine.e, self.affine.a)
 
 class BaseViewFinder():
-    def __init__(self, bbox=None, coords=None, shape=None, mask=None, nodata=None,
+    def __init__(self, shape=None, mask=None, nodata=None,
                  crs=pyproj.Proj('+init=epsg:4326'), y_coord_ix=0, x_coord_ix=1):
-        if bbox is not None:
-            self.bbox = bbox
-        else:
-            self.bbox = (0,0,0,0)
-        if coords is not None:
-            self.coords = coords
-        else:
-            self.coords = np.asarray([0, 0]).reshape(1, 2)
         if shape is not None:
             self.shape = shape
         else:
@@ -113,18 +91,6 @@ class BaseViewFinder():
         self.y_coord_ix = y_coord_ix
         self.x_coord_ix = x_coord_ix
 
-    @property
-    def bbox(self):
-        return self._bbox
-    @bbox.setter
-    def bbox(self, new_bbox):
-        self._bbox = new_bbox
-    @property
-    def coords(self):
-        return self._coords
-    @coords.setter
-    def coords(self, new_coords):
-        self._coords = new_coords
     @property
     def shape(self):
         return self._shape
@@ -152,82 +118,90 @@ class BaseViewFinder():
     @property
     def size(self):
         return np.prod(self.shape)
+
+class RegularViewFinder(BaseViewFinder):
+    def __init__(self, affine, shape, mask=None, nodata=None,
+                 crs=pyproj.Proj('+init=epsg:4326'),
+                 y_coord_ix=0, x_coord_ix=1):
+        if affine is not None:
+            self.affine = affine
+        else:
+            self.affine = Affine(0,0,0,0)
+        super().__init__(shape=shape, mask=mask, nodata=nodata, crs=crs,
+                         y_coord_ix=y_coord_ix, x_coord_ix=x_coord_ix)
+
+    @property
+    def bbox(self):
+        shape = self.shape
+        xmin, ymax = self.affine * (0,0)
+        xmax, ymin = self.affine * (shape[1] + 1, shape[0] + 1)
+        _bbox = (xmin, ymin, xmax, ymax)
+        return _bbox
     @property
     def extent(self):
         bbox = self.bbox
         extent = (bbox[0], bbox[2], bbox[1], bbox[3])
         return extent
     @property
-    def properties(self):
-        property_dict = {
-            'bbox' : self.bbox,
-            'shape' : self.shape,
-            'crs' : self.crs,
-            'nodata' : self.nodata
-        }
-        return property_dict
-
-class RegularViewFinder(BaseViewFinder):
-    def __init__(self, bbox, shape, mask=None, nodata=None,
-                 crs=pyproj.Proj('+init=epsg:4326'),
-                 y_coord_ix=0, x_coord_ix=1):
-        super().__init__(bbox=bbox, shape=shape, mask=mask, nodata=nodata, crs=crs)
-
-    @property
-    def bbox(self):
-        return self._bbox
-    @bbox.setter
-    def bbox(self, new_bbox):
-        self._bbox = new_bbox
+    def affine(self):
+        return self._affine
+    @affine.setter
+    def affine(self, new_affine):
+        assert(isinstance(new_affine, Affine))
+        self._affine = new_affine
     @property
     def coords(self):
-        coordinates = np.meshgrid(*self.bbox_indices(self.bbox, self.shape), indexing='ij')
+        coordinates = np.meshgrid(*self.grid_indices(), indexing='ij')
         return np.vstack(np.dstack(coordinates))
     @coords.setter
     def coords(self, new_coords):
         pass
+    @property
+    def dy_dx(self):
+        return (-self.affine.e, self.affine.a)
+    @property
+    def properties(self):
+        property_dict = {
+            'shape' : self.shape,
+            'crs' : self.crs,
+            'nodata' : self.nodata,
+            'affine' : self.affine,
+            'bbox' : self.bbox
+        }
+        return property_dict
 
-    def bbox_indices(self, bbox=None, shape=None, precision=7, col_ascending=True,
-                     row_ascending=False):
+    def grid_indices(self, affine=None, shape=None, col_ascending=True, row_ascending=False):
         """
         Return row and column coordinates of a bounding box at a
         given cellsize.
-
+ 
         Parameters
         ----------
-        bbox : tuple of floats or ints (length 4)
-               bbox of new data. Defaults to instance bbox.
         shape : tuple of ints (length 2)
                 The shape of the 2D array (rows, columns). Defaults
                 to instance shape.
         precision : int
                     Precision to use when matching geographic coordinates.
         """
-        if bbox is None:
-            bbox = self._bbox
+        if affine is None:
+            affine = self.affine
         if shape is None:
             shape = self.shape
-        rows = np.linspace(bbox[1], bbox[3], shape[0], endpoint=False)
-        cols = np.linspace(bbox[0], bbox[2], shape[1], endpoint=False)
-        if not row_ascending:
-            rows = rows[::-1]
+        y_ix = np.arange(shape[0])
+        x_ix = np.arange(shape[1])
+        if row_ascending:
+            y_ix = y_ix[::-1]
         if not col_ascending:
-            cols = cols[::-1]
-        rows = np.around(rows, precision)
-        cols = np.around(cols, precision)
-        return rows, cols
-
-    def _dy_dx(self):
-        x0, y0, x1, y1 = self.bbox
-        dy = np.abs(y1 - y0) / (self.shape[0])
-        dx = np.abs(x1 - x0) / (self.shape[1])
-        return dy, dx
+            x_ix = x_ix[::-1]
+        x, _ = affine * np.vstack([x_ix, np.zeros(shape[1])])
+        _, y = affine * np.vstack([np.zeros(shape[0]), y_ix])
+        return y, x
 
     def move_window(self, dxmin, dymin, dxmax, dymax):
         """
         Move bounding box window by integer indices
         """
-        cell_height, cell_width  = self._dy_dx()
+        cell_height, cell_width  = self.dy_dx
         nrows_old, ncols_old = self.shape
         xmin_old, ymin_old, xmax_old, ymax_old = self.bbox
         new_bbox = (xmin_old + dxmin*cell_width, ymin_old + dymin*cell_height,
@@ -247,9 +221,13 @@ class IrregularViewFinder(BaseViewFinder):
     def __init__(self, coords, shape=None, mask=None, nodata=None,
                  crs=pyproj.Proj('+init=epsg:4326'),
                  y_coord_ix=0, x_coord_ix=1):
+        if coords is not None:
+            self.coords = coords
+        else:
+            self.coords = np.asarray([0, 0]).reshape(1, 2)
         if shape is None:
             shape = len(coords)
-        super().__init__(coords=coords, shape=shape, mask=mask, nodata=nodata, crs=crs,
+        super().__init__(shape=shape, mask=mask, nodata=nodata, crs=crs,
                          y_coord_ix=y_coord_ix, x_coord_ix=x_coord_ix)
     @property
     def coords(self):
@@ -267,19 +245,21 @@ class IrregularViewFinder(BaseViewFinder):
     @bbox.setter
     def bbox(self, new_bbox):
         pass
+    @property
+    def extent(self):
+        bbox = self.bbox
+        extent = (bbox[0], bbox[2], bbox[1], bbox[3])
+        return extent
 
 class RegularGridViewer():
     def __init__(self):
         pass
 
     @classmethod
-    def _view_df(cls, data, data_view, target_view, tolerance=0.1):
+    def _view_df(cls, data, data_view, target_view, x_tolerance=1e-3, y_tolerance=1e-3):
         nodata = target_view.nodata
-        dy, dx = self._dy_dx()
-        x_tolerance = dx * tolerance
-        y_tolerance = dy * tolerance
-        viewrows, viewcols = target_view.bbox_indices(target_view.bbox, target_view.shape)
-        rows, cols = data_view.bbox_indices(data_view.bbox, data_view.shape)
+        viewrows, viewcols = target_view.grid_indices()
+        rows, cols = data_view.grid_indices()
         view = (pd.DataFrame(data, index=rows, columns=cols)
                 .reindex(selfrows, tolerance=y_tolerance, method='nearest')
                 .reindex(selfcols, axis=1, tolerance=x_tolerance,
@@ -288,7 +268,7 @@ class RegularGridViewer():
         return view
 
     @classmethod
-    def _view_kd(cls, data, data_view, target_view, tolerance=0.1):
+    def _view_kd(cls, data, data_view, target_view, x_tolerance=1e-3, y_tolerance=1e-3):
         """
         Appropriate if:
             - Grid is regular
@@ -297,11 +277,8 @@ class RegularGridViewer():
         """
         nodata = target_view.nodata
         view = np.full(target_view.shape, nodata)
-        dy, dx = target_view._dy_dx()
-        x_tolerance = dx * tolerance
-        y_tolerance = dy * tolerance
-        viewrows, viewcols = target_view.bbox_indices(target_view.bbox, target_view.shape)
-        rows, cols = data_view.bbox_indices(data_view.bbox, data_view.shape)
+        viewrows, viewcols = target_view.grid_indices()
+        rows, cols = data_view.grid_indices()
         ytree = spatial.cKDTree(rows[:, None])
         xtree = spatial.cKDTree(cols[:, None])
         ydist, y_ix = ytree.query(viewrows[:, None])
@@ -312,24 +289,36 @@ class RegularGridViewer():
         return view
 
     @classmethod
-    def _view_searchsorted(cls, data, data_view, target_view, tolerance=0.1):
+    def _view_affine(cls, data, data_view, target_view, x_tolerance=1e-3, y_tolerance=1e-3):
+        nodata = target_view.nodata
+        view = np.full(target_view.shape, nodata)
+        viewrows, viewcols = target_view.grid_indices()
+        _, target_row_ix = ~data_view.affine * np.vstack([np.zeros(target_view.shape[0]), viewrows])
+        target_col_ix, _ = ~data_view.affine * np.vstack([viewcols, np.zeros(target_view.shape[1])])
+        y_ix = np.around(target_row_ix).astype(int)
+        x_ix = np.around(target_col_ix).astype(int)
+        y_passed = ((np.abs(y_ix - target_row_ix) < y_tolerance)
+                    & (y_ix < data_view.shape[0]) & (y_ix >= 0))
+        x_passed = ((np.abs(x_ix - target_col_ix) < x_tolerance)
+                    & (x_ix < data_view.shape[1]) & (x_ix >= 0))
+        view[np.ix_(y_passed, x_passed)] = data[y_ix[y_passed]][:, x_ix[x_passed]]
+        return view
+
+    @classmethod
+    def _view_searchsorted(cls, data, data_view, target_view, x_tolerance=1e-3,
+                           y_tolerance=1e-3):
         """
         Appropriate if:
             - Grid is regular
             - Data is regular
             - Grid and data have same cellsize OR no interpolation is needed
         """
+        # TODO: This method no longer yields accurate results!
         nodata = target_view.nodata
         view = np.full(target_view.shape, nodata)
-        dy, dx = target_view._dy_dx()
-        x_tolerance = dx * tolerance
-        y_tolerance = dy * tolerance
-        viewrows, viewcols = target_view.bbox_indices(target_view.bbox,
-                                                    target_view.shape,
-                                                    col_ascending=True,
-                                                    row_ascending=True)
-        rows, cols = data_view.bbox_indices(data_view.bbox, data_view.shape,
-                                            col_ascending=True,
+        viewrows, viewcols = target_view.grid_indices(col_ascending=True,
+                                                      row_ascending=True)
+        rows, cols = data_view.grid_indices(col_ascending=True,
                                             row_ascending=True)
         y_ix = np.searchsorted(rows, viewrows, side='right')
         x_ix = np.searchsorted(cols, viewcols, side='left')
@@ -343,19 +332,16 @@ class RegularGridViewer():
         return view
 
     @classmethod
-    def _view_kd_2d(cls, data, data_view, target_view, tolerance=0.1):
+    def _view_kd_2d(cls, data, data_view, target_view, x_tolerance=1e-3, y_tolerance=1e-3):
         t_xmin, t_ymin, t_xmax, t_ymax = target_view.bbox
         d_xmin, d_ymin, d_xmax, d_ymax = data_view.bbox
         nodata = target_view.nodata
         view = np.full(target_view.shape, nodata)
-        dy, dx = target_view._dy_dx()
-        x_tolerance = dx * tolerance
-        y_tolerance = dy * tolerance
         yx_tolerance = np.sqrt(x_tolerance**2 + y_tolerance**2)
-        viewrows, viewcols = target_view.bbox_indices(target_view.bbox, target_view.shape)
-        rows, cols = data_view.bbox_indices(data_view.bbox, data_view.shape)
-        row_bool = (rows <= t_ymax + tolerance*dy) & (rows >= t_ymin - tolerance*dy)
-        col_bool = (cols <= t_xmax + tolerance*dx) & (cols >= t_xmin - tolerance*dx)
+        viewrows, viewcols = target_view.grid_indices()
+        rows, cols = data_view.grid_indices()
+        row_bool = (rows <= t_ymax + y_tolerance) & (rows >= t_ymin - y_tolerance)
+        col_bool = (cols <= t_xmax + x_tolerance) & (cols >= t_xmin - x_tolerance)
         yx_tree = np.vstack(np.dstack(np.meshgrid(rows[row_bool], cols[col_bool], indexing='ij')))
         yx_query = np.vstack(np.dstack(np.meshgrid(viewrows, viewcols, indexing='ij')))
         tree = spatial.cKDTree(yx_tree)
@@ -365,24 +351,23 @@ class RegularGridViewer():
         return view
 
     @classmethod
-    def _view_rectbivariate(cls, data, data_view, target_view, kx=3, ky=3, s=0, tolerance=0.1):
+    def _view_rectbivariate(cls, data, data_view, target_view, kx=3, ky=3, s=0,
+                            x_tolerance=1e-3, y_tolerance=1e-3):
         t_xmin, t_ymin, t_xmax, t_ymax = target_view.bbox
         d_xmin, d_ymin, d_xmax, d_ymax = data_view.bbox
         nodata = target_view.nodata
-        dy, dx = target_view._dy_dx()
-        x_tolerance = dx * tolerance
-        y_tolerance = dy * tolerance
-        yx_tolerance = np.sqrt(x_tolerance**2 + y_tolerance**2)
-        viewrows, viewcols = target_view.bbox_indices(target_view.bbox,
-                                                      target_view.shape,
-                                                      col_ascending=True,
+        target_dx, target_dy = target_view.affine.a, target_view.affine.e
+        data_dx, data_dy = data_view.affine.a, data_view.affine.e
+        viewrows, viewcols = target_view.grid_indices(col_ascending=True,
                                                       row_ascending=True)
-        rows, cols = data_view.bbox_indices(data_view.bbox,
-                                            data_view.shape,
-                                            col_ascending=True,
+        rows, cols = data_view.grid_indices(col_ascending=True,
                                             row_ascending=True)
-        row_bool = (rows <= t_ymax + tolerance*dy) & (rows >= t_ymin - tolerance*dy)
-        col_bool = (cols <= t_xmax + tolerance*dx) & (cols >= t_xmin - tolerance*dx)
+        viewrows += target_dy
+        viewcols += target_dx
+        rows += data_dy
+        cols += data_dx
+        row_bool = (rows <= t_ymax + y_tolerance) & (rows >= t_ymin - y_tolerance)
+        col_bool = (cols <= t_xmax + x_tolerance) & (cols >= t_xmin - x_tolerance)
         rbs_interpolator = (interpolate.
                             RectBivariateSpline(rows[row_bool],
                                                 cols[col_bool],
@@ -394,24 +379,23 @@ class RegularGridViewer():
 
     @classmethod
     def _view_rectspherebivariate(cls, data, data_view, target_view, coords_in_radians=False,
-                                  kx=3, ky=3, s=0, tolerance=0.1):
+                                  kx=3, ky=3, s=0, x_tolerance=1e-3, y_tolerance=1e-3):
         t_xmin, t_ymin, t_xmax, t_ymax = target_view.bbox
         d_xmin, d_ymin, d_xmax, d_ymax = data_view.bbox
         nodata = target_view.nodata
-        dy, dx = target_view._dy_dx()
-        x_tolerance = dx * tolerance
-        y_tolerance = dy * tolerance
         yx_tolerance = np.sqrt(x_tolerance**2 + y_tolerance**2)
-        viewrows, viewcols = target_view.bbox_indices(target_view.bbox,
-                                                      target_view.shape,
-                                                      col_ascending=True,
+        target_dx, target_dy = target_view.affine.a, target_view.affine.e
+        data_dx, data_dy = data_view.affine.a, data_view.affine.e
+        viewrows, viewcols = target_view.grid_indices(col_ascending=True,
                                                       row_ascending=True)
-        rows, cols = data_view.bbox_indices(data_view.bbox,
-                                            data_view.shape,
-                                            col_ascending=True,
+        rows, cols = data_view.grid_indices(col_ascending=True,
                                             row_ascending=True)
-        row_bool = (rows <= t_ymax + tolerance*dy) & (rows >= t_ymin - tolerance*dy)
-        col_bool = (cols <= t_xmax + tolerance*dx) & (cols >= t_xmin - tolerance*dx)
+        viewrows += target_dy
+        viewcols += target_dx
+        rows += data_dy
+        cols += data_dx
+        row_bool = (rows <= t_ymax + y_tolerance) & (rows >= t_ymin - y_tolerance)
+        col_bool = (cols <= t_xmax + x_tolerance) & (cols >= t_xmin - x_tolerance)
         if not coords_in_radians:
             rows = np.radians(rows) + np.pi/2
             cols = np.radians(cols) + np.pi
@@ -431,37 +415,39 @@ class IrregularGridViewer():
         pass
 
     @classmethod
-    def _view_kd_2d(cls, data, data_view, target_view, abs_tolerance=1e-5):
+    def _view_kd_2d(cls, data, data_view, target_view, x_tolerance=1e-3, y_tolerance=1e-3):
         t_xmin, t_ymin, t_xmax, t_ymax = target_view.bbox
         d_xmin, d_ymin, d_xmax, d_ymax = data_view.bbox
         nodata = target_view.nodata
         view = np.full(target_view.shape, nodata)
         viewcoords = target_view.coords
         datacoords = data_view.coords
-        row_bool = ((datacoords[:,0] <= t_ymax + abs_tolerance) &
-                    (datacoords[:,0] >= t_ymin - abs_tolerance))
-        col_bool = ((datacoords[:,1] <= t_xmax + abs_tolerance) &
-                    (datacoords[:,1] >= t_xmin - abs_tolerance))
+        yx_tolerance = np.sqrt(x_tolerance**2 + y_tolerance**2)
+        row_bool = ((datacoords[:,0] <= t_ymax + y_tolerance) &
+                    (datacoords[:,0] >= t_ymin - y_tolerance))
+        col_bool = ((datacoords[:,1] <= t_xmax + x_tolerance) &
+                    (datacoords[:,1] >= t_xmin - x_tolerance))
         yx_tree = datacoords[row_bool & col_bool]
         tree = spatial.cKDTree(yx_tree)
         yx_dist, yx_ix = tree.query(viewcoords)
-        yx_passed = yx_dist <= abs_tolerance
+        yx_passed = yx_dist <= yx_tolerance
         view.flat[yx_passed] = data.flat[row_bool & col_bool].flat[yx_ix[yx_passed]]
         return view
 
     @classmethod
     def _view_griddata(cls, data, data_view, target_view, method='nearest',
-                       abs_tolerance=1e-5):
+                       x_tolerance=1e-3, y_tolerance=1e-3):
         t_xmin, t_ymin, t_xmax, t_ymax = target_view.bbox
         d_xmin, d_ymin, d_xmax, d_ymax = data_view.bbox
         nodata = target_view.nodata
         view = np.full(target_view.shape, nodata)
         viewcoords = target_view.coords
         datacoords = data_view.coords
-        row_bool = ((datacoords[:,0] <= t_ymax + abs_tolerance) &
-                    (datacoords[:,0] >= t_ymin - abs_tolerance))
-        col_bool = ((datacoords[:,1] <= t_xmax + abs_tolerance) &
-                    (datacoords[:,1] >= t_xmin - abs_tolerance))
+        yx_tolerance = np.sqrt(x_tolerance**2 + y_tolerance**2)
+        row_bool = ((datacoords[:,0] <= t_ymax + y_tolerance) &
+                    (datacoords[:,0] >= t_ymin - y_tolerance))
+        col_bool = ((datacoords[:,1] <= t_xmax + x_tolerance) &
+                    (datacoords[:,1] >= t_xmin - x_tolerance))
         yx_grid = datacoords[row_bool & col_bool]
         view = interpolate.griddata(yx_grid,
                                     data.flat[row_bool & col_bool],

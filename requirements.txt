@@ -3,3 +3,4 @@ pandas
 scipy
 pyproj
 scikit-image
+affine

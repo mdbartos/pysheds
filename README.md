@@ -22,7 +22,7 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
     # Delineate a catchment
     # ---------------------
     # Specify pour point
-    x, y = -97.2937, 32.7371
+    x, y = -97.294167, 32.73750
     # Specify directional mapping
     dirmap=(64, 128, 1, 2, 4, 8, 16, 32)
 
@@ -33,7 +33,7 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
     # Crop and plot the catchment
     # ---------------------------
     # Clip the bounding box to the catchment
-    grid.clip_to('catch', precision=5)
+    grid.clip_to('catch')
 ```
 
 ![Example 2](examples/img/catchment.png)

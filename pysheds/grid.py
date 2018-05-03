@@ -373,11 +373,13 @@ class Grid(object):
                 nodata = data.nodata
             if data_view is None:
                 data_view = data.viewfinder
+            metadata.update(data.metadata)
         elif isinstance(data, Dataset):
             if nodata is None:
                 nodata = data.nodata
             if data_view is None:
                 data_view = data.viewfinder
+            metadata.update(data.metadata)
         else:
             # If not using a named dataset, make sure the data and view are properly defined
             try:
@@ -843,13 +845,13 @@ class Grid(object):
         finally:
         # Clean up
             self._unflatten_fdir(fdir, flat_idx, dirmap)
+            fdir = fdir.astype(fdir_orig_type)
             if nodata_in is not None:
                 fdir[nodata_cells] = nodata_in
             if pad:
                 fdir = fdir[1:-1, 1:-1]
             else:
                 self._replace_rim(fdir, left, right, top, bottom)
-            fdir = fdir.astype(fdir_orig_type)
         return self._output_handler(data=acc, out_name=out_name, properties=grid_props,
                                     inplace=inplace, metadata=metadata)
 
@@ -963,7 +965,8 @@ class Grid(object):
                                     inplace=inplace, metadata=metadata)
 
     def cell_distances(self, data, out_name='cdist', nodata_in=None, nodata_out=0,
-                       inplace=True, as_crs=None, ignore_metadata=False):
+                       inplace=True, as_crs=None, ignore_metadata=False, dirmap=None,
+                       apply_mask=True):
         if as_crs is None:
             if self.crs.is_latlong():
                 warnings.warn(('CRS is geographic. Area will not have meaningful '
@@ -981,8 +984,7 @@ class Grid(object):
         grid_props = {'nodata' : nodata_out}
         metadata = {}
         fdir = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
-                                   properties=grid_props, ignore_metadata=ignore_metadata,
-                                   **kwargs)
+                                   properties=grid_props, ignore_metadata=ignore_metadata)
         dyy, dyx = np.gradient(indices[:, 0].reshape(self.shape))
         dxy, dxx = np.gradient(indices[:, 1].reshape(self.shape))
         dy = np.sqrt(dyy**2 + dyx**2)
@@ -1001,17 +1003,16 @@ class Grid(object):
                                     inplace=inplace, metadata=metadata)
 
     def cell_dh(self, fdir, dem, out_name='dh', inplace=True, nodata_in=None,
-                nodata_out=np.nan, dirmap=None):
-        nodata_in = self._check_nodata_in(data, nodata_in)
+                nodata_out=np.nan, dirmap=None, apply_mask=True, ignore_metadata=False):
+        nodata_in = self._check_nodata_in(fdir, nodata_in)
         fdir_props = {'nodata' : nodata_out}
         fdir = self._input_handler(fdir, apply_mask=apply_mask, nodata_view=nodata_in,
-                                   properties=grid_props, ignore_metadata=ignore_metadata,
-                                   **kwargs)
+                                   properties=fdir_props, ignore_metadata=ignore_metadata)
+        nodata_in = self._check_nodata_in(dem, nodata_in)
         dem_props = {'nodata' : nodata_out}
         metadata = {}
         dem = self._input_handler(dem, apply_mask=apply_mask, nodata_view=nodata_in,
-                                   properties=grid_props, ignore_metadata=ignore_metadata,
-                                   **kwargs)
+                                   properties=dem_props, ignore_metadata=ignore_metadata)
         dirmap = self._set_dirmap(dirmap, fdir)
         flat_idx = np.arange(fdir.size)
         fdir_orig_type = fdir.dtype
@@ -1042,13 +1043,15 @@ class Grid(object):
         return self._output_handler(data=dh, out_name=out_name, properties=grid_props,
                                     inplace=inplace, metadata=metadata)
 
-    def cell_slopes(self, fdir, dem, out_name='slopes',
-                    inplace=True, nodata_in=None, nodata_out=np.nan, dirmap=None, as_crs=None):
-        nodata_in = self._check_nodata_in(data, nodata_in)
-        dh = self.cell_dh(direction_name, dem_name, out_name, inplace=False,
+    def cell_slopes(self, fdir, dem, out_name='slopes', inplace=True, nodata_in=None,
+                    nodata_out=np.nan, dirmap=None, as_crs=None, apply_mask=True):
+        dh = self.cell_dh(fdir, dem, out_name, inplace=False,
                           nodata_out=nodata_out, dirmap=dirmap)
-        cdist = self.cell_distances(direction_name, inplace=False, as_crs=as_crs)
-        slopes = np.where(self.mask, dh/cdist, nodata_out)
+        cdist = self.cell_distances(fdir, inplace=False, as_crs=as_crs)
+        if apply_mask:
+            slopes = np.where(self.mask, dh/cdist, nodata_out)
+        else:
+            slopes = dh/cdist
         # Prepare output
         metadata = {}
         private_props = {'nodata' : nodata_out}
@@ -1069,7 +1072,7 @@ class Grid(object):
         return nodata_in
 
     def _input_handler(self, data, apply_mask=True, nodata_view=None, properties={},
-                       ignore_metadata=False, metadata={}, **kwargs):
+                       ignore_metadata=False, inherit_metadata=True,  metadata={}, **kwargs):
         required_params = ('affine', 'shape', 'nodata', 'crs')
         defaults = self.defaults
         # Handle raw data
@@ -1083,6 +1086,9 @@ class Grid(object):
                     else:
                         raise KeyError("Missing required parameter: {0}"
                                        .format(param))
+            if isinstance(data, Dataset):
+                if inherit_metadata:
+                    metadata.update(data.metadata)
             viewfinder = RegularViewFinder(**properties)
             dataset = Dataset(data, viewfinder, metadata=metadata)
             return dataset
@@ -1101,6 +1107,8 @@ class Grid(object):
                                         .format(param))
             viewfinder = RegularViewFinder(**properties)
             data = self.view(data, apply_mask=apply_mask, nodata=nodata_view)
+            if inherit_metadata:
+                metadata.update(data.metadata)
             dataset = Dataset(data, viewfinder, metadata=metadata)
             return dataset
         else:
@@ -1562,15 +1570,23 @@ class Grid(object):
                          i - 1 + 0,
                          i - 1 - offset]).T
 
-    def _set_dirmap(self, dirmap, direction_name, default_dirmap=(1, 2, 3, 4, 5, 6, 7, 8)):
+    def _set_dirmap(self, dirmap, data, default_dirmap=(1, 2, 3, 4, 5, 6, 7, 8)):
+        # TODO: Is setting a default dirmap even a good idea?
         if dirmap is None:
-            if isinstance(direction_name, str):
-                if direction_name in self.grids:
-                    dirmap = (getattr(self, direction_name).metadata
-                              .setdefault('dirmap', default_dirmap))
+            if isinstance(data, str):
+                if data in self.grids:
+                    try:
+                        dirmap = getattr(self, data).metadata['dirmap']
+                    except:
+                        dirmap = default_dirmap
                 else:
                     raise KeyError("{0} not found in grid instance"
                                    .format(direction_name))
+            elif isinstance(data, Dataset):
+                try:
+                    dirmap = data.metadata['dirmap']
+                except:
+                    dirmap = default_dirmap
             else:
                 dirmap = default_dirmap
         if len(dirmap) != 8:

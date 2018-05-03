@@ -14,6 +14,7 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
 
     grid = Grid.from_raster('n30w100_con', data_name='dem')
     grid.read_raster('n30w100_dir', data_name='dir')
+    grid.view('dem')
 ```
 
 ![Example 1](examples/img/conditioned_dem.png)
@@ -34,6 +35,7 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
     # ---------------------------
     # Clip the bounding box to the catchment
     grid.clip_to('catch')
+    grid.view('catch')
 ```
 
 ![Example 2](examples/img/catchment.png)
@@ -42,6 +44,7 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
     # Calculate flow accumulation
     # --------------------------
     grid.accumulation(data='catch', dirmap=dirmap, out_name='acc')
+    grid.view('acc')
 ```
 
 ![Example 3](examples/img/flow_accumulation.png)
@@ -51,6 +54,7 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
     # -------------------------------------------
     grid.flow_distance(data='catch', x=x, y=y, dirmap=dirmap,
                    out_name='dist', xytype='label')
+    grid.view('dist')
 ```
 
 ![Example 4](examples/img/flow_distance.png)
@@ -64,6 +68,15 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
 
 ![Example 5](examples/img/river_network.png)
 
+```python
+    # Combine with land cover data
+    # ---------------------
+    grid.read_raster('nlcd_2011_impervious_2011_edition_2014_10_10.img',
+                      data_name='terrain', window=grid.bbox, window_crs=grid.crs)
+    grid.view('terrain')
+```
+
+![Example 5](examples/img/impervious_area.png)
 
 ## Features
 

@@ -1520,7 +1520,7 @@ class Grid(object):
             second_fork_start = start[np.in1d(end, second_fork)]
             second_fork_end = fdir.flat[second_fork_start]
             for fork_start, fork_end in zip(second_fork_start, second_fork_end):
-                branches.append([fork_start, fork_end])
+                branches.append(np.asarray([fork_end, fork_start]))
             # Get x, y coordinates for plotting
             yx = np.vstack(np.dstack(
                         np.meshgrid(*self.grid_indices(), indexing='ij')))

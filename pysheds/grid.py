@@ -1474,6 +1474,15 @@ class Grid(object):
         dirmap = self._set_dirmap(dirmap, fdir)
         flat_idx = np.arange(fdir.size)
         fdir_orig_type = fdir.dtype
+        def _get_spurious_indexes(branches):
+            branch_starts = np.asarray([branch[0] for branch in branches])
+            branch_ends = np.asarray([branch[-1] for branch in branches])
+            sc = pd.Series(branch_starts).value_counts()
+            ec = pd.Series(branch_ends).value_counts()
+            e_in_s = sc.reindex(ec.index.values).dropna().astype(int)
+            spurious_branch_ends = (e_in_s == 1) & (ec.reindex(e_in_s.index) == 1)
+            spurious_ixes = np.where(np.in1d(branch_ends, spurious_branch_ends.index.values[spurious_branch_ends.values]))[0]
+            return spurious_ixes, branch_starts, branch_ends
         try:
             mintype = np.min_scalar_type(fdir.size)
             fdir = fdir.astype(mintype)
@@ -1510,17 +1519,50 @@ class Grid(object):
             branches = []
             for val in idx_vals_repeated:
                 branch = np.where(labels == val)[0]
+                # Ensure no self-loops
+                branch = branch[branch != val]
+                # Sort indices by distance to outlet
                 branch = branch[np.argsort(dist[branch])].tolist()
                 fork = fdir.flat[branch[0]]
                 branch = [fork] + branch
-                branches.append(np.asarray(branch))
+                branches.append(branch)
             # Handle case where two adjacent forks are connected
             after_fork = fdir.flat[forks_end]
             second_fork = np.unique(after_fork[np.in1d(after_fork, forks_end)])
             second_fork_start = start[np.in1d(end, second_fork)]
             second_fork_end = fdir.flat[second_fork_start]
             for fork_start, fork_end in zip(second_fork_start, second_fork_end):
-                branches.append(np.asarray([fork_end, fork_start]))
+                branches.append([fork_end, fork_start])
+            # TODO: Experimental
+            # Take care of spurious segments
+            spurious_ixes, branch_starts, branch_ends = _get_spurious_indexes(branches)
+            spurious_starts = np.asarray([branch_starts[ix] for ix in spurious_ixes])
+            spurious_ends = np.asarray([branch_ends[ix] for ix in spurious_ixes])
+            double_joints_ds = np.in1d(spurious_starts, spurious_ends)
+            if double_joints_ds.any():
+                double_joints_start = []
+                double_joints_end = []
+                for joint in spurious_starts[double_joints_ds]:
+                    double_joints_start.append(np.asscalar(np.where(spurious_starts == joint)[0]))
+                    double_joints_end.append(np.asscalar(np.where(spurious_ends == joint)[0]))
+                spurious_double_end = [spurious_ixes[ix] for ix in double_joints_start]
+                spurious_double_start = [spurious_ixes[ix] for ix in double_joints_end]
+                for starts, ends in zip(spurious_double_start, spurious_double_end):
+                    ds_seg = branches[ends][1:]
+                    branches[starts].extend(ds_seg)
+                for us_seg in sorted(spurious_double_end)[::-1]:
+                    del branches[us_seg]
+                spurious_ixes, branch_starts, branch_ends = _get_spurious_indexes(branches)
+            branch_starts_s = pd.Series(np.arange(len(branch_starts)), index=branch_starts)
+            branch_ends_s = pd.Series(np.arange(len(branch_ends)), index=branch_ends)
+            upstream_ixes = [branch_starts_s[branches[ix][-1]] for ix in spurious_ixes]
+            for ix in upstream_ixes:
+                branch = branches[ix]
+                upstream_joint = branch.pop(0)
+                downstream_ix = branch_ends_s[upstream_joint]
+                branches[downstream_ix].extend(branch)
+            for ix in np.sort(upstream_ixes)[::-1]:
+                del branches[ix]
             # Get x, y coordinates for plotting
             yx = np.vstack(np.dstack(
                         np.meshgrid(*self.grid_indices(), indexing='ij')))

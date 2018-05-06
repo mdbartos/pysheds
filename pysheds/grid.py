@@ -1573,6 +1573,48 @@ class Grid(object):
             fdir = fdir.astype(fdir_orig_type)
         return branches, yx
 
+    def check_cycles(self, fdir, max_cycle_size=50, dirmap=None, nodata_in=0, nodata_out=-1,
+                     apply_mask=True, ignore_metadata=False, **kwargs):
+        dirmap = self._set_dirmap(dirmap, fdir)
+        nodata_in = self._check_nodata_in(fdir, nodata_in)
+        grid_props = {'nodata' : nodata_out}
+        metadata = {}
+        fdir = self._input_handler(fdir, apply_mask=apply_mask, nodata_view=nodata_in,
+                                   properties=grid_props,
+                                   ignore_metadata=ignore_metadata, **kwargs)
+        if np.isnan(nodata_in):
+            in_catch = ~np.isnan(fdir.ravel())
+        else:
+            in_catch = (fdir.ravel() != nodata_in)
+        ix = np.where(in_catch)[0]
+        flat_idx = np.arange(fdir.size)
+        fdir_orig_type = fdir.dtype
+        try:
+            mintype = np.min_scalar_type(fdir.size)
+            fdir = fdir.astype(mintype)
+            flat_idx = flat_idx.astype(mintype)
+            startnodes, endnodes = self._construct_matching(fdir, flat_idx, dirmap)
+            startnodes = startnodes[ix]
+            endnodes = endnodes[ix]
+            z = np.zeros(fdir.size).astype(int)
+            for n in range(max_cycle_size):
+                check = (startnodes == endnodes)
+                check_ix = np.where(check)
+                z[check_ix] += n
+                startnodes = startnodes[~check]
+                endnodes = endnodes[~check]
+                if not startnodes.any():
+                    break
+                endnodes = fdir.flat[endnodes]
+            z.flat[~in_catch] = nodata_out
+        except:
+            raise
+        finally:
+            self._unflatten_fdir(fdir, flat_idx, dirmap)
+            fdir = fdir.astype(fdir_orig_type)
+        z = z.reshape(fdir.shape)
+        return z
+
     def _select_surround(self, i, j):
         """
         Select the eight indices surrounding a given index.

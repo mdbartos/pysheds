@@ -4,3 +4,4 @@ scipy
 pyproj
 scikit-image
 affine
+geojson

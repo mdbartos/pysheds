@@ -4,7 +4,7 @@ from scipy import interpolate
 import pyproj
 from affine import Affine
 
-class Dataset(np.ndarray):
+class Raster(np.ndarray):
     def __new__(cls, input_array, viewfinder, metadata=None):
         obj = np.asarray(input_array).view(cls)
         try:

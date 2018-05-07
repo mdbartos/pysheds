@@ -1,10 +1,11 @@
-import pyproj
-import warnings
-import numpy as np
-import pandas as pd
 import sys
 import ast
 import copy
+import warnings
+import pyproj
+import numpy as np
+import pandas as pd
+import geojson
 from affine import Affine
 try:
     import scipy.sparse
@@ -25,7 +26,7 @@ try:
 except:
     _HAS_RASTERIO = False
 
-from pysheds.view import Dataset
+from pysheds.view import Raster
 from pysheds.view import BaseViewFinder, RegularViewFinder, IrregularViewFinder
 from pysheds.view import RegularGridViewer, IrregularGridViewer
 
@@ -35,11 +36,11 @@ class Grid(object):
  
     Attributes
     ==========
-    bbox : The geographical bounding box for viewing the gridded data
+    affine : Affine transformation matrix (uses affine module)
+    shape : The shape of the grid (number of rows, number of columns).
+    bbox : The geographical bounding box of the current view of the gridded data
            (xmin, ymin, xmax, ymax).
-    shape : The shape of the bbox (nrows, ncolumns) at the given cellsize.
     cellsize : The length/width of each grid cell (assumed to be square).
-    grid_props : dict containing metadata for each gridded dataset.
     mask : A boolean array used to mask certain grid cells in the bbox;
            may be used to indicate which cells lie inside a catchment.
  
@@ -48,12 +49,14 @@ class Grid(object):
         --------
         File I/O
         --------
-        add_data : Add a gridded dataset (dem, flowdir, accumulation)
-                   to Grid instance (generic method).
+        add_gridded_data : Add a gridded dataset (dem, flowdir, accumulation)
+                           to Grid instance (generic method).
         read_ascii : Read an ascii grid from a file and add it to a
                      Grid instance.
         read_raster : Read a raster file and add the data to a Grid
                       instance.
+        from_ascii : Initializes Grid from an ascii file.
+        from_raster : Initializes Grid from a raster file.
         to_ascii : Writes current "view" of gridded dataset(s) to ascii file.
         ----------
         Hydrologic
@@ -72,27 +75,16 @@ class Grid(object):
         ---------------
         Data Processing
         ---------------
-        view : Returns a "view" of a dataset within the bounding box specified
-               by self.bbox (can optionally be masked with self.mask).
+        view : Returns a "view" of a dataset defined by an affine transformation
+               self.affine (can optionally be masked with self.mask).
         set_bbox : Sets the bbox of the current "view" (self.bbox).
         set_nodata : Sets the nodata value for a given dataset.
-        bbox_indices : Returns arrays containing the geographic coordinates
+        grid_indices : Returns arrays containing the geographic coordinates
                        of the grid's rows and columns for the current "view".
         nearest_cell : Returns the index (column, row) of the cell closest
                        to a given geographical coordinate (x, y).
         clip_to : Clip the bbox to the smallest area containing all non-
-                  null gridcells for a provided dataset (defaults to
-                  self.catch).
-        catchment_mask : Updates self.mask to mask all gricells not inside the
-                         catchment (given by self.catch).
- 
-    Default Dataset Names
-    ======================
-    dem : digital elevation grid
-    dir : flow direction grid
-    acc : flow accumulation grid
-    catch : Catchment delineated from 'dir' and a given pour point
-    frac : fractional contributing area grid
+                  null gridcells for a provided dataset.
     """
 
     def __init__(self, affine=Affine(0,0,0,0,0,0), shape=(1,1), nodata=0,
@@ -117,7 +109,7 @@ class Grid(object):
         return props
 
     def add_gridded_data(self, data, data_name, affine=None, shape=None, crs=None,
-                         nodata=None, mask=None, data_attrs={}):
+                         nodata=None, mask=None, metadata={}):
         """
         A generic method for adding data into a Grid instance.
         Inserts data into a named attribute of Grid (name of attribute
@@ -127,28 +119,23 @@ class Grid(object):
         ----------
         data : numpy ndarray
                Data to be inserted into Grid instance.
-        data_name : string
-                     Name of dataset. Will determine the name of the attribute
-                     representing the gridded data. Default values are used
-                     internally by some class methods:
-                         'dem' : digital elevation data
-                         'dir' : flow direction data
-                         'acc' : flow accumulation (upstream area) data
-                         'catch' : catchment grid
-                         'frac' : fractional contributing area
-        shape : tuple of ints (length 2)
+        data_name : str
+                    Name of dataset. Will determine the name of the attribute
+                    representing the gridded data.
+        affine : affine.Affine
+                 Affine transformation matrix defining the cell size and bounding
+                 box (see the affine module for more information).
+        shape : tuple of int (length 2)
                 Shape (rows, columns) of data.
-        cellsize : float or int
-                   Cellsize of gridded data.
         crs : dict
               Coordinate reference system of gridded data.
         nodata : int or float
-                 Value indicating no data.
-        data_attrs : dict
-                     Other attributes describing dataset, such as direction
-                     mapping for flow direction files. e.g.:
-                     data_attrs={'dirmap' : (1, 2, 3, 4, 5, 6, 7, 8),
-                                 'routing' : 'd8'}
+                 Value indicating no data in the input array.
+        metadata : dict
+                   Other attributes describing dataset, such as direction
+                   mapping for flow direction files. e.g.:
+                   metadata={'dirmap' : (1, 2, 3, 4, 5, 6, 7, 8),
+                             'routing' : 'd8'}
         """
         if mask is None:
             mask = np.ones(shape, dtype=np.bool)
@@ -184,42 +171,39 @@ class Grid(object):
         # assign new data to attribute; record nodata value
         viewfinder = RegularViewFinder(affine=affine, shape=shape, mask=mask, nodata=nodata,
                                        crs=crs)
-        data = Dataset(data, viewfinder, metadata=data_attrs)
+        data = Raster(data, viewfinder, metadata=metadata)
         self.grids.append(data_name)
         setattr(self, data_name, data)
 
     def read_ascii(self, data, data_name, skiprows=6, crs=pyproj.Proj('+init=epsg:4326'),
-                   xll='lower', yll='lower', data_attrs={}, **kwargs):
+                   xll='lower', yll='lower', metadata={}, **kwargs):
         """
         Reads data from an ascii file into a named attribute of Grid
         instance (name of attribute determined by 'data_name').
  
         Parameters
         ----------
-        data : string
+        data : str
                File name or path.
-        data_name : string
-                     Name of dataset. Will determine the name of the attribute
-                     representing the gridded data. Default values are used
-                     internally by some class methods:
-                         'dem' : digital elevation data
-                         'dir' : flow direction data
-                         'acc' : flow accumulation (upstream area) data
-                         'catch' : catchment grid
-                         'frac' : fractional contributing area
+        data_name : str
+                    Name of dataset. Will determine the name of the attribute
+                    representing the gridded data.
         skiprows : int (optional)
                    The number of rows taken up by the header (defaults to 6).
-        crs : dict (optional)
+        crs : pyroj.Proj
               Coordinate reference system of ascii data.
-        data_attrs : dict
-                     Other attributes describing dataset, such as direction
-                     mapping for flow direction files. e.g.:
-                     data_attrs={'dirmap' : (1, 2, 3, 4, 5, 6, 7, 8),
-                                 'routing' : 'd8'}
+        xll : 'lower' or 'center' (str)
+              Whether XLLCORNER or XLLCENTER is used.
+        yll : 'lower' or 'center' (str)
+              Whether YLLCORNER or YLLCENTER is used.
+        metadata : dict
+                   Other attributes describing dataset, such as direction
+                   mapping for flow direction files. e.g.:
+                   metadata={'dirmap' : (1, 2, 3, 4, 5, 6, 7, 8),
+                             'routing' : 'd8'}
  
         Additional keyword arguments are passed to numpy.loadtxt()
         """
-        # TODO: Consider setting default crs to geographic
         with open(data) as header:
             ncols = int(header.readline().split()[1])
             nrows = int(header.readline().split()[1])
@@ -232,38 +216,32 @@ class Grid(object):
         nodata = data.dtype.type(nodata)
         affine = Affine(cellsize, 0, xll, 0, -cellsize, yll + nrows * cellsize)
         self.add_gridded_data(data=data, data_name=data_name, affine=affine, shape=shape,
-                              crs=crs, nodata=nodata, data_attrs=data_attrs)
+                              crs=crs, nodata=nodata, metadata=metadata)
 
     def read_raster(self, data, data_name, band=1, window=None, window_crs=None,
-                    data_attrs={}, **kwargs):
+                    metadata={}, **kwargs):
         """
         Reads data from a raster file into a named attribute of Grid
         (name of attribute determined by keyword 'data_name').
  
         Parameters
         ----------
-        data : string
+        data : str
                File name or path.
-        data_name : string
-                     Name of dataset. Will determine the name of the attribute
-                     representing the gridded data. Default values are used
-                     internally by some class methods:
-                         'dem' : digital elevation data
-                         'dir' : flow direction data
-                         'acc' : flow accumulation (upstream area) data
-                         'catch' : catchment grid
-                         'frac' : fractional contributing area
+        data_name : str
+                    Name of dataset. Will determine the name of the attribute
+                    representing the gridded data.
         band : int
                The band number to read.
         window : tuple
                  If using windowed reading, specify window (xmin, ymin, xmax, ymax).
         window_crs : pyproj.Proj instance
                      Coordinate reference system of window. If None, assume it's in raster's crs.
-        data_attrs : dict
-                     Other attributes describing dataset, such as direction
-                     mapping for flow direction files. e.g.:
-                     data_attrs={'dirmap' : (1, 2, 3, 4, 5, 6, 7, 8),
-                                 'routing' : 'd8'}
+        metadata : dict
+                   Other attributes describing dataset, such as direction
+                   mapping for flow direction files. e.g.:
+                   metadata={'dirmap' : (1, 2, 3, 4, 5, 6, 7, 8),
+                             'routing' : 'd8'}
  
         Additional keyword arguments are passed to rasterio.open()
         """
@@ -300,7 +278,7 @@ class Grid(object):
         if nodata is not None:
             nodata = data.dtype.type(nodata)
         self.add_gridded_data(data=data, data_name=data_name, affine=affine, shape=shape,
-                              crs=crs, nodata=nodata, data_attrs=data_attrs)
+                              crs=crs, nodata=nodata, metadata=metadata)
 
     @classmethod
     def from_ascii(cls, path, data_name, **kwargs):
@@ -316,16 +294,20 @@ class Grid(object):
 
     def grid_indices(self, affine=None, shape=None, col_ascending=True, row_ascending=False):
         """
-        Return row and column coordinates of a bounding box at a
-        given cellsize.
+        Return row and column coordinates of the grid based on an affine transformation and
+        a grid shape.
  
         Parameters
         ----------
+        affine: affine.Affine
+                Affine transformation matrix. Defualts to self.affine.
         shape : tuple of ints (length 2)
                 The shape of the 2D array (rows, columns). Defaults
-                to instance shape.
-        precision : int
-                    Precision to use when matching geographic coordinates.
+                to self.shape.
+        col_ascending : bool
+                        If True, return column coordinates in ascending order.
+        row_ascending : bool
+                        If True, return row coordinates in ascending order.
         """
         if affine is None:
             affine = self.affine
@@ -345,19 +327,49 @@ class Grid(object):
              nodata=None, interpolation='nearest', as_crs=None, return_coords=False,
              kx=3, ky=3, s=0, tolerance=1e-3, dtype=None, metadata={}):
         """
-        Return a copy of a gridded dataset clipped to the bounding box
-        (self.bbox) with cells outside the catchment mask (self.mask)
-        optionally displayed as 'nodata' (self.grid_props[data_name]['nodata'])
+        Return a copy of a gridded dataset clipped to the current "view". The view is determined by
+        an affine transformation which describes the bounding box and cellsize of the grid.
+        The view will also optionally mask grid cells according to the boolean array self.mask.
  
         Parameters
         ----------
-        data_name : string
-                    Name of the dataset to be viewed.
-        mask : bool
+        data : str or Raster
+               If string: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        data_view : RegularViewFinder or IrregularViewFinder
+                    The view at which the data is defined (based on an affine
+                    transformation and shape). Defaults to the Raster dataset's
+                    viewfinder attribute.
+        target_view : RegularViewFinder or IrregularViewFinder
+                      The desired view (based on an affine transformation and shape)
+                      Defaults to a viewfinder based on self.affine and self.shape.
+        apply_mask : bool
                If True, "mask" the view using self.mask.
-        nodata : int of float
-                 Value indicating no data. Defaults to
-                 self.grid_props[data_name]['nodata']
+        nodata : int or float
+                 Value indicating no data in output array.
+                 Defaults to the `nodata` attribute of the input dataset.
+        interpolation: 'nearest', 'linear', 'cubic', 'spline'
+                       Interpolation method to be used. If both the input data
+                       view and output data view can be defined on a regular grid,
+                       all interpolation methods are available. If one
+                       of the datasets cannot be defined on a regular grid, or the
+                       datasets use a different CRS, only 'nearest', 'linear' and
+                       'cubic' are available.
+        as_crs: pyproj.Proj
+                Projection at which to view the data (overrides self.crs).
+        return_coords: bool
+                       If True, return the coordinates corresponding to each value
+                       in the output array.
+        kx, ky: int
+                Degrees of the bivariate spline, if 'spline' interpolation is desired.
+        s : float
+            Smoothing factor of the bivariate spline, if 'spline' interpolation is desired.
+        tolerance: float
+                   Maximum tolerance when matching coordinates. Data coordinates
+                   that cannot be matched to a target coordinate within this
+                   tolerance will be masked with the nodata value in the output array.
+        dtype: numpy datatype
+               Desired datatype of the output array.
         """
         # Check interpolation method
         try:
@@ -374,7 +386,7 @@ class Grid(object):
             if data_view is None:
                 data_view = data.viewfinder
             metadata.update(data.metadata)
-        elif isinstance(data, Dataset):
+        elif isinstance(data, Raster):
             if nodata is None:
                 nodata = data.nodata
             if data_view is None:
@@ -452,7 +464,7 @@ class Grid(object):
             array_view = IrregularGridViewer._view_griddata(data, data_view, target_view,
                                                             method=interpolation)
         # TODO: This could be dangerous if it returns an irregular view
-        array_view = Dataset(array_view, target_view, metadata=metadata)
+        array_view = Raster(array_view, target_view, metadata=metadata)
         # Ensure masking is safe by checking datatype
         if dtype is None:
             dtype = max(np.min_scalar_type(nodata), np.min_scalar_type(array_view.max()),
@@ -472,6 +484,29 @@ class Grid(object):
 
     def resize(self, data, new_shape, out_suffix='_resized', inplace=True,
                nodata_in=None, nodata_out=np.nan, apply_mask=False, ignore_metadata=True, **kwargs):
+        """
+        Resize a gridded dataset to a different shape (uses skimage.transform.resize).
+        data : str or Raster
+               If string: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        new_shape: tuple of int (length 2)
+                   Desired array shape.
+        out_suffix: str
+                    If writing to a named attribute, the suffix to apply to the output name.
+        inplace : bool
+                  If True, resized array will be written to '<data_name>_<out_suffix>'.
+                  Otherwise, return the output array.
+        nodata_in : int or float
+                    Value indicating no data in input array.
+                    Defaults to the `nodata` attribute of the input dataset.
+        nodata_out : int or float
+                     Value indicating no data in output array.
+                     Defaults to np.nan.
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and crs.
+        """
         nodata_in = self._check_nodata_in(data, nodata_in)
         if isinstance(data, str):
             out_name = '{0}{1}'.format(data, out_suffix)
@@ -497,6 +532,13 @@ class Grid(object):
             x coordinate.
         y : int or float
             y coordinate.
+        affine : affine.Affine
+                 Affine transformation that defines the translation between
+                 geographic x/y coordinate and array row/column coordinate.
+                 Defaults to self.affine.
+        shape : tuple of int (length 2)
+                Shape of the gridded data.
+                Defaults to self.shape.
         """
         if not affine:
             bbox = self.affine
@@ -513,20 +555,20 @@ class Grid(object):
  
         Parameters
         ----------
-        data : numpy ndarray
-               Array of DEM data (overrides dem_name constructor)
-        dem_name : string
-                    Name of attribute containing dem data.
+        data : str or Raster
+               DEM data.
+               If string: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
         out_name : string
                    Name of attribute containing new flow direction array.
-        include_edges : bool
-                        If True, include outer rim of grid.
-        nodata_in : int
+        nodata_in : int or float
                      Value to indicate nodata in input array.
-        nodata_out : int
+        nodata_out : int or float
                      Value to indicate nodata in output array.
-        flat : int
-               Value to indicate flat areas in output array.
+        pits : int
+               Value to indicate pits in output array.
+        flats : int
+                Value to indicate flat areas in output array.
         dirmap : list or tuple (length 8)
                  List of integer values representing the following
                  cardinal and intercardinal directions (in order):
@@ -534,6 +576,10 @@ class Grid(object):
         inplace : bool
                   If True, write output array to self.<data_name>.
                   Otherwise, return the output array.
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and crs.
         """
         dirmap = self._set_dirmap(dirmap, data)
         nodata_in = self._check_nodata_in(data, nodata_in)
@@ -595,20 +641,22 @@ class Grid(object):
             x coordinate of pour point
         y : int or float
             y coordinate of pour point
-        data : numpy ndarray
-               Array of flow direction data (overrides direction_name constructor)
+        data : str or Raster
+               Flow direction data.
+               If string: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
         pour_value : int or None
                      If not None, value to represent pour point in catchment
                      grid (required by some programs).
-        direction_name : string
-                         Name of attribute containing flow direction data.
         out_name : string
                    Name of attribute containing new catchment array.
         dirmap : list or tuple (length 8)
                  List of integer values representing the following
                  cardinal and intercardinal directions (in order):
                  [N, NE, E, SE, S, SW, W, NW]
-        nodata_out : int
+        nodata_in : int or float
+                    Value to indicate nodata in input array.
+        nodata_out : int or float
                      Value to indicate nodata in output array.
         xytype : 'index' or 'label'
                  How to interpret parameters 'x' and 'y'.
@@ -622,6 +670,10 @@ class Grid(object):
         inplace : bool
                   If True, catchment will be written to attribute 'catch'.
                   Otherwise, return the output array.
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and crs.
         """
         # Vectorized Recursive algorithm:
         # for each cell j, recursively search through grid to determine
@@ -757,8 +809,10 @@ class Grid(object):
  
         Parameters
         ----------
-        data : numpy ndarray
-               Array of flow direction data (overrides direction_name constructor)
+        data : str or Raster
+               Flow direction data.
+               If string: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
         weights: numpy ndarray
                  Array of weights to be applied to each accumulation cell. Must
                  be same size as data.
@@ -766,13 +820,11 @@ class Grid(object):
                  List of integer values representing the following
                  cardinal and intercardinal directions (in order):
                  [N, NE, E, SE, S, SW, W, NW]
-        direction_name : string
-                         Name of attribute containing flow direction data.
-        nodata_in : int
+        nodata_in : int or float
                     Value to indicate nodata in input array. If using a named dataset, will
                     default to the 'nodata' value of the named dataset. If using an ndarray,
                     will default to 0.
-        nodata_out : int
+        nodata_out : int or float
                      Value to indicate nodata in output array.
         out_name : string
                    Name of attribute containing new accumulation array.
@@ -782,6 +834,10 @@ class Grid(object):
         pad : bool
               If True, pad the rim of the input array with zeros. Else, ignore
               the outer rim of cells in the computation.
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and crs.
         """
         dirmap = self._set_dirmap(dirmap, data)
         nodata_in = self._check_nodata_in(data, nodata_in)
@@ -868,23 +924,35 @@ class Grid(object):
             x coordinate of pour point
         y : int or float
             y coordinate of pour point
-        data : str or numpy ndarray
-               Named dataset or array of flow direction data.
+        data : str or Raster
+               Flow direction data.
+               If string: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
         weights: numpy ndarray
                  Weights (distances) to apply to link edges.
         dirmap : list or tuple (length 8)
                  List of integer values representing the following
                  cardinal and intercardinal directions (in order):
                  [N, NE, E, SE, S, SW, W, NW]
-        direction_name : string
-                         Name of attribute containing flow direction data.
-        nodata_out : int
-                 Value to indicate nodata in output array.
+        nodata_in : int or float
+                    Value to indicate nodata in input array.
+        nodata_out : int or float
+                     Value to indicate nodata in output array.
         out_name : string
                    Name of attribute containing new flow distance array.
         inplace : bool
                   If True, accumulation will be written to attribute 'acc'.
                   Otherwise, return the output array.
+        xytype : 'index' or 'label'
+                 How to interpret parameters 'x' and 'y'.
+                     'index' : x and y represent the column and row
+                               indices of the pour point.
+                     'label' : x and y represent geographic coordinates
+                               (will be passed to self.nearest_cell).
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and CRS.
         """
         if not _HAS_SCIPY:
             raise ImportError('flow_distance requires scipy.sparse module')
@@ -940,6 +1008,21 @@ class Grid(object):
                                     inplace=inplace, metadata=metadata)
 
     def cell_area(self, out_name='area', nodata_out=0, inplace=True, as_crs=None):
+        """
+        Generates an array representing the area of each cell to the outlet.
+ 
+        Parameters
+        ----------
+        out_name : string
+                   Name of attribute containing new cell area array.
+        nodata_out : int or float
+                     Value to indicate nodata in output array.
+        inplace : bool
+                  If True, accumulation will be written to attribute 'acc'.
+                  Otherwise, return the output array.
+        as_crs : pyproj.Proj
+                 CRS at which to compute the area of each cell.
+        """
         if as_crs is None:
             if self.crs.is_latlong():
                 warnings.warn(('CRS is geographic. Area will not have meaningful '
@@ -964,9 +1047,37 @@ class Grid(object):
         return self._output_handler(data=area, out_name=out_name, properties=grid_props,
                                     inplace=inplace, metadata=metadata)
 
-    def cell_distances(self, data, out_name='cdist', nodata_in=None, nodata_out=0,
-                       inplace=True, as_crs=None, ignore_metadata=False, dirmap=None,
-                       apply_mask=True):
+    def cell_distances(self, data, out_name='cdist', dirmap=None, nodata_in=None, nodata_out=0,
+                       inplace=True, as_crs=None, apply_mask=True, ignore_metadata=False):
+        """
+        Generates an array representing the distance from each cell to its downstream neighbor.
+ 
+        Parameters
+        ----------
+        data : str or Raster
+               Flow direction data.
+               If string: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        out_name : string
+                   Name of attribute containing new cell distance array.
+        dirmap : list or tuple (length 8)
+                 List of integer values representing the following
+                 cardinal and intercardinal directions (in order):
+                 [N, NE, E, SE, S, SW, W, NW]
+        nodata_in : int or float
+                     Value to indicate nodata in input array.
+        nodata_out : int or float
+                     Value to indicate nodata in output array.
+        inplace : bool
+                  If True, accumulation will be written to attribute 'acc'.
+                  Otherwise, return the output array.
+        as_crs : pyproj.Proj
+                 CRS at which to compute the distance from each cell to its downstream neighbor.
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and CRS.
+        """
         if as_crs is None:
             if self.crs.is_latlong():
                 warnings.warn(('CRS is geographic. Area will not have meaningful '
@@ -1002,8 +1113,40 @@ class Grid(object):
         return self._output_handler(data=cdist, out_name=out_name, properties=grid_props,
                                     inplace=inplace, metadata=metadata)
 
-    def cell_dh(self, fdir, dem, out_name='dh', inplace=True, nodata_in=None,
-                nodata_out=np.nan, dirmap=None, apply_mask=True, ignore_metadata=False):
+    def cell_dh(self, fdir, dem, out_name='dh', inplace=True, dirmap=None, nodata_in=None,
+                nodata_out=np.nan, apply_mask=True, ignore_metadata=False):
+        """
+        Generates an array representing the elevation difference from each cell to its
+        downstream neighbor.
+ 
+        Parameters
+        ----------
+        fdir : str or Raster
+               Flow direction data.
+               If string: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        dem : str or Raster
+              DEM data.
+              If string: name of the dataset to be viewed.
+              If Raster: a Raster instance (see pysheds.view.Raster)
+        out_name : string
+                   Name of attribute containing new cell elevation difference array.
+        dirmap : list or tuple (length 8)
+                 List of integer values representing the following
+                 cardinal and intercardinal directions (in order):
+                 [N, NE, E, SE, S, SW, W, NW]
+        nodata_in : int or float
+                     Value to indicate nodata in input array.
+        nodata_out : int or float
+                     Value to indicate nodata in output array.
+        inplace : bool
+                  If True, accumulation will be written to attribute 'acc'.
+                  Otherwise, return the output array.
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and CRS.
+        """
         nodata_in = self._check_nodata_in(fdir, nodata_in)
         fdir_props = {'nodata' : nodata_out}
         fdir = self._input_handler(fdir, apply_mask=apply_mask, nodata_view=nodata_in,
@@ -1043,8 +1186,42 @@ class Grid(object):
         return self._output_handler(data=dh, out_name=out_name, properties=grid_props,
                                     inplace=inplace, metadata=metadata)
 
-    def cell_slopes(self, fdir, dem, out_name='slopes', inplace=True, nodata_in=None,
-                    nodata_out=np.nan, dirmap=None, as_crs=None, apply_mask=True):
+    def cell_slopes(self, fdir, dem, out_name='slopes', dirmap=None, nodata_in=None,
+                    nodata_out=np.nan, as_crs=None, inplace=True, apply_mask=True,
+                    ignore_metadata=False):
+        """
+        Generates an array representing the slope from each cell to its downstream neighbor.
+ 
+        Parameters
+        ----------
+        fdir : str or Raster
+               Flow direction data.
+               If string: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        dem : str or Raster
+              DEM data.
+              If string: name of the dataset to be viewed.
+              If Raster: a Raster instance (see pysheds.view.Raster)
+        out_name : string
+                   Name of attribute containing new cell slope array.
+        as_crs : pyproj.Proj
+                 CRS at which to compute the distance from each cell to its downstream neighbor.
+        dirmap : list or tuple (length 8)
+                 List of integer values representing the following
+                 cardinal and intercardinal directions (in order):
+                 [N, NE, E, SE, S, SW, W, NW]
+        nodata_in : int or float
+                     Value to indicate nodata in input array.
+        nodata_out : int or float
+                     Value to indicate nodata in output array.
+        inplace : bool
+                  If True, accumulation will be written to attribute 'acc'.
+                  Otherwise, return the output array.
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and CRS.
+        """
         dh = self.cell_dh(fdir, dem, out_name, inplace=False,
                           nodata_out=nodata_out, dirmap=dirmap)
         cdist = self.cell_distances(fdir, inplace=False, as_crs=as_crs)
@@ -1076,7 +1253,7 @@ class Grid(object):
         required_params = ('affine', 'shape', 'nodata', 'crs')
         defaults = self.defaults
         # Handle raw data
-        if (isinstance(data, np.ndarray) or isinstance(data, Dataset)):
+        if (isinstance(data, np.ndarray) or isinstance(data, Raster)):
             for param in required_params:
                 if not param in properties:
                     if param in kwargs:
@@ -1086,11 +1263,11 @@ class Grid(object):
                     else:
                         raise KeyError("Missing required parameter: {0}"
                                        .format(param))
-            if isinstance(data, Dataset):
+            if isinstance(data, Raster):
                 if inherit_metadata:
                     metadata.update(data.metadata)
             viewfinder = RegularViewFinder(**properties)
-            dataset = Dataset(data, viewfinder, metadata=metadata)
+            dataset = Raster(data, viewfinder, metadata=metadata)
             return dataset
         # Handle named dataset
         elif isinstance(data, str):
@@ -1109,7 +1286,7 @@ class Grid(object):
             data = self.view(data, apply_mask=apply_mask, nodata=nodata_view)
             if inherit_metadata:
                 metadata.update(data.metadata)
-            dataset = Dataset(data, viewfinder, metadata=metadata)
+            dataset = Raster(data, viewfinder, metadata=metadata)
             return dataset
         else:
             raise TypeError('Data must be a numpy ndarray or name string.')
@@ -1117,7 +1294,7 @@ class Grid(object):
     def _output_handler(self, data, out_name, properties, inplace, metadata={}):
         # TODO: Should this be rolled into add_data?
         viewfinder = RegularViewFinder(**properties)
-        dataset = Dataset(data, viewfinder, metadata=metadata)
+        dataset = Raster(data, viewfinder, metadata=metadata)
         if inplace:
             setattr(self, out_name, dataset)
             self.grids.append(out_name)
@@ -1246,12 +1423,18 @@ class Grid(object):
  
         Parameters
         ----------
-        data_name : numpy ndarray
+        data_name : str
                     Name of attribute to base the clip on.
-        inplace : bool
-                  If True, update bbox to conform to clip.
         precision : int
                     Precision to use when matching geographic coordinates.
+        inplace : bool
+                  If True, update current view (self.affine and self.shape) to
+                  conform to clip.
+        apply_mask : bool
+                     If True, update self.mask based on nonzero values of <data_name>.
+        pad : tuple of int (length 4)
+              Apply padding to edges of new view (left, bottom, right, top). A pad of
+              (1,1,1,1), for instance, will add a one-cell rim around the new view.
  
         Other keyword arguments are passed to self.set_bbox
         """
@@ -1376,7 +1559,7 @@ class Grid(object):
         view : bool
                If True, writes the "view" of the dataset. Otherwise, writes the
                entire dataset.
-        mask : bool
+        apply_mask : bool
                If True, write the "masked" view of the dataset.
         delimiter : string (optional)
                     Delimiter to use in output file (defaults to ' ')
@@ -1428,38 +1611,33 @@ class Grid(object):
  
         Parameters
         ----------
-        fdir : numpy ndarray
-               Array of flow direction data (overrides catchment_name constructor)
-        acc : numpy ndarray
-              Array of flow accumulation data (overrides accumulation_name constructor)
+        fdir : str or Raster
+               Flow direction data.
+               If string: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        acc : str or Raster
+              Accumulation data.
+              If string: name of the dataset to be viewed.
+              If Raster: a Raster instance (see pysheds.view.Raster)
         threshold : int or float
                     Minimum allowed cell accumulation needed for inclusion in
                     river network.
-        catchment_name : string
-                         Name of attribute containing flow direction data. Must
-                         be a catchment (all cells drain to a common point).
-        accumulation_name : string
-                         Name of attribute containing flow accumulation data.
         dirmap : list or tuple (length 8)
                  List of integer values representing the following
                  cardinal and intercardinal directions (in order):
                  [N, NE, E, SE, S, SW, W, NW]
+        nodata_in : int or float
+                     Value to indicate nodata in input array.
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and CRS.
  
         Returns
         -------
-        branches : list of numpy ndarray
-                   A list of river segments. Each array contains the cell
-                   indices of junctions in the segment.
-        yx : numpy ndarray
-             Ordered y and x coordinates of each cell.
-        The x and y coordinates of each river segment can be obtained as
-        follows:
- 
-        ```
-        for branch in branches:
-            coords = yx[branch]
-            y, x = coords[:,0], coords[:,1]
-        ```
+        geo : geojson.FeatureCollection
+              A geojson feature collection of river segments. Each array contains the cell
+              indices of junctions in the segment.
         """
         # TODO: If two "forks" are directly connected, it can introduce a gap
         nodata_in = self._check_nodata_in(fdir, nodata_in)
@@ -1481,7 +1659,9 @@ class Grid(object):
             ec = pd.Series(branch_ends).value_counts()
             e_in_s = sc.reindex(ec.index.values).dropna().astype(int)
             spurious_branch_ends = (e_in_s == 1) & (ec.reindex(e_in_s.index) == 1)
-            spurious_ixes = np.where(np.in1d(branch_ends, spurious_branch_ends.index.values[spurious_branch_ends.values]))[0]
+            spurious_ixes = np.where(np.in1d(branch_ends,
+                                             spurious_branch_ends
+                                             .index.values[spurious_branch_ends.values]))[0]
             return spurious_ixes, branch_starts, branch_ends
         try:
             mintype = np.min_scalar_type(fdir.size)
@@ -1566,15 +1746,45 @@ class Grid(object):
             # Get x, y coordinates for plotting
             yx = np.vstack(np.dstack(
                         np.meshgrid(*self.grid_indices(), indexing='ij')))
+            xy = yx[:, [1,0]]
+            featurelist = []
+            for index, branch in enumerate(branches):
+                line = geojson.LineString(xy[branch].tolist())
+                featurelist.append(geojson.Feature(geometry=line, id=index))
+            geo = geojson.FeatureCollection(featurelist)
         except:
             raise
         finally:
             self._unflatten_fdir(fdir, flat_idx, dirmap)
             fdir = fdir.astype(fdir_orig_type)
-        return branches, yx
+        return geo
 
     def check_cycles(self, fdir, max_cycle_size=50, dirmap=None, nodata_in=0, nodata_out=-1,
                      apply_mask=True, ignore_metadata=False, **kwargs):
+        """
+        Checks for cycles in flow direction array.
+ 
+        Parameters
+        ----------
+        fdir : str or Raster
+               Flow direction data.
+               If string: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        max_cycle_size: int
+                        Max depth of cycle to search for.
+        dirmap : list or tuple (length 8)
+                 List of integer values representing the following
+                 cardinal and intercardinal directions (in order):
+                 [N, NE, E, SE, S, SW, W, NW]
+        nodata_in : int or float
+                     Value to indicate nodata in input array.
+        nodata_out : int or float
+                     Value indicating no data in output array.
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and CRS.
+        """
         dirmap = self._set_dirmap(dirmap, fdir)
         nodata_in = self._check_nodata_in(fdir, nodata_in)
         grid_props = {'nodata' : nodata_out}
@@ -1666,7 +1876,7 @@ class Grid(object):
                 else:
                     raise KeyError("{0} not found in grid instance"
                                    .format(direction_name))
-            elif isinstance(data, Dataset):
+            elif isinstance(data, Raster):
                 try:
                     dirmap = data.metadata['dirmap']
                 except:
@@ -1803,6 +2013,37 @@ class Grid(object):
     def resolve_flats(self, data=None, out_name='flats_dir', nodata_in=None, nodata_out=0,
                       pits=-1, flats=-1, dirmap=(1, 2, 3, 4, 5, 6, 7, 8), inplace=True,
                       apply_mask=False, ignore_metadata=False, **kwargs):
+        """
+        Resolve flats in a DEM using the modified method of Garbrecht and Martz (1997).
+ 
+        Parameters
+        ----------
+        data : str or Raster
+               DEM data.
+               If string: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        out_name : string
+                   Name of attribute containing new flow direction array.
+        dirmap : list or tuple (length 8)
+                 List of integer values representing the following
+                 cardinal and intercardinal directions (in order):
+                 [N, NE, E, SE, S, SW, W, NW]
+        nodata_in : int or float
+                     Value to indicate nodata in input array.
+        nodata_out : int or float
+                     Value to indicate nodata in output array.
+        pits : int
+               Value to indicate pits in output array.
+        flats : int
+                Value to indicate flat areas in output array.
+        inplace : bool
+                  If True, accumulation will be written to attribute 'acc'.
+                  Otherwise, return the output array.
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and CRS.
+        """
         if len(dirmap) != 8:
             raise AssertionError('dirmap must be a sequence of length 8')
         # if data not provided, use self.dem
@@ -1838,3 +2079,75 @@ class Grid(object):
         return self._output_handler(data=fdir_flats, out_name=out_name, inplace=inplace,
                                     metadata=metadata, **grid_props)
 
+    def polygonize(self, data=None, mask=None, connectivity=4, transform=None):
+        """
+        Yield (polygon, value) for each set of adjacent pixels of the same value.
+        Wrapper around rasterio.features.shapes
+
+        From rasterio documentation:
+
+        Parameters
+        ----------
+        data : numpy ndarray
+        mask : numpy ndarray
+               Values of False or 0 will be excluded from feature generation.
+        connectivity : 4 or 8 (int)
+                       Use 4 or 8 pixel connectivity.
+        transform : affine.Affine
+                    Transformation from pixel coordinates of `image` to the
+                    coordinate system of the input `shapes`.
+        """
+        if not _HAS_RASTERIO:
+            raise ImportError('Requires rasterio module')
+        if data is None:
+            data = self.mask.astype(np.uint8)
+        if mask is None:
+            mask = self.mask
+        if transform is None:
+            transform = self.affine
+        shapes = rasterio.features.shapes(data, mask=mask, connectivity=connectivity,
+                                          transform=transform)
+        return shapes
+
+    def rasterize(self, shapes, out_shape=None, fill=0, out=None, transform=None,
+                  all_touched=False, default_value=1, dtype=None):
+        """
+        Return an image array with input geometries burned in.
+        Wrapper around rasterio.features.rasterize
+
+        From rasterio documentation:
+
+        Parameters
+        ----------
+        shapes : iterable of (geometry, value) pairs or iterable over
+                 geometries.
+        out_shape : tuple or list
+                    Shape of output numpy ndarray.
+        fill : int or float, optional
+               Fill value for all areas not covered by input geometries.
+        out : numpy ndarray
+              Array of same shape and data type as `image` in which to store
+              results.
+        transform : affine.Affine
+                    Transformation from pixel coordinates of `image` to the
+                    coordinate system of the input `shapes`.
+        all_touched : boolean, optional
+                      If True, all pixels touched by geometries will be burned in.  If
+                      false, only pixels whose center is within the polygon or that
+                      are selected by Bresenham's line algorithm will be burned in.
+        default_value : int or float, optional
+                        Used as value for all geometries, if not provided in `shapes`.
+        dtype : numpy data type
+                Used as data type for results, if `out` is not provided.
+        """
+        if not _HAS_RASTERIO:
+            raise ImportError('Requires rasterio module')
+        if out_shape is None:
+            out_shape = self.shape
+        if transform is None:
+            transform = self.affine
+        raster = rasterio.features.rasterize(shapes, out_shape=out_shape, fill=fill,
+                                             out=out, transform=transform,
+                                             all_touched=all_touched,
+                                             default_value=default_value, dtype=dtype)
+        return raster

@@ -76,7 +76,32 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
     grid.view('terrain')
 ```
 
-![Example 5](examples/img/impervious_area.png)
+![Example 6](examples/img/impervious_area.png)
+
+```python
+    # Convert catchment raster to vector and combine with soils shapefile
+    # ---------------------
+    # Read soils shapefile
+    import geopandas as gpd
+    from shapely.geometry import Polygon
+    soils = gpd.read_file('nrcs-soils-tarrant_439.shp')
+    # Convert catchment raster to vector geometry and find intersection
+    shapes = grid.polygonize()
+    catchment_polygon = Polygon(shapes[0][0]['coordinates'][0])
+    catchment_soils = soils.intersection(catchment_polygon)
+```
+
+![Example 7](examples/img/vector_soil.png)
+
+```python
+    # Convert soils polygons to raster
+    # ---------------------
+    soil_polygons = zip(catchment_soils.geometry.values,
+                        catchment_soils['soil_type'].values)
+    soil_raster = grid.rasterize(soil_polygons, fill=np.nan)
+```
+
+![Example 8](examples/img/raster_soil.png)
 
 ## Features
 

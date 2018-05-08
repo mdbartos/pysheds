@@ -83,11 +83,12 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
     # ---------------------
     # Read soils shapefile
     import geopandas as gpd
-    from shapely.geometry import Polygon
+    from shapely import geometry, ops
     soils = gpd.read_file('nrcs-soils-tarrant_439.shp')
     # Convert catchment raster to vector geometry and find intersection
     shapes = grid.polygonize()
-    catchment_polygon = Polygon(shapes[0][0]['coordinates'][0])
+    catchment_polygon = ops.unary_union([geometry.shape(shape)
+                                         for shape, value in shapes])
     catchment_soils = soils.intersection(catchment_polygon)
 ```
 

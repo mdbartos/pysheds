@@ -89,6 +89,7 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
     shapes = grid.polygonize()
     catchment_polygon = ops.unary_union([geometry.shape(shape)
                                          for shape, value in shapes])
+    soils = soils[soils.intersects(catchment_polygon)]
     catchment_soils = soils.intersection(catchment_polygon)
 ```
 

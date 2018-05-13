@@ -22,6 +22,7 @@ except:
     _HAS_SKIMAGE = False
 try:
     import rasterio
+    import rasterio.features
     _HAS_RASTERIO = True
 except:
     _HAS_RASTERIO = False

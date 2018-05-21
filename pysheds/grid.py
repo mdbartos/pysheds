@@ -9,6 +9,7 @@ import geojson
 from affine import Affine
 try:
     import scipy.sparse
+    import scipy.spatial
     from scipy.sparse import csgraph
     import scipy.interpolate
     _HAS_SCIPY = True
@@ -1466,6 +1467,7 @@ class Grid(object):
             ncols, nrows = np.around([ncols, nrows]).astype(int)
             self.affine = new_affine
             self.shape = (nrows, ncols)
+            self.crs = data.crs
             if apply_mask:
                 mask = np.pad(mask, ((pad[1], pad[3]),(pad[0], pad[2])), mode='constant',
                               constant_values=0).astype(bool)
@@ -2152,3 +2154,35 @@ class Grid(object):
                                              all_touched=all_touched,
                                              default_value=default_value, dtype=dtype)
         return raster
+
+    def snap_to_mask(self, mask, xy, return_dist=True):
+        """
+        Snap a set of xy coordinates (xy) to the nearest nonzero cells in a raster (mask)
+
+        Parameters
+        ----------
+        mask: numpy ndarray-like with shape (M, K)
+              A raster dataset with nonzero elements indicating cells to match to (e.g:
+              a flow accumulation grid with ones indicating cells above a certain threshold).
+        xy: numpy ndarray-like with shape (N, 2)
+            Points to match (example: gage location coordinates).
+        return_dist: If true, return the distances from xy to the nearest matched point in mask.
+        """
+
+        if not _HAS_SCIPY:
+            raise ImportError('Requires scipy.spatial module')
+        if isinstance(mask, Raster):
+            affine = mask.viewfinder.affine
+        elif isinstance(mask, 'str'):
+            affine = getattr(self, mask).viewfinder.affine
+        mask_ix = np.where(mask.ravel())[0]
+        yi, xi = np.unravel_index(mask_ix, mask.shape)
+        xiyi = np.vstack([xi, yi])
+        x, y = affine * xiyi
+        tree_xy = np.column_stack([x, y])
+        tree = scipy.spatial.cKDTree(tree_xy)
+        dist, ix = tree.query(xy)
+        if return_dist:
+            return tree_xy[ix], dist
+        else:
+            return tree_xy[ix]

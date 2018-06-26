@@ -7,6 +7,6 @@ setup(name='pysheds',
       description='🌎 Simple and fast watershed delineation in python.',
       author='Matt Bartos',
       author_email='mdbartos@umich.edu',
-      url='open-storm.org',
+      url='http://open-storm.org',
       packages=["pysheds"],
      )

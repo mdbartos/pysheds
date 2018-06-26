@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from distutils.core import setup
+from distutils.core import setup, find_packages
 
 setup(name='pysheds',
       version='0.1',
@@ -8,5 +8,5 @@ setup(name='pysheds',
       author='Matt Bartos',
       author_email='mdbartos@umich.edu',
       url='open-storm.org',
-      packages=['pysheds'],
+      packages=find_packages(exclude=["examples", "data", "tests"]),
      )

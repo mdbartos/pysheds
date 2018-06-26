@@ -136,7 +136,15 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
 
 ## Installation
 
-`pysheds` currently only supports Python 3
+`pysheds` currently only supports Python 3.
+
+You can install `pysheds` using pip:
+
+```bash
+pip install pysheds
+```
+
+For the bleeding-edge version, you can install pysheds from this github repository.
 
 ```bash
     $ git clone https://github.com/mdbartos/pysheds.git
@@ -144,6 +152,13 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
     $ python setup.py install
 ```
 
+or
+
+```bash
+    $ git clone https://github.com/mdbartos/pysheds.git
+    $ cd pysheds
+    $ pip install .
+```
 
 # Performance
 Performance benchmarks on a 2015 MacBook Pro:

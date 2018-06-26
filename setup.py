@@ -4,7 +4,7 @@ from distutils.core import setup
 
 setup(name='pysheds',
       version='0.1',
-      description='Watershed delineation',
+      description='🌎 Simple and fast watershed delineation in python.',
       author='Matt Bartos',
       author_email='mdbartos@umich.edu',
       url='open-storm.org',

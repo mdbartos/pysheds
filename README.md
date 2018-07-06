@@ -127,6 +127,7 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
   - `polygonize`: Convert a raster dataset to a vector dataset.
   - `check_cycles`: Check for cycles in a flow direction grid.
   - `set_nodata`: Set nodata value for a dataset.
+  - `snap_to_mask`: Snap a set of coordinates to the nearest masked cells (e.g. cells with high accumulation).
 - I/O:
   - `read_ascii`: Reads ascii gridded data.
   - `read_raster`: Reads raster gridded data.

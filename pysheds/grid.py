@@ -476,7 +476,7 @@ class Grid(object):
         # Ensure masking is safe by checking datatype
         if dtype is None:
             dtype = max(np.min_scalar_type(nodata), np.min_scalar_type(array_view.max()),
-                        np.min_scalar_type(array_view.min()))
+                        np.min_scalar_type(array_view.min()), data.dtype)
             # For matplotlib imshow compatibility
             if issubclass(dtype.type, np.floating):
                 dtype = max(dtype, np.dtype(np.float32))
@@ -614,19 +614,18 @@ class Grid(object):
             exclude = np.unique(np.concatenate([top, left, right, bottom, dem_mask]))
             inside = np.delete(a, exclude)
             inner_neighbors, diff, fdir_defined = self._d8_diff(dem, inside)
-            fdir = np.where(fdir_defined, np.argmax(diff, axis=0), -1) + 1
-            if pits != flats:
-                pits_bool = (diff < 0).all(axis=0)
-                flats_bool = (~fdir_defined & ~pits)
-                fdir[pits_bool] = pits
-                fdir[flats_bool] = flats
-            else:
-                fdir[~fdir_defined] = flats
+            cell_dists = (np.array([1, np.sqrt(2), 1, np.sqrt(2), 1, np.sqrt(2), 1, np.sqrt(2)])
+                          .reshape(-1, 1))
+            slope = diff / cell_dists
+            # TODO: This assigns directions arbitrarily if multiple steepest paths exist
+            fdir = np.where(fdir_defined, np.argmax(slope, axis=0), -1) + 1
             # If direction numbering isn't default, convert values of output array.
             if dirmap != (1, 2, 3, 4, 5, 6, 7, 8):
-                dir_d = dict(zip((1, 2, 3, 4, 5, 6, 7, 8), dirmap))
-                for k, v in dir_d.items():
-                    fdir[fdir == k] = v
+                fdir = np.asarray([0] + list(dirmap))[fdir]
+            pits_bool = (diff < 0).all(axis=0)
+            flats_bool = (~fdir_defined & ~pits_bool)
+            fdir[pits_bool] = pits
+            fdir[flats_bool] = flats
             fdir_out = np.full(dem.shape, nodata_out)
             fdir_out.flat[inside] = fdir
         except:
@@ -870,6 +869,9 @@ class Grid(object):
                     nodata_cells = (np.isnan(fdir))
                 else:
                     nodata_cells = (fdir == nodata_in)
+            invalid_cells = ~np.in1d(fdir.ravel(), dirmap)
+            invalid_entries = fdir.flat[invalid_cells]
+            fdir.flat[invalid_cells] = nodata_in
             # Ensure consistent types
             mintype = np.min_scalar_type(fdir.size)
             fdir = fdir.astype(mintype)
@@ -910,6 +912,7 @@ class Grid(object):
         # Clean up
             self._unflatten_fdir(fdir, flat_idx, dirmap)
             fdir = fdir.astype(fdir_orig_type)
+            fdir.flat[invalid_cells] = invalid_entries
             if nodata_in is not None:
                 fdir[nodata_cells] = nodata_in
             if pad:
@@ -2010,7 +2013,7 @@ class Grid(object):
         grad_towards_lower = self._grad_towards_lower(low_edge_cells, inner_neighbors, diff,
                           fdir_defined, in_bounds, labels, numlabels, crosswalk)
         drainage_grad = (2*grad_towards_lower + grad_from_higher).astype(int)
-        return drainage_grad, high_edge_cells, low_edge_cells
+        return drainage_grad, high_edge_cells, low_edge_cells, labels, numlabels
 
     def _d8_diff(self, dem, inside):
         inner_neighbors = self._select_surround_ravel(inside, dem.shape).T
@@ -2019,8 +2022,8 @@ class Grid(object):
         fdir_defined = (diff > 0).any(axis=0)
         return inner_neighbors, diff, fdir_defined
 
-    def resolve_flats(self, data=None, out_name='flats_dir', nodata_in=None, nodata_out=0,
-                      pits=-1, flats=-1, dirmap=(1, 2, 3, 4, 5, 6, 7, 8), inplace=True,
+    def resolve_flats(self, data=None, out_name='inflated_dem', nodata_in=None, nodata_out=np.nan,
+                      dirmap=(1, 2, 3, 4, 5, 6, 7, 8), inplace=True,
                       apply_mask=False, ignore_metadata=False, **kwargs):
         """
         Resolve flats in a DEM using the modified method of Garbrecht and Martz (1997).
@@ -2080,13 +2083,17 @@ class Grid(object):
         bottom = np.arange(dem.size - dem.shape[1], dem.size)[1:-1]
         exclude = np.unique(np.concatenate([top, left, right, bottom, dem_mask]))
         inside = np.delete(a, exclude)
-        drainage_grad, high_edge_cells, low_edge_cells = self._drainage_gradient(dem, inside)
-        sub_props = copy.deepcopy(grid_props)
-        sub_props.update({'nodata_in' : 0, 'nodata_out' : nodata_out})
-        fdir_flats = self.flowdir(data=drainage_grad, inplace=False, **sub_props)
-        fdir_flats[1:-1, 1:-1].flat[low_edge_cells] = nodata_out
-        return self._output_handler(data=fdir_flats, out_name=out_name, inplace=inplace,
-                                    metadata=metadata, **grid_props)
+        drainage_grad, high_edge_cells, low_edge_cells, labels, numlabels = (self._drainage_gradient
+                                                                             (dem, inside))
+        drainage_grad = drainage_grad.astype(np.float)
+        for label in range(numlabels):
+            label_grad = drainage_grad[labels == label]
+            drainage_grad[labels == label] = 0.5*(label_grad / label_grad.max())
+        drainage_grad[1:-1, 1:-1].flat[low_edge_cells] = 0
+        dem_out = dem.astype(np.float) + drainage_grad
+        dem_out[np.isnan(dem_out)] = nodata_out
+        return self._output_handler(data=dem_out, out_name=out_name, properties=grid_props,
+                                    inplace=inplace, metadata=metadata)
 
     def polygonize(self, data=None, mask=None, connectivity=4, transform=None):
         """

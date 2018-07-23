@@ -871,7 +871,7 @@ class Grid(object):
                     nodata_cells = (fdir == nodata_in)
             invalid_cells = ~np.in1d(fdir.ravel(), dirmap)
             invalid_entries = fdir.flat[invalid_cells]
-            fdir.flat[invalid_cells] = nodata_in
+            fdir.flat[invalid_cells] = 0
             # Ensure consistent types
             mintype = np.min_scalar_type(fdir.size)
             fdir = fdir.astype(mintype)

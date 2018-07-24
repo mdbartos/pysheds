@@ -2191,6 +2191,156 @@ class Grid(object):
         return self._output_handler(data=dem_out, out_name=out_name, properties=grid_props,
                                     inplace=inplace, metadata=metadata)
 
+    def raise_nondraining_flats(self, data, out_name='raised_dem', nodata_in=None,
+                                nodata_out=np.nan, inplace=True, apply_mask=False,
+                                ignore_metadata=False, **kwargs):
+        # TODO: Most of this is copied from resolve flats
+        if nodata_in is None:
+            if isinstance(data, str):
+                try:
+                    nodata_in = getattr(self, data).nodata
+                except:
+                    raise NameError("nodata value for '{0}' not found in instance."
+                                    .format(data))
+            else:
+                raise KeyError("No 'nodata' value specified.")
+        grid_props = {'nodata' : nodata_out}
+        metadata = {}
+        dem = self._input_handler(data, apply_mask=apply_mask, properties=grid_props,
+                                  ignore_metadata=ignore_metadata, metadata=metadata, **kwargs)
+        # TODO: Note that this won't work for nans
+        dem_mask = np.where(dem.ravel() == nodata_in)[0]
+        # TODO: This is repeated from flowdir
+        a = np.arange(dem.size)
+        top = np.arange(dem.shape[1])[1:-1]
+        left = np.arange(0, dem.size, dem.shape[1])
+        right = np.arange(dem.shape[1] - 1, dem.size + 1, dem.shape[1])
+        bottom = np.arange(dem.size - dem.shape[1], dem.size)[1:-1]
+        exclude = np.unique(np.concatenate([top, left, right, bottom, dem_mask]))
+        inside = np.delete(a, exclude)
+        if not _HAS_SKIMAGE:
+            raise ImportError('resolve_flats requires skimage.measure module')
+        inner_neighbors, diff, fdir_defined = self._d8_diff(dem, inside)
+        pits_bool = (diff < 0).all(axis=0)
+        flats_bool = (~fdir_defined & ~pits_bool)
+        flats = np.zeros(dem.shape, dtype=np.bool)
+        flats[1:-1, 1:-1].flat[flats_bool] = True
+        higher_cell = (diff < 0).any(axis=0)
+        same_elev_cell = (diff == 0).any(axis=0)
+        # High edge cells are defined as:
+        # (a) Flow direction is not defined
+        # (b) Has at least one neighboring cell at a higher elevation
+        high_edge_cells_bool = (~fdir_defined & higher_cell)
+        high_edge_cells = np.where(high_edge_cells_bool)[0]
+        # Low edge cells are defined as:
+        # (a) Flow direction is defined
+        # (b) Has at least one neighboring cell, n, at the same elevation
+        # (c) The flow direction for this cell n is undefined
+        # Need to check if neighboring cell has fdir undefined
+        low_edge_cell_candidates = (fdir_defined & same_elev_cell)
+        fdir_def_all = -1 * np.ones(dem.shape)
+        fdir_def_all[1:-1, 1:-1] = fdir_defined.reshape(dem.shape[0] - 2, dem.shape[1] - 2)
+        fdir_def_neighbors = fdir_def_all.flat[inner_neighbors[:, low_edge_cell_candidates]]
+        same_elev_neighbors = ((diff[:, low_edge_cell_candidates]) == 0)
+        low_edge_cell_passed = (fdir_def_neighbors == 0) & (same_elev_neighbors == 1)
+        low_edge_cells = (np.where(low_edge_cell_candidates)[0]
+                          [low_edge_cell_passed.any(axis=0)])
+        # Get flats to label
+        tolabel = (fdir_def_all == 0)
+        labels, numlabels = skimage.measure.label(tolabel, return_num=True)
+        flatlabels = labels[1:-1, 1:-1][flats[1:-1, 1:-1]]
+        flat_neighbors = inner_neighbors[:, flats[1:-1, 1:-1].ravel()]
+        flat_elevs = dem[1:-1, 1:-1][flats[1:-1, 1:-1]]
+        neighbor_elevs = dem.flat[flat_neighbors]
+        neighbor_elevs[neighbor_elevs == flat_elevs] = np.nan
+        flat_elevs = pd.Series(flat_elevs, index=flatlabels).groupby(level=0).mean()
+        lec_elev = np.zeros(dem.shape, dtype=dem.dtype)
+        lec_elev[1:-1, 1:-1].flat[low_edge_cells] = dem[1:-1, 1:-1].flat[low_edge_cells]
+        has_lec = (lec_elev.flat[flat_neighbors] == flat_elevs[flatlabels].values).any(axis=0)
+        has_lec = pd.Series(has_lec, index=flatlabels).groupby(level=0).any()
+        no_lec = has_lec[~has_lec].index.values
+        neighbor_elevmin = np.nanmin(neighbor_elevs, axis=0)
+        raise_elev = pd.Series(neighbor_elevmin, index=flatlabels).groupby(level=0).min()
+        elev_map = np.zeros(numlabels + 1, dtype=dem.dtype)
+        elev_map[no_lec] = raise_elev[no_lec].values
+        elev_replace = elev_map[labels]
+        raised_dem = np.where(elev_replace, elev_replace, dem).astype(dem.dtype)
+        return self._output_handler(data=raised_dem, out_name=out_name, properties=grid_props,
+                            inplace=inplace, metadata=metadata)
+
+    def detect_nondraining_flats(self, data, out_name='raised_dem', nodata_in=None,
+                                nodata_out=np.nan, inplace=True, apply_mask=False,
+                                ignore_metadata=False, **kwargs):
+        # TODO: Most of this is copied from resolve flats
+        if nodata_in is None:
+            if isinstance(data, str):
+                try:
+                    nodata_in = getattr(self, data).nodata
+                except:
+                    raise NameError("nodata value for '{0}' not found in instance."
+                                    .format(data))
+            else:
+                raise KeyError("No 'nodata' value specified.")
+        grid_props = {'nodata' : nodata_out}
+        metadata = {}
+        dem = self._input_handler(data, apply_mask=apply_mask, properties=grid_props,
+                                  ignore_metadata=ignore_metadata, metadata=metadata, **kwargs)
+        # TODO: Note that this won't work for nans
+        dem_mask = np.where(dem.ravel() == nodata_in)[0]
+        # TODO: This is repeated from flowdir
+        a = np.arange(dem.size)
+        top = np.arange(dem.shape[1])[1:-1]
+        left = np.arange(0, dem.size, dem.shape[1])
+        right = np.arange(dem.shape[1] - 1, dem.size + 1, dem.shape[1])
+        bottom = np.arange(dem.size - dem.shape[1], dem.size)[1:-1]
+        exclude = np.unique(np.concatenate([top, left, right, bottom, dem_mask]))
+        inside = np.delete(a, exclude)
+        if not _HAS_SKIMAGE:
+            raise ImportError('resolve_flats requires skimage.measure module')
+        inner_neighbors, diff, fdir_defined = self._d8_diff(dem, inside)
+        pits_bool = (diff < 0).all(axis=0)
+        flats_bool = (~fdir_defined & ~pits_bool)
+        flats = np.zeros(dem.shape, dtype=np.bool)
+        flats[1:-1, 1:-1].flat[flats_bool] = True
+        higher_cell = (diff < 0).any(axis=0)
+        same_elev_cell = (diff == 0).any(axis=0)
+        # High edge cells are defined as:
+        # (a) Flow direction is not defined
+        # (b) Has at least one neighboring cell at a higher elevation
+        high_edge_cells_bool = (~fdir_defined & higher_cell)
+        high_edge_cells = np.where(high_edge_cells_bool)[0]
+        # Low edge cells are defined as:
+        # (a) Flow direction is defined
+        # (b) Has at least one neighboring cell, n, at the same elevation
+        # (c) The flow direction for this cell n is undefined
+        # Need to check if neighboring cell has fdir undefined
+        low_edge_cell_candidates = (fdir_defined & same_elev_cell)
+        fdir_def_all = -1 * np.ones(dem.shape)
+        fdir_def_all[1:-1, 1:-1] = fdir_defined.reshape(dem.shape[0] - 2, dem.shape[1] - 2)
+        fdir_def_neighbors = fdir_def_all.flat[inner_neighbors[:, low_edge_cell_candidates]]
+        same_elev_neighbors = ((diff[:, low_edge_cell_candidates]) == 0)
+        low_edge_cell_passed = (fdir_def_neighbors == 0) & (same_elev_neighbors == 1)
+        low_edge_cells = (np.where(low_edge_cell_candidates)[0]
+                          [low_edge_cell_passed.any(axis=0)])
+        # Get flats to label
+        tolabel = (fdir_def_all == 0)
+        labels, numlabels = skimage.measure.label(tolabel, return_num=True)
+        flatlabels = labels[1:-1, 1:-1][flats[1:-1, 1:-1]]
+        flat_neighbors = inner_neighbors[:, flats[1:-1, 1:-1].ravel()]
+        flat_elevs = dem[1:-1, 1:-1][flats[1:-1, 1:-1]]
+        neighbor_elevs = dem.flat[flat_neighbors]
+        neighbor_elevs[neighbor_elevs == flat_elevs] = np.nan
+        flat_elevs = pd.Series(flat_elevs, index=flatlabels).groupby(level=0).mean()
+        lec_elev = np.zeros(dem.shape, dtype=dem.dtype)
+        lec_elev[1:-1, 1:-1].flat[low_edge_cells] = dem[1:-1, 1:-1].flat[low_edge_cells]
+        has_lec = (lec_elev.flat[flat_neighbors] == flat_elevs[flatlabels].values).any(axis=0)
+        has_lec = pd.Series(has_lec, index=flatlabels).groupby(level=0).any()
+        no_lec = has_lec[~has_lec].index.values
+        bool_map = np.zeros(numlabels + 1, dtype=np.bool)
+        bool_map[no_lec] = 1
+        nondraining_flats = bool_map[labels]
+        return nondraining_flats
+
     def polygonize(self, data=None, mask=None, connectivity=4, transform=None):
         """
         Yield (polygon, value) for each set of adjacent pixels of the same value.

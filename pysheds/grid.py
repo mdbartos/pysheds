@@ -2227,11 +2227,6 @@ class Grid(object):
         flats[1:-1, 1:-1].flat[flats_bool] = True
         higher_cell = (diff < 0).any(axis=0)
         same_elev_cell = (diff == 0).any(axis=0)
-        # High edge cells are defined as:
-        # (a) Flow direction is not defined
-        # (b) Has at least one neighboring cell at a higher elevation
-        high_edge_cells_bool = (~fdir_defined & higher_cell)
-        high_edge_cells = np.where(high_edge_cells_bool)[0]
         # Low edge cells are defined as:
         # (a) Flow direction is defined
         # (b) Has at least one neighboring cell, n, at the same elevation
@@ -2246,6 +2241,7 @@ class Grid(object):
         low_edge_cells = (np.where(low_edge_cell_candidates)[0]
                           [low_edge_cell_passed.any(axis=0)])
         # Get flats to label
+        # Note that this will label pits too
         tolabel = (fdir_def_all == 0)
         labels, numlabels = skimage.measure.label(tolabel, return_num=True)
         flatlabels = labels[1:-1, 1:-1][flats[1:-1, 1:-1]]
@@ -2304,11 +2300,6 @@ class Grid(object):
         flats[1:-1, 1:-1].flat[flats_bool] = True
         higher_cell = (diff < 0).any(axis=0)
         same_elev_cell = (diff == 0).any(axis=0)
-        # High edge cells are defined as:
-        # (a) Flow direction is not defined
-        # (b) Has at least one neighboring cell at a higher elevation
-        high_edge_cells_bool = (~fdir_defined & higher_cell)
-        high_edge_cells = np.where(high_edge_cells_bool)[0]
         # Low edge cells are defined as:
         # (a) Flow direction is defined
         # (b) Has at least one neighboring cell, n, at the same elevation

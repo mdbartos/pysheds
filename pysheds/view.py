@@ -291,7 +291,7 @@ class RegularGridViewer():
     @classmethod
     def _view_affine(cls, data, data_view, target_view, x_tolerance=1e-3, y_tolerance=1e-3):
         nodata = target_view.nodata
-        view = np.full(target_view.shape, nodata)
+        view = np.full(target_view.shape, nodata, dtype=data.dtype)
         viewrows, viewcols = target_view.grid_indices()
         _, target_row_ix = ~data_view.affine * np.vstack([np.zeros(target_view.shape[0]), viewrows])
         target_col_ix, _ = ~data_view.affine * np.vstack([viewcols, np.zeros(target_view.shape[1])])

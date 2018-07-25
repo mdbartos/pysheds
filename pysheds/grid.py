@@ -581,7 +581,7 @@ class Grid(object):
                  cardinal and intercardinal directions (in order):
                  [N, NE, E, SE, S, SW, W, NW]
         inplace : bool
-                  If True, write output array to self.<data_name>.
+                  If True, write output array to self.<out_name>.
                   Otherwise, return the output array.
         apply_mask : bool
                If True, "mask" the output using self.mask.
@@ -605,13 +605,7 @@ class Grid(object):
         # Make sure nothing flows to the nodata cells
         dem.flat[dem_mask] = dem.max() + 1
         try:
-            a = np.arange(dem.size)
-            top = np.arange(dem.shape[1])[1:-1]
-            left = np.arange(0, dem.size, dem.shape[1])
-            right = np.arange(dem.shape[1] - 1, dem.size + 1, dem.shape[1])
-            bottom = np.arange(dem.size - dem.shape[1], dem.size)[1:-1]
-            exclude = np.unique(np.concatenate([top, left, right, bottom, dem_mask]))
-            inside = np.delete(a, exclude)
+            inside = self._inside_indices(dem, mask=dem_mask)
             inner_neighbors, diff, fdir_defined = self._d8_diff(dem, inside)
             cell_dists = (np.array([1, np.sqrt(2), 1, np.sqrt(2), 1, np.sqrt(2), 1, np.sqrt(2)])
                           .reshape(-1, 1))
@@ -674,7 +668,7 @@ class Grid(object):
                          Recursion limit--may need to be raised if
                          recursion limit is reached.
         inplace : bool
-                  If True, catchment will be written to attribute 'catch'.
+                  If True, write output array to self.<out_name>.
                   Otherwise, return the output array.
         apply_mask : bool
                If True, "mask" the output using self.mask.
@@ -835,7 +829,7 @@ class Grid(object):
         out_name : string
                    Name of attribute containing new accumulation array.
         inplace : bool
-                  If True, accumulation will be written to attribute 'acc'.
+                  If True, write output array to self.<out_name>.
                   Otherwise, return the output array.
         pad : bool
               If True, pad the rim of the input array with zeros. Else, ignore
@@ -951,7 +945,7 @@ class Grid(object):
         out_name : string
                    Name of attribute containing new flow distance array.
         inplace : bool
-                  If True, accumulation will be written to attribute 'acc'.
+                  If True, write output array to self.<out_name>.
                   Otherwise, return the output array.
         xytype : 'index' or 'label'
                  How to interpret parameters 'x' and 'y'.
@@ -1028,7 +1022,7 @@ class Grid(object):
         nodata_out : int or float
                      Value to indicate nodata in output array.
         inplace : bool
-                  If True, accumulation will be written to attribute 'acc'.
+                  If True, write output array to self.<out_name>.
                   Otherwise, return the output array.
         as_crs : pyproj.Proj
                  CRS at which to compute the area of each cell.
@@ -1079,7 +1073,7 @@ class Grid(object):
         nodata_out : int or float
                      Value to indicate nodata in output array.
         inplace : bool
-                  If True, accumulation will be written to attribute 'acc'.
+                  If True, write output array to self.<out_name>.
                   Otherwise, return the output array.
         as_crs : pyproj.Proj
                  CRS at which to compute the distance from each cell to its downstream neighbor.
@@ -1150,7 +1144,7 @@ class Grid(object):
         nodata_out : int or float
                      Value to indicate nodata in output array.
         inplace : bool
-                  If True, accumulation will be written to attribute 'acc'.
+                  If True, write output array to self.<out_name>.
                   Otherwise, return the output array.
         apply_mask : bool
                If True, "mask" the output using self.mask.
@@ -1225,7 +1219,7 @@ class Grid(object):
         nodata_out : int or float
                      Value to indicate nodata in output array.
         inplace : bool
-                  If True, accumulation will be written to attribute 'acc'.
+                  If True, write output array to self.<out_name>.
                   Otherwise, return the output array.
         apply_mask : bool
                If True, "mask" the output using self.mask.
@@ -1770,10 +1764,31 @@ class Grid(object):
             fdir = fdir.astype(fdir_orig_type)
         return geo
 
-    def detect_pits(self, data, nodata_in=None, nodata_out=0, apply_mask=False,
-                    ignore_metadata=True, **kwargs):
+    def detect_pits(self, data, nodata_in=None, apply_mask=False, ignore_metadata=True,
+                    **kwargs):
+        """
+        Detect pits in a DEM.
+
+        Parameters
+        ----------
+        data : str or Raster
+               DEM data.
+               If string: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        nodata_in : int or float
+                     Value to indicate nodata in input array.
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and CRS.
+
+        Returns
+        -------
+        pits : numpy ndarray
+               Boolean array indicating locations of pits.
+        """
         nodata_in = self._check_nodata_in(data, nodata_in)
-        grid_props = {'nodata' : nodata_out}
+        grid_props = {}
         dem = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
                                   properties=grid_props, ignore_metadata=ignore_metadata,
                                   **kwargs)
@@ -1786,23 +1801,37 @@ class Grid(object):
                 dem_mask = np.where(dem.ravel() == nodata_in)[0]
         # Make sure nothing flows to the nodata cells
         dem.flat[dem_mask] = dem.max() + 1
-        a = np.arange(dem.size)
-        top = np.arange(dem.shape[1])[1:-1]
-        left = np.arange(0, dem.size, dem.shape[1])
-        right = np.arange(dem.shape[1] - 1, dem.size + 1, dem.shape[1])
-        bottom = np.arange(dem.size - dem.shape[1], dem.size)[1:-1]
-        exclude = np.unique(np.concatenate([top, left, right, bottom, dem_mask]))
-        inside = np.delete(a, exclude)
+        inside = self._inside_indices(dem, mask=dem_mask)
         inner_neighbors, diff, fdir_defined = self._d8_diff(dem, inside)
         pits_bool = (diff < 0).all(axis=0)
         pits = np.zeros(dem.shape, dtype=np.bool)
         pits[1:-1, 1:-1].flat[pits_bool] = True
         return pits
 
-    def detect_flats(self, data, nodata_in=None, nodata_out=0, apply_mask=False,
-                     ignore_metadata=True, **kwargs):
+    def detect_flats(self, data, nodata_in=None, apply_mask=False, ignore_metadata=True, **kwargs):
+        """
+        Detect flats in a DEM.
+
+        Parameters
+        ----------
+        data : str or Raster
+               DEM data.
+               If string: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        nodata_in : int or float
+                     Value to indicate nodata in input array.
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and CRS.
+
+        Returns
+        -------
+        flats : numpy ndarray
+                Boolean array indicating locations of flats.
+        """
         nodata_in = self._check_nodata_in(data, nodata_in)
-        grid_props = {'nodata' : nodata_out}
+        grid_props = {}
         dem = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
                                   properties=grid_props, ignore_metadata=ignore_metadata,
                                   **kwargs)
@@ -1815,13 +1844,7 @@ class Grid(object):
                 dem_mask = np.where(dem.ravel() == nodata_in)[0]
         # Make sure nothing flows to the nodata cells
         dem.flat[dem_mask] = dem.max() + 1
-        a = np.arange(dem.size)
-        top = np.arange(dem.shape[1])[1:-1]
-        left = np.arange(0, dem.size, dem.shape[1])
-        right = np.arange(dem.shape[1] - 1, dem.size + 1, dem.shape[1])
-        bottom = np.arange(dem.size - dem.shape[1], dem.size)[1:-1]
-        exclude = np.unique(np.concatenate([top, left, right, bottom, dem_mask]))
-        inside = np.delete(a, exclude)
+        inside = self._inside_indices(dem, mask=dem_mask)
         inner_neighbors, diff, fdir_defined = self._d8_diff(dem, inside)
         pits_bool = (diff < 0).all(axis=0)
         flats_bool = (~fdir_defined & ~pits_bool)
@@ -1897,6 +1920,29 @@ class Grid(object):
 
     def fill_pits(self, data, out_name='filled_dem', nodata_in=None, nodata_out=0,
                   inplace=True, apply_mask=False, ignore_metadata=False, **kwargs):
+        """
+        Fill pits in a DEM. Raises pits to same elevation as lowest neighbor.
+
+        Parameters
+        ----------
+        data : str or Raster
+               DEM data.
+               If string: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        out_name : string
+                   Name of attribute containing new filled pit array.
+        nodata_in : int or float
+                     Value to indicate nodata in input array.
+        nodata_out : int or float
+                     Value indicating no data in output array.
+        inplace : bool
+                  If True, write output array to self.<out_name>.
+                  Otherwise, return the output array.
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and CRS.
+        """
         nodata_in = self._check_nodata_in(data, nodata_in)
         grid_props = {'nodata' : nodata_out}
         metadata = {}
@@ -1912,13 +1958,7 @@ class Grid(object):
                 dem_mask = np.where(dem.ravel() == nodata_in)[0]
         # Make sure nothing flows to the nodata cells
         dem.flat[dem_mask] = dem.max() + 1
-        a = np.arange(dem.size)
-        top = np.arange(dem.shape[1])[1:-1]
-        left = np.arange(0, dem.size, dem.shape[1])
-        right = np.arange(dem.shape[1] - 1, dem.size + 1, dem.shape[1])
-        bottom = np.arange(dem.size - dem.shape[1], dem.size)[1:-1]
-        exclude = np.unique(np.concatenate([top, left, right, bottom, dem_mask]))
-        inside = np.delete(a, exclude)
+        inside = self._inside_indices(dem, mask=dem_mask)
         inner_neighbors, diff, fdir_defined = self._d8_diff(dem, inside)
         pits_bool = (diff < 0).all(axis=0)
         pits = np.zeros(dem.shape, dtype=np.bool)
@@ -1969,6 +2009,18 @@ class Grid(object):
                          i - 1 + 0,
                          i - 1 - offset]).T
 
+    def _inside_indices(self, data, mask=None):
+        if mask is None:
+            mask = np.array([]).astype(int)
+        a = np.arange(data.size)
+        top = np.arange(data.shape[1])[1:-1]
+        left = np.arange(0, data.size, data.shape[1])
+        right = np.arange(data.shape[1] - 1, data.size + 1, data.shape[1])
+        bottom = np.arange(data.size - data.shape[1], data.size)[1:-1]
+        exclude = np.unique(np.concatenate([top, left, right, bottom, mask]))
+        inside = np.delete(a, exclude)
+        return inside
+
     def _set_dirmap(self, dirmap, data, default_dirmap=(1, 2, 3, 4, 5, 6, 7, 8)):
         # TODO: Is setting a default dirmap even a good idea?
         if dirmap is None:
@@ -1998,7 +2050,6 @@ class Grid(object):
 
     def _grad_from_higher(self, high_edge_cells, inner_neighbors, diff,
                           fdir_defined, in_bounds, labels, numlabels, crosswalk):
-        print("Constructing gradient from higher terrain")
         z = np.zeros_like(labels)
         max_iter = np.bincount(labels.ravel())[1:].max()
         u = high_edge_cells.copy()
@@ -2037,7 +2088,6 @@ class Grid(object):
 
     def _grad_towards_lower(self, low_edge_cells, inner_neighbors, diff,
                           fdir_defined, in_bounds, labels, numlabels, crosswalk):
-        print("Constructing gradient towards lower terrain")
         x = np.zeros_like(labels)
         u = low_edge_cells.copy()
         x[1:-1, 1:-1].flat[u] = 1
@@ -2064,6 +2114,34 @@ class Grid(object):
         grad_towards_lower = x
         return grad_towards_lower
 
+    def _get_high_edge_cells(self, diff, fdir_defined):
+        # High edge cells are defined as:
+        # (a) Flow direction is not defined
+        # (b) Has at least one neighboring cell at a higher elevation
+        higher_cell = (diff < 0).any(axis=0)
+        high_edge_cells_bool = (~fdir_defined & higher_cell)
+        high_edge_cells = np.where(high_edge_cells_bool)[0]
+        return high_edge_cells
+
+    def _get_low_edge_cells(self, diff, fdir_defined, inner_neighbors, shape):
+        # TODO: There is probably a more efficient way to do this
+        # TODO: Select neighbors of flats and then see which have direction defined
+        # Low edge cells are defined as:
+        # (a) Flow direction is defined
+        # (b) Has at least one neighboring cell, n, at the same elevation
+        # (c) The flow direction for this cell n is undefined
+        # Need to check if neighboring cell has fdir undefined
+        same_elev_cell = (diff == 0).any(axis=0)
+        low_edge_cell_candidates = (fdir_defined & same_elev_cell)
+        fdir_def_all = -1 * np.ones(shape)
+        fdir_def_all[1:-1, 1:-1] = fdir_defined.reshape(shape[0] - 2, shape[1] - 2)
+        fdir_def_neighbors = fdir_def_all.flat[inner_neighbors[:, low_edge_cell_candidates]]
+        same_elev_neighbors = ((diff[:, low_edge_cell_candidates]) == 0)
+        low_edge_cell_passed = (fdir_def_neighbors == 0) & (same_elev_neighbors == 1)
+        low_edge_cells = (np.where(low_edge_cell_candidates)[0]
+                          [low_edge_cell_passed.any(axis=0)])
+        return low_edge_cells
+
     def _drainage_gradient(self, dem, inside):
         if not _HAS_SKIMAGE:
             raise ImportError('resolve_flats requires skimage.measure module')
@@ -2072,31 +2150,11 @@ class Grid(object):
         flats_bool = (~fdir_defined & ~pits_bool)
         flats = np.zeros(dem.shape, dtype=np.bool)
         flats[1:-1, 1:-1].flat[flats_bool] = True
-        higher_cell = (diff < 0).any(axis=0)
-        same_elev_cell = (diff == 0).any(axis=0)
-        # High edge cells are defined as:
-        # (a) Flow direction is not defined
-        # (b) Has at least one neighboring cell at a higher elevation
-        print('Determining high edge cells')
-        high_edge_cells_bool = (~fdir_defined & higher_cell)
-        high_edge_cells = np.where(high_edge_cells_bool)[0]
-        # Low edge cells are defined as:
-        # (a) Flow direction is defined
-        # (b) Has at least one neighboring cell, n, at the same elevation
-        # (c) The flow direction for this cell n is undefined
-        # Need to check if neighboring cell has fdir undefined
-        print('Determining low edge cells')
-        low_edge_cell_candidates = (fdir_defined & same_elev_cell)
-        fdir_def_all = -1 * np.ones(dem.shape)
-        fdir_def_all[1:-1, 1:-1] = fdir_defined.reshape(dem.shape[0] - 2, dem.shape[1] - 2)
-        fdir_def_neighbors = fdir_def_all.flat[inner_neighbors[:, low_edge_cell_candidates]]
-        same_elev_neighbors = ((diff[:, low_edge_cell_candidates]) == 0)
-        low_edge_cell_passed = (fdir_def_neighbors == 0) & (same_elev_neighbors == 1)
-        low_edge_cells = (np.where(low_edge_cell_candidates)[0]
-                          [low_edge_cell_passed.any(axis=0)])
+        high_edge_cells = self._get_high_edge_cells(diff, fdir_defined)
+        low_edge_cells = self._get_low_edge_cells(diff, fdir_defined, inner_neighbors,
+                                                  shape=dem.shape)
         # Get flats to label
-        tolabel = (fdir_def_all == 0)
-        labels, numlabels = skimage.measure.label(tolabel, return_num=True)
+        labels, numlabels = skimage.measure.label(flats, return_num=True)
         # Make sure cells stay in bounds
         in_bounds = np.ones_like(labels)
         in_bounds[0, :] = 0
@@ -2124,7 +2182,8 @@ class Grid(object):
                       inplace=True, apply_mask=False, ignore_metadata=False, **kwargs):
         """
         Resolve flats in a DEM using the modified method of Garbrecht and Martz (1997).
- 
+        See: https://arxiv.org/abs/1511.04433
+
         Parameters
         ----------
         data : str or Raster
@@ -2142,7 +2201,7 @@ class Grid(object):
         flats : int
                 Value to indicate flat areas in output array.
         inplace : bool
-                  If True, accumulation will be written to attribute 'acc'.
+                  If True, write output array to self.<out_name>.
                   Otherwise, return the output array.
         apply_mask : bool
                If True, "mask" the output using self.mask.
@@ -2165,14 +2224,7 @@ class Grid(object):
                                   ignore_metadata=ignore_metadata, metadata=metadata, **kwargs)
         # TODO: Note that this won't work for nans
         dem_mask = np.where(dem.ravel() == nodata_in)[0]
-        # TODO: This is repeated from flowdir
-        a = np.arange(dem.size)
-        top = np.arange(dem.shape[1])[1:-1]
-        left = np.arange(0, dem.size, dem.shape[1])
-        right = np.arange(dem.shape[1] - 1, dem.size + 1, dem.shape[1])
-        bottom = np.arange(dem.size - dem.shape[1], dem.size)[1:-1]
-        exclude = np.unique(np.concatenate([top, left, right, bottom, dem_mask]))
-        inside = np.delete(a, exclude)
+        inside = self._inside_indices(dem, mask=dem_mask)
         drainage_result = self._drainage_gradient(dem, inside)
         drainage_grad, flats, high_edge_cells, low_edge_cells, labels, diff = drainage_result
         drainage_grad = drainage_grad.astype(np.float)
@@ -2194,6 +2246,32 @@ class Grid(object):
     def raise_nondraining_flats(self, data, out_name='raised_dem', nodata_in=None,
                                 nodata_out=np.nan, inplace=True, apply_mask=False,
                                 ignore_metadata=False, **kwargs):
+        """
+        Raises nondraining flats (those with no low edge cells) to the elevation of the
+        lowest surrounding neighbor cell.
+
+        Parameters
+        ----------
+        data : str or Raster
+               DEM data.
+               If string: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        out_name : string
+                   Name of attribute containing new flat-resolved array.
+        nodata_in : int or float
+                     Value to indicate nodata in input array.
+        nodata_out : int or float
+                     Value indicating no data in output array.
+        inplace : bool
+                  If True, write output array to self.<out_name>.
+                  Otherwise, return the output array.
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and CRS.
+        """
+        if not _HAS_SKIMAGE:
+            raise ImportError('resolve_flats requires skimage.measure module')
         # TODO: Most of this is copied from resolve flats
         if nodata_in is None:
             if isinstance(data, str):
@@ -2208,53 +2286,10 @@ class Grid(object):
         metadata = {}
         dem = self._input_handler(data, apply_mask=apply_mask, properties=grid_props,
                                   ignore_metadata=ignore_metadata, metadata=metadata, **kwargs)
-        # TODO: Note that this won't work for nans
-        dem_mask = np.where(dem.ravel() == nodata_in)[0]
-        # TODO: This is repeated from flowdir
-        a = np.arange(dem.size)
-        top = np.arange(dem.shape[1])[1:-1]
-        left = np.arange(0, dem.size, dem.shape[1])
-        right = np.arange(dem.shape[1] - 1, dem.size + 1, dem.shape[1])
-        bottom = np.arange(dem.size - dem.shape[1], dem.size)[1:-1]
-        exclude = np.unique(np.concatenate([top, left, right, bottom, dem_mask]))
-        inside = np.delete(a, exclude)
-        if not _HAS_SKIMAGE:
-            raise ImportError('resolve_flats requires skimage.measure module')
-        inner_neighbors, diff, fdir_defined = self._d8_diff(dem, inside)
-        pits_bool = (diff < 0).all(axis=0)
-        flats_bool = (~fdir_defined & ~pits_bool)
-        flats = np.zeros(dem.shape, dtype=np.bool)
-        flats[1:-1, 1:-1].flat[flats_bool] = True
-        higher_cell = (diff < 0).any(axis=0)
-        same_elev_cell = (diff == 0).any(axis=0)
-        # Low edge cells are defined as:
-        # (a) Flow direction is defined
-        # (b) Has at least one neighboring cell, n, at the same elevation
-        # (c) The flow direction for this cell n is undefined
-        # Need to check if neighboring cell has fdir undefined
-        low_edge_cell_candidates = (fdir_defined & same_elev_cell)
-        fdir_def_all = -1 * np.ones(dem.shape)
-        fdir_def_all[1:-1, 1:-1] = fdir_defined.reshape(dem.shape[0] - 2, dem.shape[1] - 2)
-        fdir_def_neighbors = fdir_def_all.flat[inner_neighbors[:, low_edge_cell_candidates]]
-        same_elev_neighbors = ((diff[:, low_edge_cell_candidates]) == 0)
-        low_edge_cell_passed = (fdir_def_neighbors == 0) & (same_elev_neighbors == 1)
-        low_edge_cells = (np.where(low_edge_cell_candidates)[0]
-                          [low_edge_cell_passed.any(axis=0)])
-        # Get flats to label
-        # Note that this will label pits too
-        tolabel = (fdir_def_all == 0)
-        labels, numlabels = skimage.measure.label(tolabel, return_num=True)
-        flatlabels = labels[1:-1, 1:-1][flats[1:-1, 1:-1]]
-        flat_neighbors = inner_neighbors[:, flats[1:-1, 1:-1].ravel()]
-        flat_elevs = dem[1:-1, 1:-1][flats[1:-1, 1:-1]]
-        neighbor_elevs = dem.flat[flat_neighbors]
-        neighbor_elevs[neighbor_elevs == flat_elevs] = np.nan
-        flat_elevs = pd.Series(flat_elevs, index=flatlabels).groupby(level=0).mean()
-        lec_elev = np.zeros(dem.shape, dtype=dem.dtype)
-        lec_elev[1:-1, 1:-1].flat[low_edge_cells] = dem[1:-1, 1:-1].flat[low_edge_cells]
-        has_lec = (lec_elev.flat[flat_neighbors] == flat_elevs[flatlabels].values).any(axis=0)
-        has_lec = pd.Series(has_lec, index=flatlabels).groupby(level=0).any()
-        no_lec = has_lec[~has_lec].index.values
+        no_lec, labels, numlabels, neighbor_elevs, flatlabels = (
+            self._get_nondraining_flats(dem, nodata_in=nodata_in, nodata_out=nodata_out,
+                                        inplace=inplace, apply_mask=apply_mask,
+                                        ignore_metadata=ignore_metadata, **kwargs))
         neighbor_elevmin = np.nanmin(neighbor_elevs, axis=0)
         raise_elev = pd.Series(neighbor_elevmin, index=flatlabels).groupby(level=0).min()
         elev_map = np.zeros(numlabels + 1, dtype=dem.dtype)
@@ -2264,9 +2299,37 @@ class Grid(object):
         return self._output_handler(data=raised_dem, out_name=out_name, properties=grid_props,
                             inplace=inplace, metadata=metadata)
 
-    def detect_nondraining_flats(self, data, out_name='raised_dem', nodata_in=None,
-                                nodata_out=np.nan, inplace=True, apply_mask=False,
-                                ignore_metadata=False, **kwargs):
+    def detect_nondraining_flats(self, data, nodata_in=None, nodata_out=np.nan,
+                                 inplace=True, apply_mask=False, ignore_metadata=False,
+                                 **kwargs):
+        """
+        Detects nondraining flats (those with no low edge cells).
+
+        Parameters
+        ----------
+        data : str or Raster
+               DEM data.
+               If string: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        nodata_in : int or float
+                     Value to indicate nodata in input array.
+        nodata_out : int or float
+                     Value indicating no data in output array.
+        inplace : bool
+                  If True, write output array to self.<out_name>.
+                  Otherwise, return the output array.
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and CRS.
+
+        Returns
+        -------
+        nondraining_flats : numpy ndarray
+                            Boolean array indicating locations of nondraining flats.
+        """
+        if not _HAS_SKIMAGE:
+            raise ImportError('resolve_flats requires skimage.measure module')
         # TODO: Most of this is copied from resolve flats
         if nodata_in is None:
             if isinstance(data, str):
@@ -2281,41 +2344,30 @@ class Grid(object):
         metadata = {}
         dem = self._input_handler(data, apply_mask=apply_mask, properties=grid_props,
                                   ignore_metadata=ignore_metadata, metadata=metadata, **kwargs)
+        no_lec, labels, numlabels, neighbor_elevs, flatlabels = (
+            self._get_nondraining_flats(dem, nodata_in=nodata_in, nodata_out=nodata_out,
+                                        inplace=inplace, apply_mask=apply_mask,
+                                        ignore_metadata=ignore_metadata, **kwargs))
+        bool_map = np.zeros(numlabels + 1, dtype=np.bool)
+        bool_map[no_lec] = 1
+        nondraining_flats = bool_map[labels]
+        return nondraining_flats
+
+    def _get_nondraining_flats(self, dem, out_name='raised_dem', nodata_in=None,
+                                nodata_out=np.nan, inplace=True, apply_mask=False,
+                                ignore_metadata=False, **kwargs):
         # TODO: Note that this won't work for nans
         dem_mask = np.where(dem.ravel() == nodata_in)[0]
-        # TODO: This is repeated from flowdir
-        a = np.arange(dem.size)
-        top = np.arange(dem.shape[1])[1:-1]
-        left = np.arange(0, dem.size, dem.shape[1])
-        right = np.arange(dem.shape[1] - 1, dem.size + 1, dem.shape[1])
-        bottom = np.arange(dem.size - dem.shape[1], dem.size)[1:-1]
-        exclude = np.unique(np.concatenate([top, left, right, bottom, dem_mask]))
-        inside = np.delete(a, exclude)
-        if not _HAS_SKIMAGE:
-            raise ImportError('resolve_flats requires skimage.measure module')
+        inside = self._inside_indices(dem, mask=dem_mask)
         inner_neighbors, diff, fdir_defined = self._d8_diff(dem, inside)
         pits_bool = (diff < 0).all(axis=0)
         flats_bool = (~fdir_defined & ~pits_bool)
         flats = np.zeros(dem.shape, dtype=np.bool)
         flats[1:-1, 1:-1].flat[flats_bool] = True
-        higher_cell = (diff < 0).any(axis=0)
-        same_elev_cell = (diff == 0).any(axis=0)
-        # Low edge cells are defined as:
-        # (a) Flow direction is defined
-        # (b) Has at least one neighboring cell, n, at the same elevation
-        # (c) The flow direction for this cell n is undefined
-        # Need to check if neighboring cell has fdir undefined
-        low_edge_cell_candidates = (fdir_defined & same_elev_cell)
-        fdir_def_all = -1 * np.ones(dem.shape)
-        fdir_def_all[1:-1, 1:-1] = fdir_defined.reshape(dem.shape[0] - 2, dem.shape[1] - 2)
-        fdir_def_neighbors = fdir_def_all.flat[inner_neighbors[:, low_edge_cell_candidates]]
-        same_elev_neighbors = ((diff[:, low_edge_cell_candidates]) == 0)
-        low_edge_cell_passed = (fdir_def_neighbors == 0) & (same_elev_neighbors == 1)
-        low_edge_cells = (np.where(low_edge_cell_candidates)[0]
-                          [low_edge_cell_passed.any(axis=0)])
+        low_edge_cells = self._get_low_edge_cells(diff, fdir_defined, inner_neighbors,
+                                                  shape=dem.shape)
         # Get flats to label
-        tolabel = (fdir_def_all == 0)
-        labels, numlabels = skimage.measure.label(tolabel, return_num=True)
+        labels, numlabels = skimage.measure.label(flats, return_num=True)
         flatlabels = labels[1:-1, 1:-1][flats[1:-1, 1:-1]]
         flat_neighbors = inner_neighbors[:, flats[1:-1, 1:-1].ravel()]
         flat_elevs = dem[1:-1, 1:-1][flats[1:-1, 1:-1]]
@@ -2327,10 +2379,7 @@ class Grid(object):
         has_lec = (lec_elev.flat[flat_neighbors] == flat_elevs[flatlabels].values).any(axis=0)
         has_lec = pd.Series(has_lec, index=flatlabels).groupby(level=0).any()
         no_lec = has_lec[~has_lec].index.values
-        bool_map = np.zeros(numlabels + 1, dtype=np.bool)
-        bool_map[no_lec] = 1
-        nondraining_flats = bool_map[labels]
-        return nondraining_flats
+        return no_lec, labels, numlabels, neighbor_elevs, flatlabels
 
     def polygonize(self, data=None, mask=None, connectivity=4, transform=None):
         """

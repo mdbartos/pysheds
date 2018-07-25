@@ -274,8 +274,8 @@ class Grid(object):
                         window = (extent[0][0], extent[1][0], extent[0][1], extent[1][1])
                 # If window crs not specified, assume it's in raster crs
                 ix_window = f.window(*window)
-                shape = (ix_window[0][1] - ix_window[0][0],
-                         ix_window[1][1] - ix_window[1][0])
+                shape = (ix_window.round_shape().height,
+                         ix_window.round_shape().width)
                 if len(f.indexes) > 1:
                     data = np.ma.filled(f.read_band(band, window=ix_window))
                 else:

@@ -26,11 +26,6 @@ try:
     import rasterio
     import rasterio.features
     _HAS_RASTERIO = True
-    rasterio_modules = {}
-    if LooseVersion(rasterio.__version__) >= LooseVersion('1.0a1'):
-        rasterio_modules.update({'transform' : 'transform'})
-    else:
-        rasterio_modules.update({'transform' : 'affine'})
 except:
     _HAS_RASTERIO = False
 
@@ -264,7 +259,7 @@ class Grid(object):
                     data = np.ma.filled(f.read_band(band))
                 else:
                     data = np.ma.filled(f.read())
-                affine = getattr(f, rasterio_modules['transform'])
+                affine = f.transform
             else:
                 if window_crs is not None:
                     if window_crs.srs != crs.srs:

@@ -1543,10 +1543,63 @@ class Grid(object):
             np.place(data, data == old_nodata, new_nodata)
         data.nodata = new_nodata
 
-    def to_ascii(self, data_name=None, file_name=None, view=True, apply_mask=False, delimiter=' ',
+    def to_ascii(self, data_name, file_name, view=True, delimiter=' ', fmt=None,
+                 apply_mask=False, nodata=None, interpolation='nearest',
+                 as_crs=None, kx=3, ky=3, s=0, tolerance=1e-3, dtype=None,
                  **kwargs):
         """
         Writes current "view" of grid data to ascii grid files.
+ 
+        Parameters
+        ----------
+        data_name : string or list-like (optional)
+                    Attribute name(s) of datasets to write.
+        file_name : string or list-like (optional)
+                    Name(s) of file(s) to write to (defaults to attribute
+                    name).
+        view : bool
+               If True, writes the "view" of the dataset. Otherwise, writes the
+               entire dataset.
+        apply_mask : bool
+               If True, write the "masked" view of the dataset.
+        delimiter : string (optional)
+                    Delimiter to use in output file (defaults to ' ')
+        """
+        header_space = 9*' '
+        # TODO: Should probably replace with input handler to remain consistent
+        if view:
+            data = self.view(data_name, apply_mask=apply_mask, nodata=nodata,
+                             interpolation=interpolation, as_crs=as_crs, kx=kx, ky=ky, s=s,
+                             tolerance=tolerance, dtype=dtype, **kwargs)
+        else:
+            data = getattr(self, data_name)
+        nodata = data.nodata
+        shape = data.shape
+        bbox = data.bbox
+        # TODO: This breaks if cells are not square; issue with ASCII
+        # format
+        cellsize = data.cellsize
+        header = (("ncols{0}{1}\nnrows{0}{2}\nxllcorner{0}{3}\n"
+                    "yllcorner{0}{4}\ncellsize{0}{5}\nNODATA_value{0}{6}")
+                    .format(header_space,
+                            shape[1],
+                            shape[0],
+                            bbox[0],
+                            bbox[1],
+                            cellsize,
+                            nodata))
+        if fmt is None:
+            if np.issubdtype(data.dtype, np.integer):
+                fmt = '%d'
+            else:
+                fmt = '%.18e'
+        np.savetxt(file_name, data, fmt=fmt, delimiter=delimiter, header=header, comments='')
+
+    def to_raster(self, data_name, file_name, profile=None, view=True, blockxsize=256,
+                  blockysize=256, apply_mask=False, nodata=None, interpolation='nearest',
+                  as_crs=None, kx=3, ky=3, s=0, tolerance=1e-3, dtype=None, **kwargs):
+        """
+        Writes current "view" of grid data to a raster.
  
         Parameters
         ----------
@@ -1561,47 +1614,36 @@ class Grid(object):
                entire dataset.
         apply_mask : bool
                If True, write the "masked" view of the dataset.
-        delimiter : string (optional)
-                    Delimiter to use in output file (defaults to ' ')
- 
-        Additional keyword arguments are passed to numpy.savetxt
         """
-        if data_name is None:
-            data_name = self.grids
-        if file_name is None:
-            file_name = self.grids
-        if isinstance(data_name, str):
-            data_name = [data_name]
-        if isinstance(file_name, str):
-            file_name = [file_name]
-        header_space = 9*' '
-        for in_name, out_name in zip(data_name, file_name):
-            nodata = getattr(self, in_name).nodata
-            if view:
-                shape = self.shape
-                bbox = self.bbox
-                # TODO: This breaks if cells are not square; issue with ASCII
-                # format
-                cellsize = self.cellsize
-            else:
-                shape = getattr(self, in_name).view_shape
-                bbox = getattr(self, in_name).bbox
-                cellsize = getattr(self, in_name).cellsize
-            header = (("ncols{0}{1}\nnrows{0}{2}\nxllcorner{0}{3}\n"
-                      "yllcorner{0}{4}\ncellsize{0}{5}\nNODATA_value{0}{6}")
-                      .format(header_space,
-                              shape[1],
-                              shape[0],
-                              bbox[0],
-                              bbox[1],
-                              cellsize,
-                              nodata))
-            if view:
-                np.savetxt(out_name, self.view(in_name, apply_mask=apply_mask), delimiter=delimiter,
-                        header=header, comments='', **kwargs)
-            else:
-                np.savetxt(out_name, getattr(self, in_name), delimiter=delimiter,
-                        header=header, comments='', **kwargs)
+        # TODO: Should probably replace with input handler to remain consistent
+        if view:
+            data = self.view(data_name, apply_mask=apply_mask, nodata=nodata,
+                             interpolation=interpolation, as_crs=as_crs, kx=kx, ky=ky, s=s,
+                             tolerance=tolerance, dtype=dtype, **kwargs)
+        else:
+            data = getattr(self, data_name)
+        height, width = data.shape
+        default_blockx = width
+        default_profile = {
+            'driver' : 'GTiff',
+            'blockxsize' : blockxsize,
+            'blockysize' : blockysize,
+            'count': 1,
+            'tiled' : True
+        }
+        if not profile:
+            profile = default_profile
+        profile_updates = {
+            'crs' : data.crs.srs,
+            'transform' : data.affine,
+            'dtype' : data.dtype.name,
+            'nodata' : data.nodata,
+            'height' : height,
+            'width' : width
+        }
+        profile.update(profile_updates)
+        with rasterio.open(file_name, 'w', **profile) as dst:
+            dst.write(np.asarray(data), 1)
 
     def extract_river_network(self, fdir, acc, threshold=100,
                               dirmap=None, nodata_in=None, apply_mask=True,

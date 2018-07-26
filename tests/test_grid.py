@@ -65,12 +65,22 @@ def test_set_nodata():
 
 def test_to_ascii():
     grid.clip_to('catch')
-    grid.to_ascii('dir', 'test_dir.asc', view=False, apply_mask=False)
+    grid.to_ascii('dir', 'test_dir.asc', view=False, apply_mask=False, dtype=np.float)
     grid.read_ascii('test_dir.asc', 'dir_output', dtype=np.uint8)
     assert((grid.dir_output == grid.dir).all())
-    grid.to_ascii('dir', 'test_dir.asc', view=True, apply_mask=True)
+    grid.to_ascii('dir', 'test_dir.asc', view=True, apply_mask=True, dtype=np.uint8)
     grid.read_ascii('test_dir.asc', 'dir_output', dtype=np.uint8)
     assert((grid.dir_output == grid.view('catch')).all())
+
+def test_to_raster():
+    grid.clip_to('catch')
+    grid.to_raster('dir', 'test_dir.tif', view=False, apply_mask=False, blockxsize=16, blockysize=16)
+    grid.read_raster('test_dir.tif', 'dir_output')
+    assert((grid.dir_output == grid.dir).all())
+    grid.to_raster('dir', 'test_dir.tif', view=True, apply_mask=True, blockxsize=16, blockysize=16)
+    grid.read_raster('test_dir.tif', 'dir_output')
+    assert((grid.dir_output == grid.view('catch')).all())
+    # TODO: Write test for windowed reading
 
 # def test_crs_conversion():
 #     catch = grid.view('catch')

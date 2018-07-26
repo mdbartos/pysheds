@@ -112,26 +112,32 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
   - `catchment`: Delineate catchment from flow direction.
   - `accumulation`: Flow direction to flow accumulation.
   - `flow_distance`: Compute flow distance to outlet.
-  - `resolve_flats`: Resolve flats in a DEM using the modified method of Garbrecht and Martz (1997).
   - `fraction`: Compute fractional contributing area between differently-sized grids.
   - `extract_river_network`: Extract river network at a given accumulation threshold.
   - `cell_area`: Compute (projected) area of cells.
   - `cell_distances`: Compute (projected) channel length within cells.
   - `cell_dh`: Compute the elevation change between cells.
   - `cell_slopes`: Compute the slopes of cells.
+  - `fill_pits`: Fill simple pits in a DEM.
+  - `raise_nondraining_flats`: Raise non-draining flats to the elevation of their lowest neighbor.
+  - `resolve_flats`: Resolve drainable flats in a DEM using the modified method of Garbrecht and Martz (1997).
 - Utilities:
   - `view`: Returns a view of a dataset at a given bounding box and resolution.
   - `clip_to`: Clip the current view to the extent of nonzero values in a given dataset.
+  - `snap_to_mask`: Snap a set of coordinates to the nearest masked cells (e.g. cells with high accumulation).
   - `resize`: Resize a dataset to a new resolution.
   - `rasterize`: Convert a vector dataset to a raster dataset.
   - `polygonize`: Convert a raster dataset to a vector dataset.
+  - `detect_pits`: Return boolean array indicating locations of simple pits in a DEM.
+  - `detect_flats`: Return boolean array indicating locations of flats in a DEM.
+  - `detect_nondraining_flats`: Return boolean array indicating locations of nondraining flats in a DEM.
   - `check_cycles`: Check for cycles in a flow direction grid.
   - `set_nodata`: Set nodata value for a dataset.
-  - `snap_to_mask`: Snap a set of coordinates to the nearest masked cells (e.g. cells with high accumulation).
 - I/O:
   - `read_ascii`: Reads ascii gridded data.
   - `read_raster`: Reads raster gridded data.
-  - `to_ascii`: Write grids to ascii files.
+  - `to_ascii`: Write grids to delimited ascii files.
+  - `to_raster`: Write grids to raster files (e.g. geotiff).
 
 `pysheds` currently only supports a d8 routing scheme
 

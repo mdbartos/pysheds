@@ -551,7 +551,7 @@ class Grid(object):
 
     def flowdir(self, data=None, out_name='dir', nodata_in=None, nodata_out=0,
                 pits=-1, flats=-1, dirmap=(1, 2, 3, 4, 5, 6, 7, 8), inplace=True,
-                apply_mask=False, ignore_metadata=False, **kwargs):
+                as_crs=None, apply_mask=False, ignore_metadata=False, **kwargs):
         """
         Generates a flow direction grid from a DEM grid.
  
@@ -602,8 +602,20 @@ class Grid(object):
         try:
             inside = self._inside_indices(dem, mask=dem_mask)
             inner_neighbors, diff, fdir_defined = self._d8_diff(dem, inside)
-            cell_dists = (np.array([1, np.sqrt(2), 1, np.sqrt(2), 1, np.sqrt(2), 1, np.sqrt(2)])
-                          .reshape(-1, 1))
+            # Optionally, project DEM before computing slopes
+            if as_crs is not None:
+                indices = np.vstack(np.dstack(np.meshgrid(*self.grid_indices(),
+                                                        indexing='ij')))
+                # TODO: Should probably use dataset crs instead of instance crs
+                indices = self._convert_grid_indices_crs(indices, self.crs, as_crs)
+                y_sur = indices[:,0].flat[inner_neighbors]
+                x_sur = indices[:,1].flat[inner_neighbors]
+                dy = indices[:,0].flat[inside] - y_sur
+                dx = indices[:,1].flat[inside] - x_sur
+                cell_dists = np.sqrt(dx**2 + dy**2)
+            else:
+                cell_dists = (np.array([1, np.sqrt(2), 1, np.sqrt(2), 1, np.sqrt(2), 1, np.sqrt(2)])
+                            .reshape(-1, 1))
             slope = diff / cell_dists
             # TODO: This assigns directions arbitrarily if multiple steepest paths exist
             fdir = np.where(fdir_defined, np.argmax(slope, axis=0), -1) + 1

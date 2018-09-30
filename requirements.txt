@@ -5,4 +5,4 @@ pyproj
 scikit-image
 affine
 geojson
-rasterio
+rasterio>=1

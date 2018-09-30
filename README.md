@@ -1,5 +1,5 @@
 # pysheds [![Build Status](https://travis-ci.org/mdbartos/pysheds.svg?branch=master)](https://travis-ci.org/mdbartos/pysheds)
-Simple and fast watershed delineation in python.
+🌎 Simple and fast watershed delineation in python.
 
 ## Example usage
 
@@ -20,12 +20,27 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
 ![Example 1](examples/img/conditioned_dem.png)
 
 ```python
+    # Determine D8 flow directions from DEM
+    # ----------------------
+    # Resolve flats in DEM
+    grid.resolve_flats('dem', out_name='inflated_dem')
+    
+    # Specify directional mapping
+    dirmap = (64, 128, 1, 2, 4, 8, 16, 32)
+    
+    # Compute flow directions
+    # -------------------------------------
+    grid.flowdir(data='inflated_dem', out_name='dir', dirmap=dirmap)
+    grid.view('dir')
+```
+
+![Example 2](examples/img/flow_direction.png)
+
+```python
     # Delineate a catchment
     # ---------------------
     # Specify pour point
     x, y = -97.294167, 32.73750
-    # Specify directional mapping
-    dirmap=(64, 128, 1, 2, 4, 8, 16, 32)
 
     # Delineate the catchment
     grid.catchment(data='dir', x=x, y=y, dirmap=dirmap, out_name='catch',
@@ -38,7 +53,7 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
     grid.view('catch')
 ```
 
-![Example 2](examples/img/catchment.png)
+![Example 3](examples/img/catchment.png)
 
 ```python
     # Calculate flow accumulation
@@ -47,7 +62,7 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
     grid.view('acc')
 ```
 
-![Example 3](examples/img/flow_accumulation.png)
+![Example 4](examples/img/flow_accumulation.png)
 
 ```python
     # Calculate distance to outlet from each cell
@@ -57,7 +72,7 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
     grid.view('dist')
 ```
 
-![Example 4](examples/img/flow_distance.png)
+![Example 5](examples/img/flow_distance.png)
 
 ```python
     # Extract river network
@@ -66,7 +81,7 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
                                           threshold=50, dirmap=dirmap)
 ```
 
-![Example 5](examples/img/river_network.png)
+![Example 6](examples/img/river_network.png)
 
 ```python
     # Combine with land cover data
@@ -76,7 +91,7 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
     grid.view('terrain')
 ```
 
-![Example 6](examples/img/impervious_area.png)
+![Example 7](examples/img/impervious_area.png)
 
 ```python
     # Convert catchment raster to vector and combine with soils shapefile
@@ -93,7 +108,7 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
     catchment_soils = soils.intersection(catchment_polygon)
 ```
 
-![Example 7](examples/img/vector_soil.png)
+![Example 8](examples/img/vector_soil.png)
 
 ```python
     # Convert soils polygons to raster
@@ -103,7 +118,7 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
     soil_raster = grid.rasterize(soil_polygons, fill=np.nan)
 ```
 
-![Example 8](examples/img/raster_soil.png)
+![Example 9](examples/img/raster_soil.png)
 
 ## Features
 

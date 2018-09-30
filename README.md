@@ -1,5 +1,5 @@
 # pysheds [![Build Status](https://travis-ci.org/mdbartos/pysheds.svg?branch=master)](https://travis-ci.org/mdbartos/pysheds)
-Simple and fast watershed delineation in python.
+🌎 Simple and fast watershed delineation in python.
 
 ## Example usage
 

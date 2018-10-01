@@ -1,11 +1,14 @@
 language: python
 python:
   - "3.6"
-  - "3.6-dev"  # 3.6 development branch
 # command to install dependencies
 install:
   - pip install .
   - pip install -r requirements.txt
+  - pip install pytest-cov
+  - pip install coveralls
 # command to run tests
 script:
-  - pytest
+  - pytest --cov=pysheds/
+after_success:
+  - coveralls

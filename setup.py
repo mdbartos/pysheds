@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from distutils.core import setup
+from setuptools import setup
 
 setup(name='pysheds',
       version='0.2',
@@ -9,4 +9,14 @@ setup(name='pysheds',
       author_email='mdbartos@umich.edu',
       url='http://open-storm.org',
       packages=["pysheds"],
+      install_requires=[
+          'numpy',
+          'pandas',
+          'scipy',
+          'pyproj',
+          'scikit-image',
+          'affine',
+          'geojson',
+          'rasterio>=1'
+      ]
      )

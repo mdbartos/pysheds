@@ -1,8 +1,1 @@
-numpy
-pandas
-scipy
-pyproj
-scikit-image
-affine
-geojson
-rasterio>=1
+.

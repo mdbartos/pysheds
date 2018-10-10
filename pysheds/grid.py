@@ -2328,23 +2328,21 @@ class Grid(object):
                                   properties=grid_props, ignore_metadata=ignore_metadata,
                                   **kwargs)
         if nodata_in is None:
-            dem_mask = np.array([]).astype(int)
+            dem_mask = np.ones(dem.shape, dtype=np.bool)
         else:
             if np.isnan(nodata_in):
-                dem_mask = np.where(np.isnan(dem.ravel()))[0]
+                dem_mask = np.isnan(dem)
             else:
-                dem_mask = np.where(dem.ravel() == nodata_in)[0]
+                dem_mask = (dem == nodata_in)
+        dem_mask[0, :] = True
+        dem_mask[-1, :] = True
+        dem_mask[:, 0] = True
+        dem_mask[:, -1] = True
         # Make sure nothing flows to the nodata cells
         nanmax = dem[~np.isnan(dem)].max()
-        try:
-            dem.flat[dem_mask] = nanmax
-            seed = np.copy(dem)
-            seed[1:-1, 1:-1] = nanmax
-            dem_out = skimage.morphology.reconstruction(seed, dem, method='erosion')
-        except:
-            raise
-        finally:
-            dem.flat[dem_mask] = nodata_in
+        seed = np.copy(dem)
+        seed[~dem_mask] = nanmax
+        dem_out = skimage.morphology.reconstruction(seed, dem, method='erosion')
         return self._output_handler(data=dem_out, out_name=out_name, properties=grid_props,
                                     inplace=inplace, metadata=metadata)
 

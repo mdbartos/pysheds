@@ -19,6 +19,7 @@ except:
 try:
     import skimage.measure
     import skimage.transform
+    import skimage.morphology
     _HAS_SKIMAGE = True
 except:
     _HAS_SKIMAGE = False
@@ -2272,8 +2273,9 @@ class Grid(object):
         dem = self._input_handler(data, apply_mask=apply_mask, properties=grid_props,
                                   ignore_metadata=ignore_metadata, metadata=metadata, **kwargs)
         # TODO: Note that this won't work for nans
-        dem_mask = np.where(dem.ravel() == nodata_in)[0]
-        inside = self._inside_indices(dem, mask=dem_mask)
+        # dem_mask = np.where(dem.ravel() == nodata_in)[0]
+        # TODO: This doesn't handle nodata cells
+        inside = self._inside_indices(dem)
         drainage_result = self._drainage_gradient(dem, inside)
         drainage_grad, flats, high_edge_cells, low_edge_cells, labels, diff = drainage_result
         drainage_grad = drainage_grad.astype(np.float)
@@ -2289,6 +2291,60 @@ class Grid(object):
         drainage_grad[1:-1, 1:-1][flats[1:-1, 1:-1]] *= gradfactor[flatlabels].values
         drainage_grad[1:-1, 1:-1].flat[low_edge_cells] = 0
         dem_out = dem.astype(np.float) + drainage_grad
+        return self._output_handler(data=dem_out, out_name=out_name, properties=grid_props,
+                                    inplace=inplace, metadata=metadata)
+
+    def fill_depressions(self, data, out_name='flooded_dem', nodata_in=None, nodata_out=0,
+                         inplace=True, apply_mask=False, ignore_metadata=False, **kwargs):
+        """
+        Fill depressions in a DEM. Raises depressions to same elevation as lowest neighbor.
+
+        Parameters
+        ----------
+        data : str or Raster
+               DEM data.
+               If string: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        out_name : string
+                   Name of attribute containing new filled depressions array.
+        nodata_in : int or float
+                     Value to indicate nodata in input array.
+        nodata_out : int or float
+                     Value indicating no data in output array.
+        inplace : bool
+                  If True, write output array to self.<out_name>.
+                  Otherwise, return the output array.
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and CRS.
+        """
+        if not _HAS_SKIMAGE:
+            raise ImportError('resolve_flats requires skimage.morphology module')
+        nodata_in = self._check_nodata_in(data, nodata_in)
+        grid_props = {'nodata' : nodata_out}
+        metadata = {}
+        dem = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
+                                  properties=grid_props, ignore_metadata=ignore_metadata,
+                                  **kwargs)
+        if nodata_in is None:
+            dem_mask = np.array([]).astype(int)
+        else:
+            if np.isnan(nodata_in):
+                dem_mask = np.where(np.isnan(dem.ravel()))[0]
+            else:
+                dem_mask = np.where(dem.ravel() == nodata_in)[0]
+        # Make sure nothing flows to the nodata cells
+        nanmax = dem[~np.isnan(dem)].max()
+        try:
+            dem.flat[dem_mask] = nanmax
+            seed = np.copy(dem)
+            seed[1:-1, 1:-1] = nanmax
+            dem_out = skimage.morphology.reconstruction(seed, dem, method='erosion')
+        except:
+            raise
+        finally:
+            dem.flat[dem_mask] = nodata_in
         return self._output_handler(data=dem_out, out_name=out_name, properties=grid_props,
                                     inplace=inplace, metadata=metadata)
 

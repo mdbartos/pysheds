@@ -1118,7 +1118,6 @@ class Grid(object):
         fdir_orig_type = fdir.dtype
         # Construct flat index onto flow direction array
         domain = np.arange(fdir.size, dtype=mintype)
-        unique = np.zeros(fdir.size, dtype=np.bool)
         try:
             if nodata_in is None:
                 nodata_cells = np.zeros_like(fdir).astype(bool)
@@ -1152,9 +1151,7 @@ class Grid(object):
                 if endnodes.any():
                     np.add.at(acc, endnodes, acc[startnodes])
                     np.subtract.at(indegree, endnodes, 1)
-                    unique[endnodes] = True
-                    startnodes = domain[unique]
-                    unique.fill(False)
+                    startnodes = np.unique(endnodes)
                     startnodes = startnodes[indegree[startnodes] == 0]
                     endnodes = fdir.flat[startnodes]
                 else:
@@ -1192,7 +1189,6 @@ class Grid(object):
         # Construct flat index onto flow direction array
         mintype = np.min_scalar_type(fdir.size)
         domain = np.arange(fdir.size, dtype=mintype)
-        unique = np.zeros(fdir.size, dtype=np.bool)
         acc_i = np.zeros(fdir.size, dtype=float)
         try:
             invalid_cells = ((fdir < 0) | (fdir > (np.pi * 2)))
@@ -1254,10 +1250,7 @@ class Grid(object):
                     acc_i.fill(0)
                     np.subtract.at(indegree, endnodes_0, prop_0[startnodes])
                     np.subtract.at(indegree, endnodes_1, prop_1[startnodes])
-                    unique[endnodes_0] = True
-                    unique[endnodes_1] = True
-                    startnodes = domain[unique]
-                    unique.fill(False)
+                    startnodes = np.unique(np.concatenate([endnodes_0, endnodes_1]))
                     startnodes = startnodes[np.abs(indegree[startnodes]) < epsilon]
                     endnodes_0 = fdir_0.flat[startnodes]
                     endnodes_1 = fdir_1.flat[startnodes]

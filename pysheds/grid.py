@@ -914,16 +914,17 @@ class Grid(object):
         try:
             # Split dinf flowdir
             fdir_0, fdir_1, prop_0, prop_1 = self.angle_to_d8(fdir, dirmap=dirmap)
+            # Find invalid cells
+            invalid_cells = ((fdir < 0) | (fdir > (np.pi * 2)))
             # Pad the rim
             left_0, right_0, top_0, bottom_0 = self._pop_rim(fdir_0, nodata=nodata_in)
             left_1, right_1, top_1, bottom_1 = self._pop_rim(fdir_1, nodata=nodata_in)
             # Ensure proportion of flow is never zero
             fdir_0.flat[prop_0 == 0] = fdir_1.flat[prop_0 == 0]
             fdir_1.flat[prop_1 == 0] = fdir_0.flat[prop_1 == 0]
-            prop_0[prop_0 == 0] = 0.5
-            prop_1[prop_0 == 0] = 0.5
-            prop_0[prop_1 == 0] = 0.5
-            prop_1[prop_1 == 0] = 0.5
+            # Set nodata cells to zero
+            fdir_0[invalid_cells] = 0
+            fdir_1[invalid_cells] = 0
             # Create indexing arrays for convenience
             domain = np.arange(fdir.size, dtype=np.min_scalar_type(fdir.size))
             unique = np.zeros(fdir.size, dtype=np.bool)

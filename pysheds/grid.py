@@ -1070,6 +1070,10 @@ class Grid(object):
                      Value to indicate nodata in output array.
         out_name : string
                    Name of attribute containing new accumulation array.
+        routing : str
+                  Routing algorithm to use:
+                  'd8'   : D8 flow directions
+                  'dinf' : D-infinity flow directions
         inplace : bool
                   If True, write output array to self.<out_name>.
                   Otherwise, return the output array.
@@ -1339,8 +1343,9 @@ class Grid(object):
         fdir_1.flat[(cy_1 > 1)] = np.where(cy_1 > 0)[0]
 
     def flow_distance(self, x, y, data, weights=None, dirmap=None, nodata_in=None,
-                      nodata_out=0, out_name='dist', inplace=True,
-                      xytype='index', apply_mask=True, ignore_metadata=False, **kwargs):
+                      nodata_out=0, out_name='dist', routing='d8', method='shortest',
+                      inplace=True, xytype='index', apply_mask=True, ignore_metadata=False,
+                      **kwargs):
         """
         Generates an array representing the topological distance from each cell
         to the outlet.
@@ -1367,6 +1372,10 @@ class Grid(object):
                      Value to indicate nodata in output array.
         out_name : string
                    Name of attribute containing new flow distance array.
+        routing : str
+                  Routing algorithm to use:
+                  'd8'   : D8 flow directions
+                  'dinf' : D-infinity flow directions
         inplace : bool
                   If True, write output array to self.<out_name>.
                   Otherwise, return the output array.
@@ -1385,13 +1394,32 @@ class Grid(object):
             raise ImportError('flow_distance requires scipy.sparse module')
         dirmap = self._set_dirmap(dirmap, data)
         nodata_in = self._check_nodata_in(data, nodata_in)
-        grid_props = {'nodata' : nodata_out}
+        properties = {'nodata' : nodata_out}
         metadata = {}
         fdir = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
-                                   properties=grid_props, ignore_metadata=ignore_metadata,
+                                   properties=properties, ignore_metadata=ignore_metadata,
                                    **kwargs)
+        if routing.lower() == 'd8':
+            return self._d8_flow_distance(x, y, fdir, weights=weights, dirmap=dirmap,
+                                          nodata_in=nodata_in, nodata_out=nodata_out,
+                                          out_name=out_name, method=method, inplace=inplace,
+                                          xytype=xytype, apply_mask=apply_mask,
+                                          ignore_metadata=ignore_metadata,
+                                          properties=properties, metadata=metadata, **kwargs)
+        elif routing.lower() == 'dinf':
+            return self._dinf_flow_distance(x, y, fdir, weights=weights, dirmap=dirmap,
+                                            nodata_in=nodata_in, nodata_out=nodata_out,
+                                            out_name=out_name, method=method, inplace=inplace,
+                                            xytype=xytype, apply_mask=apply_mask,
+                                            ignore_metadata=ignore_metadata,
+                                            properties=properties, metadata=metadata, **kwargs)
+
+    def _d8_flow_distance(self, x, y, fdir, weights=None, dirmap=None, nodata_in=None,
+                          nodata_out=0, out_name='dist', method='shortest', inplace=True,
+                          xytype='index', apply_mask=True, ignore_metadata=False, properties={},
+                          metadata={}, **kwargs):
         # Construct flat index onto flow direction array
-        flat_idx = np.arange(fdir.size)
+        domain = np.arange(fdir.size)
         fdir_orig_type = fdir.dtype
         if nodata_in is None:
             nodata_cells = np.zeros_like(fdir).astype(bool)
@@ -1403,8 +1431,8 @@ class Grid(object):
         try:
             mintype = np.min_scalar_type(fdir.size)
             fdir = fdir.astype(mintype)
-            flat_idx = flat_idx.astype(mintype)
-            startnodes, endnodes = self._construct_matching(fdir, flat_idx,
+            domain = domain.astype(mintype)
+            startnodes, endnodes = self._construct_matching(fdir, domain,
                                                             dirmap=dirmap)
             if xytype == 'label':
                 x, y = self.nearest_cell(x, y, fdir.affine, fdir.shape)
@@ -1428,10 +1456,81 @@ class Grid(object):
         except:
             raise
         finally:
-            self._unflatten_fdir(fdir, flat_idx, dirmap)
+            self._unflatten_fdir(fdir, domain, dirmap)
             fdir = fdir.astype(fdir_orig_type)
         # Prepare output
-        return self._output_handler(data=dist, out_name=out_name, properties=grid_props,
+        return self._output_handler(data=dist, out_name=out_name, properties=properties,
+                                    inplace=inplace, metadata=metadata)
+
+    def _dinf_flow_distance(self, x, y, fdir, weights=None, dirmap=None, nodata_in=None,
+                            nodata_out=0, out_name='dist', method='shortest', inplace=True,
+                            xytype='index', apply_mask=True, ignore_metadata=False,
+                            properties={}, metadata={}, **kwargs):
+        # Construct flat index onto flow direction array
+        mintype = np.min_scalar_type(fdir.size)
+        domain = np.arange(fdir.size, dtype=mintype)
+        fdir_orig_type = fdir.dtype
+        try:
+            invalid_cells = ((fdir < 0) | (fdir > (np.pi * 2)))
+            if nodata_in is None:
+                nodata_cells = np.zeros_like(fdir).astype(bool)
+            else:
+                if np.isnan(nodata_in):
+                    nodata_cells = (np.isnan(fdir))
+                else:
+                    nodata_cells = (fdir == nodata_in)
+            # Split d-infinity grid
+            fdir_0, fdir_1, prop_0, prop_1 = self.angle_to_d8(fdir, dirmap=dirmap)
+            # Ensure consistent types
+            fdir_0 = fdir_0.astype(mintype)
+            fdir_1 = fdir_1.astype(mintype)
+            # Set nodata cells to zero
+            fdir_0[nodata_cells | invalid_cells] = 0
+            fdir_1[nodata_cells | invalid_cells] = 0
+            # Get matching of start and end nodes
+            startnodes, endnodes_0 = self._construct_matching(fdir_0, domain, dirmap=dirmap)
+            _, endnodes_1 = self._construct_matching(fdir_1, domain, dirmap=dirmap)
+            del fdir_0
+            del fdir_1
+            assert(startnodes.size == endnodes_0.size)
+            assert(startnodes.size == endnodes_1.size)
+            if xytype == 'label':
+                x, y = self.nearest_cell(x, y, fdir.affine, fdir.shape)
+            # TODO: Currently the size of weights is hard to understand
+            if weights is not None:
+                if isinstance(weights, list) or isinstance(weights, tuple):
+                    assert(isinstance(weights[0], np.ndarray))
+                    weights_0 = weights[0].ravel()
+                    assert(isinstance(weights[1], np.ndarray))
+                    weights_0 = weights[1].ravel()
+                    assert(weights_0.size == startnodes.size)
+                    assert(weights_1.size == startnodes.size)
+                elif isinstance(weights, np.ndarray):
+                    assert(weights.shape[0] == startnodes.size)
+                    assert(weights.shape[1] == 2)
+                    weights_0 = weights[:,0]
+                    weights_1 = weights[:,1]
+            else:
+                weights_0 = (~nodata_cells).ravel().astype(int)
+                weights_1 = weights_0
+            if method.lower() == 'shortest':
+                C = scipy.sparse.lil_matrix((fdir.size, fdir.size))
+                for i, j_0, j_1, w_0, w_1 in zip(startnodes, endnodes_0, endnodes_1,
+                                                 weights_0, weights_1):
+                    C[i,j_0] = w_0
+                    C[i,j_1] = w_1
+                C = C.tocsr()
+                xyindex = np.ravel_multi_index((y, x), fdir.shape)
+                dist = csgraph.shortest_path(C, indices=[xyindex], directed=False)
+                dist[~np.isfinite(dist)] = nodata_out
+                dist = dist.ravel()
+                dist = dist.reshape(fdir.shape)
+            else:
+                raise NotImplementedError("Only implemented for shortest path distance.")
+        except:
+            raise
+        # Prepare output
+        return self._output_handler(data=dist, out_name=out_name, properties=properties,
                                     inplace=inplace, metadata=metadata)
 
     def cell_area(self, out_name='area', nodata_out=0, inplace=True, as_crs=None):
@@ -1475,7 +1574,8 @@ class Grid(object):
                                     inplace=inplace, metadata=metadata)
 
     def cell_distances(self, data, out_name='cdist', dirmap=None, nodata_in=None, nodata_out=0,
-                       inplace=True, as_crs=None, apply_mask=True, ignore_metadata=False):
+                       routing='d8', inplace=True, as_crs=None, apply_mask=True,
+                       ignore_metadata=False):
         """
         Generates an array representing the distance from each cell to its downstream neighbor.
  
@@ -1505,6 +1605,8 @@ class Grid(object):
         ignore_metadata : bool
                           If False, require a valid affine transform and CRS.
         """
+        if routing.lower() != 'd8':
+            raise NotImplementedError('Only implemented for D8 routing.')
         if as_crs is None:
             if self.crs.is_latlong():
                 warnings.warn(('CRS is geographic. Area will not have meaningful '
@@ -1541,7 +1643,7 @@ class Grid(object):
                                     inplace=inplace, metadata=metadata)
 
     def cell_dh(self, fdir, dem, out_name='dh', inplace=True, dirmap=None, nodata_in=None,
-                nodata_out=np.nan, apply_mask=True, ignore_metadata=False):
+                routing='d8', nodata_out=np.nan, apply_mask=True, ignore_metadata=False):
         """
         Generates an array representing the elevation difference from each cell to its
         downstream neighbor.
@@ -1574,6 +1676,8 @@ class Grid(object):
         ignore_metadata : bool
                           If False, require a valid affine transform and CRS.
         """
+        if routing.lower() != 'd8':
+            raise NotImplementedError('Only implemented for D8 routing.')
         nodata_in = self._check_nodata_in(fdir, nodata_in)
         fdir_props = {'nodata' : nodata_out}
         fdir = self._input_handler(fdir, apply_mask=apply_mask, nodata_view=nodata_in,
@@ -1614,7 +1718,7 @@ class Grid(object):
                                     inplace=inplace, metadata=metadata)
 
     def cell_slopes(self, fdir, dem, out_name='slopes', dirmap=None, nodata_in=None,
-                    nodata_out=np.nan, as_crs=None, inplace=True, apply_mask=True,
+                    nodata_out=np.nan, as_crs=None, routing='d8', inplace=True, apply_mask=True,
                     ignore_metadata=False):
         """
         Generates an array representing the slope from each cell to its downstream neighbor.
@@ -1649,6 +1753,8 @@ class Grid(object):
         ignore_metadata : bool
                           If False, require a valid affine transform and CRS.
         """
+        if routing.lower() != 'd8':
+            raise NotImplementedError('Only implemented for D8 routing.')
         dh = self.cell_dh(fdir, dem, out_name, inplace=False,
                           nodata_out=nodata_out, dirmap=dirmap)
         cdist = self.cell_distances(fdir, inplace=False, as_crs=as_crs)
@@ -2075,7 +2181,7 @@ class Grid(object):
 
     def extract_river_network(self, fdir, acc, threshold=100,
                               dirmap=None, nodata_in=None, apply_mask=True,
-                              ignore_metadata=False, **kwargs):
+                              routing='d8', ignore_metadata=False, **kwargs):
         """
         Generates river segments from accumulation and flow_direction arrays.
  
@@ -2109,6 +2215,8 @@ class Grid(object):
               A geojson feature collection of river segments. Each array contains the cell
               indices of junctions in the segment.
         """
+        if routing.lower() != 'd8':
+            raise NotImplementedError('Only implemented for D8 routing.')
         # TODO: If two "forks" are directly connected, it can introduce a gap
         nodata_in = self._check_nodata_in(fdir, nodata_in)
         fdir_props = {}
@@ -2343,6 +2451,7 @@ class Grid(object):
         ignore_metadata : bool
                           If False, require a valid affine transform and CRS.
         """
+        raise NotImplementedError()
         dirmap = self._set_dirmap(dirmap, fdir)
         nodata_in = self._check_nodata_in(fdir, nodata_in)
         grid_props = {'nodata' : nodata_out}

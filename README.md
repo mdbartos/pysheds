@@ -1,4 +1,4 @@
-# pysheds [![Build Status](https://travis-ci.org/mdbartos/pysheds.svg?branch=master)](https://travis-ci.org/mdbartos/pysheds)
+# pysheds [![Build Status](https://travis-ci.org/mdbartos/pysheds.svg?branch=master)](https://travis-ci.org/mdbartos/pysheds) [![Coverage Status](https://coveralls.io/repos/github/mdbartos/pysheds/badge.svg?branch=master)](https://coveralls.io/github/mdbartos/pysheds?branch=master)
 🌎 Simple and fast watershed delineation in python.
 
 ## Example usage
@@ -155,7 +155,7 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
   - `to_ascii`: Write grids to delimited ascii files.
   - `to_raster`: Write grids to raster files (e.g. geotiff).
 
-`pysheds` currently only supports a d8 routing scheme
+`pysheds` supports both D8 and D-infinity routing schemes.
 
 ## Installation
 

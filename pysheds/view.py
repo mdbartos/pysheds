@@ -304,32 +304,32 @@ class RegularGridViewer():
         view[np.ix_(y_passed, x_passed)] = data[y_ix[y_passed]][:, x_ix[x_passed]]
         return view
 
-    @classmethod
-    def _view_searchsorted(cls, data, data_view, target_view, x_tolerance=1e-3,
-                           y_tolerance=1e-3):
-        """
-        Appropriate if:
-            - Grid is regular
-            - Data is regular
-            - Grid and data have same cellsize OR no interpolation is needed
-        """
-        # TODO: This method no longer yields accurate results!
-        nodata = target_view.nodata
-        view = np.full(target_view.shape, nodata)
-        viewrows, viewcols = target_view.grid_indices(col_ascending=True,
-                                                      row_ascending=True)
-        rows, cols = data_view.grid_indices(col_ascending=True,
-                                            row_ascending=True)
-        y_ix = np.searchsorted(rows, viewrows, side='right')
-        x_ix = np.searchsorted(cols, viewcols, side='left')
-        y_ix[y_ix > rows.size] = rows.size
-        x_ix[x_ix >= cols.size] = cols.size - 1
-        y_passed = np.abs(rows[y_ix - 1] - viewrows) < y_tolerance
-        x_passed = np.abs(cols[x_ix] - viewcols) < x_tolerance
-        y_ix = rows.size - y_ix[y_passed][::-1]
-        x_ix = x_ix[x_passed]
-        view[np.ix_(y_passed[::-1], x_passed)] = data[y_ix][:, x_ix]
-        return view
+    # @classmethod
+    # def _view_searchsorted(cls, data, data_view, target_view, x_tolerance=1e-3,
+    #                        y_tolerance=1e-3):
+    #     """
+    #     Appropriate if:
+    #         - Grid is regular
+    #         - Data is regular
+    #         - Grid and data have same cellsize OR no interpolation is needed
+    #     """
+    #     # TODO: This method no longer yields accurate results!
+    #     nodata = target_view.nodata
+    #     view = np.full(target_view.shape, nodata)
+    #     viewrows, viewcols = target_view.grid_indices(col_ascending=True,
+    #                                                   row_ascending=True)
+    #     rows, cols = data_view.grid_indices(col_ascending=True,
+    #                                         row_ascending=True)
+    #     y_ix = np.searchsorted(rows, viewrows, side='right')
+    #     x_ix = np.searchsorted(cols, viewcols, side='left')
+    #     y_ix[y_ix > rows.size] = rows.size
+    #     x_ix[x_ix >= cols.size] = cols.size - 1
+    #     y_passed = np.abs(rows[y_ix - 1] - viewrows) < y_tolerance
+    #     x_passed = np.abs(cols[x_ix] - viewcols) < x_tolerance
+    #     y_ix = rows.size - y_ix[y_passed][::-1]
+    #     x_ix = x_ix[x_passed]
+    #     view[np.ix_(y_passed[::-1], x_passed)] = data[y_ix][:, x_ix]
+    #     return view
 
     @classmethod
     def _view_kd_2d(cls, data, data_view, target_view, x_tolerance=1e-3, y_tolerance=1e-3):

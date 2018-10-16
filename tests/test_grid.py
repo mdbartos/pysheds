@@ -23,6 +23,7 @@ new_crs = pyproj.Proj('+init=epsg:3083')
 old_crs = pyproj.Proj('+init=epsg:4326', preserve_units=True)
 x, y = -97.29416666666677, 32.73749999999989
 
+
 # TODO: Need to test dtypes of different constructor methods
 def test_constructors():
     newgrid = grid.from_ascii(dir_path, 'dir', dtype=np.uint8, crs=crs)
@@ -87,6 +88,8 @@ def test_accumulation():
     # Test accumulation on computed flowdirs
     grid.accumulation(data='d8_dir', dirmap=dirmap, out_name='d8_acc', routing='d8')
     grid.accumulation(data='dinf_dir', dirmap=dirmap, out_name='dinf_acc', routing='dinf')
+    grid.accumulation(data='dinf_dir', dirmap=dirmap, out_name='dinf_acc', as_crs=new_crs,
+                      routing='dinf')
     assert(grid.d8_acc.max() > 11300)
     assert(grid.dinf_acc.max() > 11400)
 
@@ -94,6 +97,8 @@ def test_flow_distance():
     grid.clip_to('catch')
     grid.flow_distance(x, y, data='catch', dirmap=dirmap, out_name='dist', xytype='label')
     assert(grid.dist[~np.isnan(grid.dist)].max() == max_distance)
+    grid.flow_distance(x, y, data='dinf_dir', dirmap=dirmap, routing='dinf',
+                       out_name='dinf_dist', xytype='label')
 
 def test_set_nodata():
     grid.set_nodata('dir', 0)
@@ -128,10 +133,8 @@ def test_from_raster():
     newgrid = Grid.from_raster('test_dir.tif', 'dir_output')
     assert((newgrid.dir_output == grid.view('catch')).all())
 
-def test_cell_area():
-    grid.cell_area(out_name='area', as_crs=new_crs)
-    # TODO: Not a super robust test
-    assert((grid.area.mean() > 7000) and (grid.area.mean() < 7500))
+# def test_windowed_reading():
+#     newgrid = Grid.from_raster('test_dir.tif', 'dir_output', window=grid.bbox, window_crs=grid.crs)
 
 def test_properties():
     bbox = grid.bbox
@@ -142,7 +145,7 @@ def test_properties():
     assert(isinstance(extent, tuple))
 
 def test_extract_river_network():
-    rivers = grid.extract_river_network('catch', 'acc')
+    rivers = grid.extract_river_network('catch', 'acc', threshold=20)
     assert(isinstance(rivers, dict))
     # TODO: Need more checks here. Check if endnodes equals next startnode
 
@@ -152,3 +155,24 @@ def test_view_methods():
     grid.view('dem', interpolation='cubic')
     grid.view('dem', interpolation='linear', as_crs=new_crs)
     # TODO: Need checks for these
+
+def test_pits():
+    # TODO: Need dem with pits
+    pits = grid.detect_pits('dem')
+    assert(~pits.any())
+    filled = grid.fill_pits('dem', inplace=False)
+
+def test_other_methods():
+    grid.cell_area(out_name='area', as_crs=new_crs)
+    # TODO: Not a super robust test
+    assert((grid.area.mean() > 7000) and (grid.area.mean() < 7500))
+    # TODO: Need checks for these
+    grid.cell_distances('dir', as_crs=new_crs, dirmap=dirmap)
+    grid.cell_dh(fdir='dir', dem='dem', dirmap=dirmap)
+    grid.cell_slopes(fdir='dir', dem='dem', dirmap=dirmap)
+
+def test_snap_to():
+    # TODO: Need checks
+    grid.snap_to_mask(grid.view('acc') > 1000, [[-97.3, 32.72]])
+
+

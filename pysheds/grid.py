@@ -981,66 +981,66 @@ class Grid(object):
         fdir_1 = c1.flat[zfloor]
         return fdir_0, fdir_1, prop_0, prop_1
 
-    def fraction(self, other, nodata=0, out_name='frac', inplace=True):
-        """
-        Generates a grid representing the fractional contributing area for a
-        coarse-scale flow direction grid.
+    # def fraction(self, other, nodata=0, out_name='frac', inplace=True):
+    #     """
+    #     Generates a grid representing the fractional contributing area for a
+    #     coarse-scale flow direction grid.
  
-        Parameters
-        ----------
-        other : Grid instance
-                Another Grid instance containing fine-scale flow direction
-                data. The ratio of self.cellsize/other.cellsize must be a
-                positive integer. Grid cell boundaries must have some overlap.
-                Must have attributes 'dir' and 'catch' (i.e. must have a flow
-                direction grid, along with a delineated catchment).
-        nodata : int or float
-                 Value to indicate no data in output array.
-        inplace : bool (optional)
-                  If True, appends fraction grid to attribute 'frac'.
-        """
-        # check for required attributes in self and other
-        raise NotImplementedError('fraction is currently not implemented.')
-        assert hasattr(self, 'dir')
-        assert hasattr(other, 'dir')
-        assert hasattr(other, 'catch')
-        # set scale ratio
-        raw_ratio = self.cellsize / other.cellsize
-        if np.allclose(int(round(raw_ratio)), raw_ratio):
-            cell_ratio = int(round(raw_ratio))
-        else:
-            raise ValueError('Ratio of cell sizes must be an integer')
-        # create DataFrames for self and other with geographic coordinates
-        # as row and column labels. entries in selfdf represent cell indices.
-        selfdf = pd.DataFrame(
-            np.arange(self.view('dir', apply_mask=False).size).reshape(self.shape),
-            index=np.linspace(self.bbox[1], self.bbox[3],
-                              self.shape[0], endpoint=False)[::-1],
-            columns=np.linspace(self.bbox[0], self.bbox[2],
-                                self.shape[1], endpoint=False)
-                )
-        otherrows, othercols = self.grid_indices(other.affine, other.shape)
-        # reindex self to other based on column labels and fill nulls with
-        # nearest neighbor
-        result = (selfdf.reindex(otherrows, method='nearest')
-                  .reindex(othercols, axis=1, method='nearest'))
-        initial_counts = np.bincount(result.values.ravel(),
-                                     minlength=selfdf.size).astype(float)
-        # mask cells not in catchment of 'other'
-        result = result.values[np.where(other.view('catch') !=
-            other.grid_props['catch']['nodata'], True, False)]
-        final_counts = np.bincount(result, minlength=selfdf.size).astype(float)
-        # count remaining indices and divide by the original number of indices
-        result = (final_counts / initial_counts).reshape(selfdf.shape)
-        # take care of nans
-        if np.isnan(result).any():
-            result = pd.DataFrame(result).fillna(0).values.astype(float)
-        # replace 0 with nodata value
-        if nodata != 0:
-            np.place(result, result == 0, nodata)
-        private_props = {'nodata' : nodata}
-        grid_props = self._generate_grid_props(**private_props)
-        return self._output_handler(result, inplace, out_name=out_name, **grid_props)
+    #     Parameters
+    #     ----------
+    #     other : Grid instance
+    #             Another Grid instance containing fine-scale flow direction
+    #             data. The ratio of self.cellsize/other.cellsize must be a
+    #             positive integer. Grid cell boundaries must have some overlap.
+    #             Must have attributes 'dir' and 'catch' (i.e. must have a flow
+    #             direction grid, along with a delineated catchment).
+    #     nodata : int or float
+    #              Value to indicate no data in output array.
+    #     inplace : bool (optional)
+    #               If True, appends fraction grid to attribute 'frac'.
+    #     """
+    #     # check for required attributes in self and other
+    #     raise NotImplementedError('fraction is currently not implemented.')
+    #     assert hasattr(self, 'dir')
+    #     assert hasattr(other, 'dir')
+    #     assert hasattr(other, 'catch')
+    #     # set scale ratio
+    #     raw_ratio = self.cellsize / other.cellsize
+    #     if np.allclose(int(round(raw_ratio)), raw_ratio):
+    #         cell_ratio = int(round(raw_ratio))
+    #     else:
+    #         raise ValueError('Ratio of cell sizes must be an integer')
+    #     # create DataFrames for self and other with geographic coordinates
+    #     # as row and column labels. entries in selfdf represent cell indices.
+    #     selfdf = pd.DataFrame(
+    #         np.arange(self.view('dir', apply_mask=False).size).reshape(self.shape),
+    #         index=np.linspace(self.bbox[1], self.bbox[3],
+    #                           self.shape[0], endpoint=False)[::-1],
+    #         columns=np.linspace(self.bbox[0], self.bbox[2],
+    #                             self.shape[1], endpoint=False)
+    #             )
+    #     otherrows, othercols = self.grid_indices(other.affine, other.shape)
+    #     # reindex self to other based on column labels and fill nulls with
+    #     # nearest neighbor
+    #     result = (selfdf.reindex(otherrows, method='nearest')
+    #               .reindex(othercols, axis=1, method='nearest'))
+    #     initial_counts = np.bincount(result.values.ravel(),
+    #                                  minlength=selfdf.size).astype(float)
+    #     # mask cells not in catchment of 'other'
+    #     result = result.values[np.where(other.view('catch') !=
+    #         other.grid_props['catch']['nodata'], True, False)]
+    #     final_counts = np.bincount(result, minlength=selfdf.size).astype(float)
+    #     # count remaining indices and divide by the original number of indices
+    #     result = (final_counts / initial_counts).reshape(selfdf.shape)
+    #     # take care of nans
+    #     if np.isnan(result).any():
+    #         result = pd.DataFrame(result).fillna(0).values.astype(float)
+    #     # replace 0 with nodata value
+    #     if nodata != 0:
+    #         np.place(result, result == 0, nodata)
+    #     private_props = {'nodata' : nodata}
+    #     grid_props = self._generate_grid_props(**private_props)
+    #     return self._output_handler(result, inplace, out_name=out_name, **grid_props)
 
     def accumulation(self, data=None, weights=None, dirmap=None, nodata_in=None, nodata_out=0,
                      out_name='acc', routing='d8', inplace=True, pad=False, apply_mask=False,
@@ -1861,21 +1861,15 @@ class Grid(object):
         dx = np.abs(x1 - x0) / (self.shape[1]) #TODO: Should this be shape - 1?
         return dy, dx
 
-    def _convert_bbox_crs(self, bbox, old_crs, new_crs):
-        # TODO: Won't necessarily work in every case as ur might be lower than
-        # ul
-        x1 = np.asarray((bbox[0], bbox[2]))
-        y1 = np.asarray((bbox[1], bbox[3]))
-        x2, y2 = pyproj.transform(old_crs, new_crs,
-                                  x1, y1)
-        new_bbox = (x2[0], y2[0], x2[1], y2[1])
-        return new_bbox
-
-    def _convert_grid_indices_crs(self, affine, shape, old_crs, new_crs):
-        y1, x1 = self.grid_indices(affine=affine, shape=shape)
-        yx1 = np.vstack(np.dstack(np.meshgrid(y1, x1, indexing='ij')))
-        yx2 = self._convert_grid_indices_crs(yx1, old_crs, new_crs)
-        return yx2
+    # def _convert_bbox_crs(self, bbox, old_crs, new_crs):
+    #     # TODO: Won't necessarily work in every case as ur might be lower than
+    #     # ul
+    #     x1 = np.asarray((bbox[0], bbox[2]))
+    #     y1 = np.asarray((bbox[1], bbox[3]))
+    #     x2, y2 = pyproj.transform(old_crs, new_crs,
+    #                               x1, y1)
+    #     new_bbox = (x2[0], y2[0], x2[1], y2[1])
+    #     return new_bbox
 
     def _convert_grid_indices_crs(self, grid_indices, old_crs, new_crs):
         x2, y2 = pyproj.transform(old_crs, new_crs, grid_indices[:,1],
@@ -1883,17 +1877,17 @@ class Grid(object):
         yx2 = np.column_stack([y2, x2])
         return yx2
 
-    def _convert_outer_indices_crs(self, affine, shape, old_crs, new_crs):
-        y1, x1 = self.grid_indices(affine=affine, shape=shape)
-        lx, _ = pyproj.transform(old_crs, new_crs,
-                                  x1, np.repeat(y1[0], len(x1)))
-        rx, _ = pyproj.transform(old_crs, new_crs,
-                                  x1, np.repeat(y1[-1], len(x1)))
-        __, by = pyproj.transform(old_crs, new_crs,
-                                  np.repeat(x1[0], len(y1)), y1)
-        __, uy = pyproj.transform(old_crs, new_crs,
-                                  np.repeat(x1[-1], len(y1)), y1)
-        return by, uy, lx, rx
+    # def _convert_outer_indices_crs(self, affine, shape, old_crs, new_crs):
+    #     y1, x1 = self.grid_indices(affine=affine, shape=shape)
+    #     lx, _ = pyproj.transform(old_crs, new_crs,
+    #                               x1, np.repeat(y1[0], len(x1)))
+    #     rx, _ = pyproj.transform(old_crs, new_crs,
+    #                               x1, np.repeat(y1[-1], len(x1)))
+    #     __, by = pyproj.transform(old_crs, new_crs,
+    #                               np.repeat(x1[0], len(y1)), y1)
+    #     __, uy = pyproj.transform(old_crs, new_crs,
+    #                               np.repeat(x1[-1], len(y1)), y1)
+    #     return by, uy, lx, rx
 
     def _flatten_fdir(self, fdir, flat_idx, dirmap, copy=False):
         # WARNING: This modifies fdir in place if copy is set to False!
@@ -2544,23 +2538,23 @@ class Grid(object):
         return ([i - 1, i - 1, i + 0, i + 1, i + 1, i + 1, i + 0, i - 1],
                 [j + 0, j + 1, j + 1, j + 1, j + 0, j - 1, j - 1, j - 1])
 
-    def _select_edge_sur(self, edges, k):
-        """
-        Select the five cell indices surrounding each edge cell.
-        """
-        i, j = edges[k]['k']
-        if k == 'n':
-            return ([i + 0, i + 1, i + 1, i + 1, i + 0],
-                    [j + 1, j + 1, j + 0, j - 1, j - 1])
-        elif k == 'e':
-            return ([i - 1, i + 1, i + 1, i + 0, i - 1],
-                    [j + 0, j + 0, j - 1, j - 1, j - 1])
-        elif k == 's':
-            return ([i - 1, i - 1, i + 0, i + 0, i - 1],
-                    [j + 0, j + 1, j + 1, j - 1, j - 1])
-        elif k == 'w':
-            return ([i - 1, i - 1, i + 0, i + 1, i + 1],
-                    [j + 0, j + 1, j + 1, j + 1, j + 0])
+    # def _select_edge_sur(self, edges, k):
+    #     """
+    #     Select the five cell indices surrounding each edge cell.
+    #     """
+    #     i, j = edges[k]['k']
+    #     if k == 'n':
+    #         return ([i + 0, i + 1, i + 1, i + 1, i + 0],
+    #                 [j + 1, j + 1, j + 0, j - 1, j - 1])
+    #     elif k == 'e':
+    #         return ([i - 1, i + 1, i + 1, i + 0, i - 1],
+    #                 [j + 0, j + 0, j - 1, j - 1, j - 1])
+    #     elif k == 's':
+    #         return ([i - 1, i - 1, i + 0, i + 0, i - 1],
+    #                 [j + 0, j + 1, j + 1, j - 1, j - 1])
+    #     elif k == 'w':
+    #         return ([i - 1, i - 1, i + 0, i + 1, i + 1],
+    #                 [j + 0, j + 1, j + 1, j + 1, j + 0])
 
     def _select_surround_ravel(self, i, shape):
         """

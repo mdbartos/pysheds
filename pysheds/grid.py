@@ -1281,7 +1281,7 @@ class Grid(object):
                                     inplace=inplace, metadata=metadata)
 
     def _num_cycles(self, fdir, startnodes, max_cycle_len=10):
-        cy = np.zeros(fdir.size, dtype=np.min_scalar_type(max_cycle_len + 1))
+        cy = np.zeros(startnodes.size, dtype=np.min_scalar_type(max_cycle_len + 1))
         endnodes = fdir.flat[startnodes]
         for n in range(1, max_cycle_len + 1):
             check = ((startnodes == endnodes) & (cy == 0))
@@ -2412,7 +2412,7 @@ class Grid(object):
         flats[1:-1, 1:-1].flat[flats_bool] = True
         return flats
 
-    def check_cycles(self, fdir, max_cycle_size=50, dirmap=None, nodata_in=0, nodata_out=-1,
+    def detect_cycles(self, fdir, max_cycle_len=50, dirmap=None, nodata_in=0, nodata_out=-1,
                      apply_mask=True, ignore_metadata=False, **kwargs):
         """
         Checks for cycles in flow direction array.
@@ -2438,7 +2438,6 @@ class Grid(object):
         ignore_metadata : bool
                           If False, require a valid affine transform and CRS.
         """
-        raise NotImplementedError()
         dirmap = self._set_dirmap(dirmap, fdir)
         nodata_in = self._check_nodata_in(fdir, nodata_in)
         grid_props = {'nodata' : nodata_out}
@@ -2453,31 +2452,20 @@ class Grid(object):
         ix = np.where(in_catch)[0]
         flat_idx = np.arange(fdir.size)
         fdir_orig_type = fdir.dtype
+        ncycles = np.zeros(fdir.shape, dtype=np.min_scalar_type(max_cycle_len + 1))
         try:
             mintype = np.min_scalar_type(fdir.size)
             fdir = fdir.astype(mintype)
             flat_idx = flat_idx.astype(mintype)
             startnodes, endnodes = self._construct_matching(fdir, flat_idx, dirmap)
             startnodes = startnodes[ix]
-            endnodes = endnodes[ix]
-            z = np.zeros(fdir.size).astype(int)
-            for n in range(max_cycle_size):
-                check = (startnodes == endnodes)
-                check_ix = np.where(check)
-                z[check_ix] += n
-                startnodes = startnodes[~check]
-                endnodes = endnodes[~check]
-                if not startnodes.any():
-                    break
-                endnodes = fdir.flat[endnodes]
-            z.flat[~in_catch] = nodata_out
+            ncycles.flat[startnodes] = self._num_cycles(fdir, startnodes, max_cycle_len=max_cycle_len)
         except:
             raise
         finally:
             self._unflatten_fdir(fdir, flat_idx, dirmap)
             fdir = fdir.astype(fdir_orig_type)
-        z = z.reshape(fdir.shape)
-        return z
+        return ncycles
 
     def fill_pits(self, data, out_name='filled_dem', nodata_in=None, nodata_out=0,
                   inplace=True, apply_mask=False, ignore_metadata=False, **kwargs):
@@ -2793,6 +2781,7 @@ class Grid(object):
         flatlabels = labels[1:-1, 1:-1][flats[1:-1, 1:-1]]
         flat_diffs = diff[:, flats[1:-1, 1:-1].ravel()].astype(float)
         flat_diffs[flat_diffs == 0] = np.nan
+        # TODO:  Warning triggered here: all-nan axis encountered
         minsteps = np.nanmin(np.abs(flat_diffs), axis=0)
         minsteps = pd.Series(minsteps, index=flatlabels).fillna(0)
         minsteps = minsteps[minsteps != 0].groupby(level=0).min()

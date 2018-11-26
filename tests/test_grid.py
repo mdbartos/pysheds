@@ -3,6 +3,10 @@ import os
 import numpy as np
 from pysheds.grid import Grid
 
+# TODO: Major todo's
+# - self.mask should be a raster
+# - grid.clip_to should be able to take a raster (use _input_handler)
+
 current_dir = os.path.dirname(os.path.realpath(__file__))
 data_dir = os.path.abspath(os.path.join(current_dir, '../data'))
 dir_path = os.path.join(data_dir, 'dir.asc')
@@ -55,9 +59,11 @@ def test_resolve_flats():
 def test_flowdir():
     grid.clip_to('dir')
     grid.flowdir(data='inflated_dem', dirmap=dirmap, routing='d8', out_name='d8_dir')
-    grid.flowdir(data='inflated_dem', dirmap=dirmap, routing='dinf', out_name='dinf_dir')
     grid.flowdir(data='inflated_dem', dirmap=dirmap, routing='d8', as_crs=new_crs,
                  out_name='proj_dir')
+
+def test_dinf_flowdir():
+    grid.flowdir(data='inflated_dem', dirmap=dirmap, routing='dinf', out_name='dinf_dir')
 
 def test_clip_pad():
     grid.clip_to('catch')
@@ -133,8 +139,8 @@ def test_from_raster():
     newgrid = Grid.from_raster('test_dir.tif', 'dir_output')
     assert((newgrid.dir_output == grid.view('catch')).all())
 
-# def test_windowed_reading():
-#     newgrid = Grid.from_raster('test_dir.tif', 'dir_output', window=grid.bbox, window_crs=grid.crs)
+def test_windowed_reading():
+    newgrid = Grid.from_raster('test_dir.tif', 'dir_output', window=grid.bbox, window_crs=grid.crs)
 
 def test_properties():
     bbox = grid.bbox
@@ -169,7 +175,7 @@ def test_other_methods():
     # TODO: Need checks for these
     grid.cell_distances('dir', as_crs=new_crs, dirmap=dirmap)
     grid.cell_dh(fdir='dir', dem='dem', dirmap=dirmap)
-    grid.cell_slopes(fdir='dir', dem='dem', dirmap=dirmap)
+    grid.cell_slopes(fdir='dir', dem='dem', as_crs=new_crs, dirmap=dirmap)
 
 def test_snap_to():
     # TODO: Need checks

@@ -44,7 +44,6 @@ class Grid(object):
     shape : The shape of the grid (number of rows, number of columns).
     bbox : The geographical bounding box of the current view of the gridded data
            (xmin, ymin, xmax, ymax).
-    cellsize : The length/width of each grid cell (assumed to be square).
     mask : A boolean array used to mask certain grid cells in the bbox;
            may be used to indicate which cells lie inside a catchment.
  
@@ -98,6 +97,7 @@ class Grid(object):
         self.shape = shape
         self.nodata = nodata
         self.crs = crs
+        # TODO: Mask should be a raster, not an array
         if mask is None:
             self.mask = np.ones(shape)
         self.grids = []
@@ -118,7 +118,7 @@ class Grid(object):
         A generic method for adding data into a Grid instance.
         Inserts data into a named attribute of Grid (name of attribute
         determined by keyword 'data_name').
- 
+
         Parameters
         ----------
         data : numpy ndarray
@@ -135,6 +135,8 @@ class Grid(object):
               Coordinate reference system of gridded data.
         nodata : int or float
                  Value indicating no data in the input array.
+        mask : numpy ndarray
+               Boolean array indicating which cells should be masked.
         metadata : dict
                    Other attributes describing dataset, such as direction
                    mapping for flow direction files. e.g.:
@@ -165,7 +167,6 @@ class Grid(object):
                 pass
             else:
                 raise TypeError('affine transformation matrix required')
-
             # initialize instance metadata
             self.affine = affine
             self.shape = shape
@@ -236,7 +237,7 @@ class Grid(object):
                     Name of dataset. Will determine the name of the attribute
                     representing the gridded data.
         band : int
-               The band number to read.
+               The band number to read if multiband.
         window : tuple
                  If using windowed reading, specify window (xmin, ymin, xmax, ymax).
         window_crs : pyproj.Proj instance
@@ -261,6 +262,7 @@ class Grid(object):
                 else:
                     data = np.ma.filled(f.read())
                 affine = f.transform
+                data = data.reshape(shape)
             else:
                 if window_crs is not None:
                     if window_crs.srs != crs.srs:
@@ -270,15 +272,14 @@ class Grid(object):
                         window = (extent[0][0], extent[1][0], extent[0][1], extent[1][1])
                 # If window crs not specified, assume it's in raster crs
                 ix_window = f.window(*window)
-                shape = (ix_window.round_shape().height,
-                         ix_window.round_shape().width)
                 if len(f.indexes) > 1:
                     data = np.ma.filled(f.read_band(band, window=ix_window))
                 else:
                     data = np.ma.filled(f.read(window=ix_window))
                 affine = f.window_transform(ix_window)
+                data = np.squeeze(data)
+                shape = data.shape
             nodata = f.nodatavals[0]
-            data = data.reshape(shape)
         if nodata is not None:
             nodata = data.dtype.type(nodata)
         self.add_gridded_data(data=data, data_name=data_name, affine=affine, shape=shape,
@@ -338,7 +339,7 @@ class Grid(object):
         Parameters
         ----------
         data : str or Raster
-               If string: name of the dataset to be viewed.
+               If str: name of the dataset to be viewed.
                If Raster: a Raster instance (see pysheds.view.Raster)
         data_view : RegularViewFinder or IrregularViewFinder
                     The view at which the data is defined (based on an affine
@@ -490,7 +491,7 @@ class Grid(object):
         """
         Resize a gridded dataset to a different shape (uses skimage.transform.resize).
         data : str or Raster
-               If string: name of the dataset to be viewed.
+               If str: name of the dataset to be viewed.
                If Raster: a Raster instance (see pysheds.view.Raster)
         new_shape: tuple of int (length 2)
                    Desired array shape.
@@ -524,7 +525,7 @@ class Grid(object):
         return self._output_handler(data=data, out_name=out_name, properties=grid_props,
                                     inplace=inplace, metadata=metadata)
 
-    def nearest_cell(self, x, y, affine=None, shape=None):
+    def nearest_cell(self, x, y, affine=None):
         """
         Returns the index of the cell (column, row) closest
         to a given geographical coordinate.
@@ -539,18 +540,47 @@ class Grid(object):
                  Affine transformation that defines the translation between
                  geographic x/y coordinate and array row/column coordinate.
                  Defaults to self.affine.
-        shape : tuple of int (length 2)
-                Shape of the gridded data.
-                Defaults to self.shape.
+        Returns
+        -------
+        x_i, y_i : tuple of ints
+                   Column index and row index
         """
         if not affine:
-            bbox = self.affine
-        if not shape:
-            shape = self.shape
+            affine = self.affine
+        try:
+            assert isinstance(affine, Affine)
+        except:
+            raise TypeError('affine must be an Affine instance.')
         col, row = np.around(~affine * (x, y)).astype(int)
         return col, row
 
-    def flowdir(self, data=None, out_name='dir', nodata_in=None, nodata_out=None,
+    def set_bbox(self, new_bbox):
+        """
+        Sets new bbox while maintaining the same cell dimensions. Updates
+        self.affine and self.shape. Also resets self.mask.
+
+        Note that this method rounds the given bbox to match the existing
+        cell dimensions.
+
+        Parameters
+        ----------
+        new_bbox : tuple of floats (length 4)
+                   (xmin, ymin, xmax, ymax)
+        """
+        affine = self.affine
+        xmin, ymin, xmax, ymax = new_bbox
+        ul = np.around(~affine * (xmin, ymax)).astype(int)
+        lr = np.around(~affine * (xmax, ymin)).astype(int)
+        xmin, ymax = affine * tuple(ul)
+        shape = tuple(lr - ul)
+        new_affine = Affine(affine.a, affine.b, xmin,
+                            affine.d, affine.e, ymax)
+        self.affine = new_affine
+        self.shape = shape
+        #TODO: For now, simply reset mask
+        self.mask = np.ones(shape, dtype=np.bool)
+
+    def flowdir(self, data, out_name='dir', nodata_in=None, nodata_out=None,
                 pits=-1, flats=-1, dirmap=(1, 2, 3, 4, 5, 6, 7, 8), routing='d8',
                 inplace=True, as_crs=None, apply_mask=False, ignore_metadata=False,
                 **kwargs):
@@ -561,7 +591,7 @@ class Grid(object):
         ----------
         data : str or Raster
                DEM data.
-               If string: name of the dataset to be viewed.
+               If str: name of the dataset to be viewed.
                If Raster: a Raster instance (see pysheds.view.Raster)
         out_name : string
                    Name of attribute containing new flow direction array.
@@ -626,6 +656,8 @@ class Grid(object):
                     pits=-1, flats=-1, dirmap=(1, 2, 3, 4, 5, 6, 7, 8), inplace=True,
                     as_crs=None, apply_mask=False, ignore_metadata=False, properties={},
                     metadata={}, **kwargs):
+        np.warnings.filterwarnings(action='ignore', message='Invalid value encountered',
+                                   category=RuntimeWarning)
         try:
             # Make sure nothing flows to the nodata cells
             dem.flat[dem_mask] = dem.max() + 1
@@ -673,6 +705,9 @@ class Grid(object):
                       pits=-1, flats=-1, dirmap=(1, 2, 3, 4, 5, 6, 7, 8), inplace=True,
                       as_crs=None, apply_mask=False, ignore_metadata=False, properties={},
                       metadata={}, **kwargs):
+        # Filter warnings due to invalid values
+        np.warnings.filterwarnings(action='ignore', message='Invalid value encountered',
+                                   category=RuntimeWarning)
         try:
             # Make sure nothing flows to the nodata cells
             dem.flat[dem_mask] = dem.max() + 1
@@ -750,7 +785,7 @@ class Grid(object):
         s[b1] = ((e0 - e2)/diag_distance)[b1]
         return r, s
 
-    def catchment(self, x, y, data=None, pour_value=None, out_name='catch', dirmap=None,
+    def catchment(self, x, y, data, pour_value=None, out_name='catch', dirmap=None,
                   nodata_in=None, nodata_out=0, xytype='index', routing='d8',
                   recursionlimit=15000, inplace=True, apply_mask=False, ignore_metadata=False,
                   **kwargs):
@@ -765,7 +800,7 @@ class Grid(object):
             y coordinate of pour point
         data : str or Raster
                Flow direction data.
-               If string: name of the dataset to be viewed.
+               If str: name of the dataset to be viewed.
                If Raster: a Raster instance (see pysheds.view.Raster)
         pour_value : int or None
                      If not None, value to represent pour point in catchment
@@ -811,6 +846,10 @@ class Grid(object):
         fdir = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
                                    properties=properties, ignore_metadata=ignore_metadata,
                                    **kwargs)
+        xmin, ymin, xmax, ymax = fdir.bbox
+        if (x < xmin) or (x > xmax) or (y < ymin) or (y > ymax):
+            raise ValueError('Pour point ({}, {}) is out of bounds for dataset with bbox {}.'
+                             .format(x, y, (xmin, ymin, xmax, ymax)))
         if routing.lower() == 'd8':
             return self._d8_catchment(x, y, fdir=fdir, pour_value=pour_value, out_name=out_name,
                                       dirmap=dirmap, nodata_in=nodata_in, nodata_out=nodata_out,
@@ -848,10 +887,9 @@ class Grid(object):
             # get shape of padded flow direction array, then flatten
             # if xytype is 'label', delineate catchment based on cell nearest
             # to given geographic coordinate
-            # TODO: This relies on the bbox of the grid instance, not the dataset
             # Valid if the dataset is a view.
             if xytype == 'label':
-                x, y = self.nearest_cell(x, y, fdir.affine, fdir.shape)
+                x, y = self.nearest_cell(x, y, fdir.affine)
             # get the flattened index of the pour point
             pour_point = np.ravel_multi_index(np.array([y, x]),
                                               fdir.shape)
@@ -886,7 +924,9 @@ class Grid(object):
                         nodata_in=None, nodata_out=0, xytype='index', recursionlimit=15000,
                         inplace=True, apply_mask=False, ignore_metadata=False, properties={},
                         metadata={}, **kwargs):
-
+        # Filter warnings due to invalid values
+        np.warnings.filterwarnings(action='ignore', message='Invalid value encountered',
+                                   category=RuntimeWarning)
         # Vectorized Recursive algorithm:
         # for each cell j, recursively search through grid to determine
         # if surrounding cells are in the contributing area, then add
@@ -934,7 +974,7 @@ class Grid(object):
             # TODO: This relies on the bbox of the grid instance, not the dataset
             # Valid if the dataset is a view.
             if xytype == 'label':
-                x, y = self.nearest_cell(x, y, fdir.affine, fdir.shape)
+                x, y = self.nearest_cell(x, y, fdir.affine)
             # get the flattened index of the pour point
             pour_point = np.ravel_multi_index(np.array([y, x]),
                                               fdir.shape)
@@ -1042,7 +1082,7 @@ class Grid(object):
     #     grid_props = self._generate_grid_props(**private_props)
     #     return self._output_handler(result, inplace, out_name=out_name, **grid_props)
 
-    def accumulation(self, data=None, weights=None, dirmap=None, nodata_in=None, nodata_out=0,
+    def accumulation(self, data, weights=None, dirmap=None, nodata_in=None, nodata_out=0,
                      out_name='acc', routing='d8', inplace=True, pad=False, apply_mask=False,
                      ignore_metadata=False, **kwargs):
         """
@@ -1053,7 +1093,7 @@ class Grid(object):
         ----------
         data : str or Raster
                Flow direction data.
-               If string: name of the dataset to be viewed.
+               If str: name of the dataset to be viewed.
                If Raster: a Raster instance (see pysheds.view.Raster)
         weights: numpy ndarray
                  Array of weights to be applied to each accumulation cell. Must
@@ -1181,6 +1221,9 @@ class Grid(object):
     def _dinf_accumulation(self, fdir=None, weights=None, dirmap=None, nodata_in=None, nodata_out=0,
                            out_name='acc', inplace=True, pad=False, apply_mask=False,
                            ignore_metadata=False, properties={}, metadata={}, **kwargs):
+        # Filter warnings due to invalid values
+        np.warnings.filterwarnings(action='ignore', message='Invalid value encountered',
+                                   category=RuntimeWarning)
         # Pad the rim
         if pad:
             fdir = np.pad(fdir, (1,1), mode='constant', constant_values=nodata_in)
@@ -1351,7 +1394,7 @@ class Grid(object):
             y coordinate of pour point
         data : str or Raster
                Flow direction data.
-               If string: name of the dataset to be viewed.
+               If str: name of the dataset to be viewed.
                If Raster: a Raster instance (see pysheds.view.Raster)
         weights: numpy ndarray
                  Weights (distances) to apply to link edges.
@@ -1392,6 +1435,10 @@ class Grid(object):
         fdir = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
                                    properties=properties, ignore_metadata=ignore_metadata,
                                    **kwargs)
+        xmin, ymin, xmax, ymax = fdir.bbox
+        if (x < xmin) or (x > xmax) or (y < ymin) or (y > ymax):
+            raise ValueError('Pour point ({}, {}) is out of bounds for dataset with bbox {}.'
+                             .format(x, y, (xmin, ymin, xmax, ymax)))
         if routing.lower() == 'd8':
             return self._d8_flow_distance(x, y, fdir, weights=weights, dirmap=dirmap,
                                           nodata_in=nodata_in, nodata_out=nodata_out,
@@ -1428,7 +1475,7 @@ class Grid(object):
             startnodes, endnodes = self._construct_matching(fdir, domain,
                                                             dirmap=dirmap)
             if xytype == 'label':
-                x, y = self.nearest_cell(x, y, fdir.affine, fdir.shape)
+                x, y = self.nearest_cell(x, y, fdir.affine)
             # TODO: Currently the size of weights is hard to understand
             if weights is not None:
                 weights = weights.ravel()
@@ -1459,6 +1506,9 @@ class Grid(object):
                             nodata_out=0, out_name='dist', method='shortest', inplace=True,
                             xytype='index', apply_mask=True, ignore_metadata=False,
                             properties={}, metadata={}, **kwargs):
+        # Filter warnings due to invalid values
+        np.warnings.filterwarnings(action='ignore', message='Invalid value encountered',
+                                   category=RuntimeWarning)
         # Construct flat index onto flow direction array
         mintype = np.min_scalar_type(fdir.size)
         domain = np.arange(fdir.size, dtype=mintype)
@@ -1488,7 +1538,7 @@ class Grid(object):
             assert(startnodes.size == endnodes_0.size)
             assert(startnodes.size == endnodes_1.size)
             if xytype == 'label':
-                x, y = self.nearest_cell(x, y, fdir.affine, fdir.shape)
+                x, y = self.nearest_cell(x, y, fdir.affine)
             # TODO: Currently the size of weights is hard to understand
             if weights is not None:
                 if isinstance(weights, list) or isinstance(weights, tuple):
@@ -1576,7 +1626,7 @@ class Grid(object):
         ----------
         data : str or Raster
                Flow direction data.
-               If string: name of the dataset to be viewed.
+               If str: name of the dataset to be viewed.
                If Raster: a Raster instance (see pysheds.view.Raster)
         out_name : string
                    Name of attribute containing new cell distance array.
@@ -1588,6 +1638,9 @@ class Grid(object):
                      Value to indicate nodata in input array.
         nodata_out : int or float
                      Value to indicate nodata in output array.
+        routing : str
+                  Routing algorithm to use:
+                  'd8'   : D8 flow directions
         inplace : bool
                   If True, write output array to self.<out_name>.
                   Otherwise, return the output array.
@@ -1635,8 +1688,9 @@ class Grid(object):
         return self._output_handler(data=cdist, out_name=out_name, properties=grid_props,
                                     inplace=inplace, metadata=metadata)
 
-    def cell_dh(self, fdir, dem, out_name='dh', inplace=True, dirmap=None, nodata_in=None,
-                routing='d8', nodata_out=np.nan, apply_mask=True, ignore_metadata=False):
+    def cell_dh(self, fdir, dem, out_name='dh', dirmap=None, nodata_in=None,
+                nodata_out=np.nan, routing='d8', inplace=True, apply_mask=True,
+                ignore_metadata=False):
         """
         Generates an array representing the elevation difference from each cell to its
         downstream neighbor.
@@ -1645,11 +1699,11 @@ class Grid(object):
         ----------
         fdir : str or Raster
                Flow direction data.
-               If string: name of the dataset to be viewed.
+               If str: name of the dataset to be viewed.
                If Raster: a Raster instance (see pysheds.view.Raster)
         dem : str or Raster
               DEM data.
-              If string: name of the dataset to be viewed.
+              If str: name of the dataset to be viewed.
               If Raster: a Raster instance (see pysheds.view.Raster)
         out_name : string
                    Name of attribute containing new cell elevation difference array.
@@ -1661,6 +1715,9 @@ class Grid(object):
                      Value to indicate nodata in input array.
         nodata_out : int or float
                      Value to indicate nodata in output array.
+        routing : str
+                  Routing algorithm to use:
+                  'd8'   : D8 flow directions
         inplace : bool
                   If True, write output array to self.<out_name>.
                   Otherwise, return the output array.
@@ -1680,6 +1737,11 @@ class Grid(object):
         metadata = {}
         dem = self._input_handler(dem, apply_mask=apply_mask, nodata_view=nodata_in,
                                    properties=dem_props, ignore_metadata=ignore_metadata)
+        try:
+            assert(fdir.affine == dem.affine)
+            assert(fdir.shape == dem.shape)
+        except:
+            raise ValueError('Flow direction and elevation grids not aligned.')
         dirmap = self._set_dirmap(dirmap, fdir)
         flat_idx = np.arange(fdir.size)
         fdir_orig_type = fdir.dtype
@@ -1711,7 +1773,7 @@ class Grid(object):
                                     inplace=inplace, metadata=metadata)
 
     def cell_slopes(self, fdir, dem, out_name='slopes', dirmap=None, nodata_in=None,
-                    nodata_out=np.nan, as_crs=None, routing='d8', inplace=True, apply_mask=True,
+                    nodata_out=np.nan, routing='d8', as_crs=None, inplace=True, apply_mask=True,
                     ignore_metadata=False):
         """
         Generates an array representing the slope from each cell to its downstream neighbor.
@@ -1720,16 +1782,14 @@ class Grid(object):
         ----------
         fdir : str or Raster
                Flow direction data.
-               If string: name of the dataset to be viewed.
+               If str: name of the dataset to be viewed.
                If Raster: a Raster instance (see pysheds.view.Raster)
         dem : str or Raster
               DEM data.
-              If string: name of the dataset to be viewed.
+              If str: name of the dataset to be viewed.
               If Raster: a Raster instance (see pysheds.view.Raster)
         out_name : string
                    Name of attribute containing new cell slope array.
-        as_crs : pyproj.Proj
-                 CRS at which to compute the distance from each cell to its downstream neighbor.
         dirmap : list or tuple (length 8)
                  List of integer values representing the following
                  cardinal and intercardinal directions (in order):
@@ -1738,6 +1798,11 @@ class Grid(object):
                      Value to indicate nodata in input array.
         nodata_out : int or float
                      Value to indicate nodata in output array.
+        routing : str
+                  Routing algorithm to use:
+                  'd8'   : D8 flow directions
+        as_crs : pyproj.Proj
+                 CRS at which to compute the distance from each cell to its downstream neighbor.
         inplace : bool
                   If True, write output array to self.<out_name>.
                   Otherwise, return the output array.
@@ -1746,6 +1811,11 @@ class Grid(object):
         ignore_metadata : bool
                           If False, require a valid affine transform and CRS.
         """
+        # Filter warnings due to invalid values
+        np.warnings.filterwarnings(action='ignore', message='Invalid value encountered',
+                                   category=RuntimeWarning)
+        np.warnings.filterwarnings(action='ignore', message='divide by zero',
+                                   category=RuntimeWarning)
         if routing.lower() != 'd8':
             raise NotImplementedError('Only implemented for D8 routing.')
         dh = self.cell_dh(fdir, dem, out_name, inplace=False,
@@ -1778,8 +1848,21 @@ class Grid(object):
                        ignore_metadata=False, inherit_metadata=True,  metadata={}, **kwargs):
         required_params = ('affine', 'shape', 'nodata', 'crs')
         defaults = self.defaults
+        # Handle raster data
+        if (isinstance(data, Raster)):
+            for param in required_params:
+                if not param in properties:
+                    if param in kwargs:
+                        properties[param] = kwargs[param]
+                    else:
+                        properties[param] = getattr(data, param)
+            if inherit_metadata:
+                metadata.update(data.metadata)
+            viewfinder = RegularViewFinder(**properties)
+            dataset = Raster(data, viewfinder, metadata=metadata)
+            return dataset
         # Handle raw data
-        if (isinstance(data, np.ndarray) or isinstance(data, Raster)):
+        if (isinstance(data, np.ndarray)):
             for param in required_params:
                 if not param in properties:
                     if param in kwargs:
@@ -1789,9 +1872,6 @@ class Grid(object):
                     else:
                         raise KeyError("Missing required parameter: {0}"
                                        .format(param))
-            if isinstance(data, Raster):
-                if inherit_metadata:
-                    metadata.update(data.metadata)
             viewfinder = RegularViewFinder(**properties)
             dataset = Raster(data, viewfinder, metadata=metadata)
             return dataset
@@ -1815,7 +1895,7 @@ class Grid(object):
             dataset = Raster(data, viewfinder, metadata=metadata)
             return dataset
         else:
-            raise TypeError('Data must be a numpy ndarray or name string.')
+            raise TypeError('Data must be a Raster, numpy ndarray or name string.')
 
     def _output_handler(self, data, out_name, properties, inplace, metadata={}):
         # TODO: Should this be rolled into add_data?
@@ -1934,8 +2014,8 @@ class Grid(object):
         endnodes = fdir.flat[flat_idx]
         return startnodes, endnodes
 
-    def clip_to(self, data_name, precision=7, inplace=True, apply_mask=True, pad=(0,0,0,0),
-                **kwargs):
+    def clip_to(self, data_name, precision=7, inplace=True, apply_mask=True,
+                pad=(0,0,0,0)):
         """
         Clip grid to bbox representing the smallest area that contains all
         non-null data for a given dataset. If inplace is True, will set
@@ -1955,8 +2035,6 @@ class Grid(object):
         pad : tuple of int (length 4)
               Apply padding to edges of new view (left, bottom, right, top). A pad of
               (1,1,1,1), for instance, will add a one-cell rim around the new view.
- 
-        Other keyword arguments are passed to self.set_bbox
         """
         # get class attributes
         data = getattr(self, data_name)
@@ -2053,7 +2131,7 @@ class Grid(object):
                      New nodata value to use.
         old_nodata : int or float (optional)
                      If none provided, defaults to
-                     self.grid_props[data_name]['nodata']
+                     self.<data_name>.<nodata>
         """
         if old_nodata is None:
             old_nodata = getattr(self, data_name).nodata
@@ -2069,22 +2147,45 @@ class Grid(object):
                  as_crs=None, kx=3, ky=3, s=0, tolerance=1e-3, dtype=None,
                  **kwargs):
         """
-        Writes current "view" of grid data to ascii grid files.
+        Writes gridded data to ascii grid files.
  
         Parameters
         ----------
-        data_name : string or list-like (optional)
-                    Attribute name(s) of datasets to write.
-        file_name : string or list-like (optional)
-                    Name(s) of file(s) to write to (defaults to attribute
-                    name).
+        data_name : str
+                    Attribute name of dataset to write.
+        file_name : str
+                    Name of file to write to.
         view : bool
                If True, writes the "view" of the dataset. Otherwise, writes the
                entire dataset.
-        apply_mask : bool
-               If True, write the "masked" view of the dataset.
         delimiter : string (optional)
                     Delimiter to use in output file (defaults to ' ')
+        fmt : str
+              Formatting for numeric data. Passed to np.savetxt.
+        apply_mask : bool
+               If True, write the "masked" view of the dataset.
+        nodata : int or float
+                 Value indicating no data in output array.
+                 Defaults to the `nodata` attribute of the input dataset.
+        interpolation: 'nearest', 'linear', 'cubic', 'spline'
+                       Interpolation method to be used. If both the input data
+                       view and output data view can be defined on a regular grid,
+                       all interpolation methods are available. If one
+                       of the datasets cannot be defined on a regular grid, or the
+                       datasets use a different CRS, only 'nearest', 'linear' and
+                       'cubic' are available.
+        as_crs: pyproj.Proj
+                Projection at which to view the data (overrides self.crs).
+        kx, ky: int
+                Degrees of the bivariate spline, if 'spline' interpolation is desired.
+        s : float
+            Smoothing factor of the bivariate spline, if 'spline' interpolation is desired.
+        tolerance: float
+                   Maximum tolerance when matching coordinates. Data coordinates
+                   that cannot be matched to a target coordinate within this
+                   tolerance will be masked with the nodata value in the output array.
+        dtype: numpy datatype
+               Desired datatype of the output array.
         """
         header_space = 9*' '
         # TODO: Should probably replace with input handler to remain consistent
@@ -2097,8 +2198,7 @@ class Grid(object):
         nodata = data.nodata
         shape = data.shape
         bbox = data.bbox
-        # TODO: This breaks if cells are not square; issue with ASCII
-        # format
+        # TODO: This breaks if cells are not square; issue with ASCII format
         cellsize = data.cellsize
         header = (("ncols{0}{1}\nnrows{0}{2}\nxllcorner{0}{3}\n"
                     "yllcorner{0}{4}\ncellsize{0}{5}\nNODATA_value{0}{6}")
@@ -2120,21 +2220,47 @@ class Grid(object):
                   blockysize=256, apply_mask=False, nodata=None, interpolation='nearest',
                   as_crs=None, kx=3, ky=3, s=0, tolerance=1e-3, dtype=None, **kwargs):
         """
-        Writes current "view" of grid data to a raster.
+        Writes gridded data to a raster.
  
         Parameters
         ----------
-        data_name : string or list-like (optional)
-                    Attribute name(s) of datasets to write. Defaults to all
-                    grid dataset names.
-        file_name : string or list-like (optional)
-                    Name(s) of file(s) to write to (defaults to attribute
-                    name).
+        data_name : str
+                    Attribute name of dataset to write.
+        file_name : str
+                    Name of file to write to.
+        profile : dict
+                  Profile of driver for writing data. See rasterio documentation.
         view : bool
                If True, writes the "view" of the dataset. Otherwise, writes the
                entire dataset.
+        blockxsize : int
+                     Size of blocks in horizontal direction. See rasterio documentation.
+        blockysize : int
+                     Size of blocks in vertical direction. See rasterio documentation.
         apply_mask : bool
                If True, write the "masked" view of the dataset.
+        nodata : int or float
+                 Value indicating no data in output array.
+                 Defaults to the `nodata` attribute of the input dataset.
+        interpolation: 'nearest', 'linear', 'cubic', 'spline'
+                       Interpolation method to be used. If both the input data
+                       view and output data view can be defined on a regular grid,
+                       all interpolation methods are available. If one
+                       of the datasets cannot be defined on a regular grid, or the
+                       datasets use a different CRS, only 'nearest', 'linear' and
+                       'cubic' are available.
+        as_crs: pyproj.Proj
+                Projection at which to view the data (overrides self.crs).
+        kx, ky: int
+                Degrees of the bivariate spline, if 'spline' interpolation is desired.
+        s : float
+            Smoothing factor of the bivariate spline, if 'spline' interpolation is desired.
+        tolerance: float
+                   Maximum tolerance when matching coordinates. Data coordinates
+                   that cannot be matched to a target coordinate within this
+                   tolerance will be masked with the nodata value in the output array.
+        dtype: numpy datatype
+               Desired datatype of the output array.
         """
         # TODO: Should probably replace with input handler to remain consistent
         if view:
@@ -2167,8 +2293,8 @@ class Grid(object):
             dst.write(np.asarray(data), 1)
 
     def extract_river_network(self, fdir, acc, threshold=100,
-                              dirmap=None, nodata_in=None, apply_mask=True,
-                              routing='d8', ignore_metadata=False, **kwargs):
+                              dirmap=None, nodata_in=None, routing='d8',
+                              apply_mask=True, ignore_metadata=False, **kwargs):
         """
         Generates river segments from accumulation and flow_direction arrays.
  
@@ -2176,11 +2302,11 @@ class Grid(object):
         ----------
         fdir : str or Raster
                Flow direction data.
-               If string: name of the dataset to be viewed.
+               If str: name of the dataset to be viewed.
                If Raster: a Raster instance (see pysheds.view.Raster)
         acc : str or Raster
               Accumulation data.
-              If string: name of the dataset to be viewed.
+              If str: name of the dataset to be viewed.
               If Raster: a Raster instance (see pysheds.view.Raster)
         threshold : int or float
                     Minimum allowed cell accumulation needed for inclusion in
@@ -2191,6 +2317,9 @@ class Grid(object):
                  [N, NE, E, SE, S, SW, W, NW]
         nodata_in : int or float
                      Value to indicate nodata in input array.
+        routing : str
+                  Routing algorithm to use:
+                  'd8'   : D8 flow directions
         apply_mask : bool
                If True, "mask" the output using self.mask.
         ignore_metadata : bool
@@ -2214,6 +2343,11 @@ class Grid(object):
         acc = self._input_handler(acc, apply_mask=apply_mask, nodata_view=nodata_in,
                                   properties=acc_props,
                                   ignore_metadata=ignore_metadata, **kwargs)
+        try:
+            assert(fdir.affine == acc.affine)
+            assert(fdir.shape == acc.shape)
+        except:
+            raise ValueError('Flow direction and accumulation grids not aligned.')
         dirmap = self._set_dirmap(dirmap, fdir)
         flat_idx = np.arange(fdir.size)
         fdir_orig_type = fdir.dtype
@@ -2333,7 +2467,7 @@ class Grid(object):
         ----------
         data : str or Raster
                DEM data.
-               If string: name of the dataset to be viewed.
+               If str: name of the dataset to be viewed.
                If Raster: a Raster instance (see pysheds.view.Raster)
         nodata_in : int or float
                      Value to indicate nodata in input array.
@@ -2376,7 +2510,7 @@ class Grid(object):
         ----------
         data : str or Raster
                DEM data.
-               If string: name of the dataset to be viewed.
+               If str: name of the dataset to be viewed.
                If Raster: a Raster instance (see pysheds.view.Raster)
         nodata_in : int or float
                      Value to indicate nodata in input array.
@@ -2421,7 +2555,7 @@ class Grid(object):
         ----------
         fdir : str or Raster
                Flow direction data.
-               If string: name of the dataset to be viewed.
+               If str: name of the dataset to be viewed.
                If Raster: a Raster instance (see pysheds.view.Raster)
         max_cycle_size: int
                         Max depth of cycle to search for.
@@ -2437,6 +2571,11 @@ class Grid(object):
                If True, "mask" the output using self.mask.
         ignore_metadata : bool
                           If False, require a valid affine transform and CRS.
+
+        Returns
+        -------
+        num_cycles : numpy ndarray
+                     Array indicating max cycle length at each cell.
         """
         dirmap = self._set_dirmap(dirmap, fdir)
         nodata_in = self._check_nodata_in(fdir, nodata_in)
@@ -2476,7 +2615,7 @@ class Grid(object):
         ----------
         data : str or Raster
                DEM data.
-               If string: name of the dataset to be viewed.
+               If str: name of the dataset to be viewed.
                If Raster: a Raster instance (see pysheds.view.Raster)
         out_name : string
                    Name of attribute containing new filled pit array.
@@ -2721,6 +2860,8 @@ class Grid(object):
         return drainage_grad, flats, high_edge_cells, low_edge_cells, labels, diff
 
     def _d8_diff(self, dem, inside):
+        np.warnings.filterwarnings(action='ignore', message='Invalid value encountered',
+                                   category=RuntimeWarning)
         inner_neighbors = self._select_surround_ravel(inside, dem.shape).T
         inner_neighbors_elev = dem.flat[inner_neighbors]
         diff = np.subtract(dem.flat[inside], inner_neighbors_elev)
@@ -2737,7 +2878,7 @@ class Grid(object):
         ----------
         data : str or Raster
                DEM data.
-               If string: name of the dataset to be viewed.
+               If str: name of the dataset to be viewed.
                If Raster: a Raster instance (see pysheds.view.Raster)
         out_name : string
                    Name of attribute containing new flow direction array.
@@ -2745,10 +2886,6 @@ class Grid(object):
                      Value to indicate nodata in input array.
         nodata_out : int or float
                      Value to indicate nodata in output array.
-        pits : int
-               Value to indicate pits in output array.
-        flats : int
-                Value to indicate flat areas in output array.
         inplace : bool
                   If True, write output array to self.<out_name>.
                   Otherwise, return the output array.
@@ -2758,6 +2895,8 @@ class Grid(object):
                           If False, require a valid affine transform and CRS.
         """
         # handle nodata values in dem
+        np.warnings.filterwarnings(action='ignore', message='All-NaN axis encountered',
+                                   category=RuntimeWarning)
         if nodata_in is None:
             if isinstance(data, str):
                 try:
@@ -2803,7 +2942,7 @@ class Grid(object):
         ----------
         data : str or Raster
                DEM data.
-               If string: name of the dataset to be viewed.
+               If str: name of the dataset to be viewed.
                If Raster: a Raster instance (see pysheds.view.Raster)
         out_name : string
                    Name of attribute containing new filled depressions array.
@@ -2857,7 +2996,7 @@ class Grid(object):
         ----------
         data : str or Raster
                DEM data.
-               If string: name of the dataset to be viewed.
+               If str: name of the dataset to be viewed.
                If Raster: a Raster instance (see pysheds.view.Raster)
         out_name : string
                    Name of attribute containing new flat-resolved array.
@@ -2912,7 +3051,7 @@ class Grid(object):
         ----------
         data : str or Raster
                DEM data.
-               If string: name of the dataset to be viewed.
+               If str: name of the dataset to be viewed.
                If Raster: a Raster instance (see pysheds.view.Raster)
         nodata_in : int or float
                      Value to indicate nodata in input array.

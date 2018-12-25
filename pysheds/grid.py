@@ -140,7 +140,7 @@ class Grid(object):
         metadata : dict
                    Other attributes describing dataset, such as direction
                    mapping for flow direction files. e.g.:
-                   metadata={'dirmap' : (1, 2, 3, 4, 5, 6, 7, 8),
+                   metadata={'dirmap' : (64, 128, 1, 2, 4, 8, 16, 32),
                              'routing' : 'd8'}
         """
         if mask is None:
@@ -204,7 +204,7 @@ class Grid(object):
         metadata : dict
                    Other attributes describing dataset, such as direction
                    mapping for flow direction files. e.g.:
-                   metadata={'dirmap' : (1, 2, 3, 4, 5, 6, 7, 8),
+                   metadata={'dirmap' : (64, 128, 1, 2, 4, 8, 16, 32),
                              'routing' : 'd8'}
  
         Additional keyword arguments are passed to numpy.loadtxt()
@@ -245,7 +245,7 @@ class Grid(object):
         metadata : dict
                    Other attributes describing dataset, such as direction
                    mapping for flow direction files. e.g.:
-                   metadata={'dirmap' : (1, 2, 3, 4, 5, 6, 7, 8),
+                   metadata={'dirmap' : (64, 128, 1, 2, 4, 8, 16, 32),
                              'routing' : 'd8'}
  
         Additional keyword arguments are passed to rasterio.open()
@@ -581,7 +581,7 @@ class Grid(object):
         self.mask = np.ones(shape, dtype=np.bool)
 
     def flowdir(self, data, out_name='dir', nodata_in=None, nodata_out=None,
-                pits=-1, flats=-1, dirmap=(1, 2, 3, 4, 5, 6, 7, 8), routing='d8',
+                pits=-1, flats=-1, dirmap=(64, 128, 1, 2, 4, 8, 16, 32), routing='d8',
                 inplace=True, as_crs=None, apply_mask=False, ignore_metadata=False,
                 **kwargs):
         """
@@ -653,7 +653,7 @@ class Grid(object):
                                       properties=properties, metadata=metadata, **kwargs)
 
     def _d8_flowdir(self, dem=None, dem_mask=None, out_name='dir', nodata_in=None, nodata_out=0,
-                    pits=-1, flats=-1, dirmap=(1, 2, 3, 4, 5, 6, 7, 8), inplace=True,
+                    pits=-1, flats=-1, dirmap=(64, 128, 1, 2, 4, 8, 16, 32), inplace=True,
                     as_crs=None, apply_mask=False, ignore_metadata=False, properties={},
                     metadata={}, **kwargs):
         np.warnings.filterwarnings(action='ignore', message='Invalid value encountered',
@@ -702,7 +702,7 @@ class Grid(object):
                                     inplace=inplace, metadata=metadata)
 
     def _dinf_flowdir(self, dem=None, dem_mask=None, out_name='dir', nodata_in=None, nodata_out=0,
-                      pits=-1, flats=-1, dirmap=(1, 2, 3, 4, 5, 6, 7, 8), inplace=True,
+                      pits=-1, flats=-1, dirmap=(64, 128, 1, 2, 4, 8, 16, 32), inplace=True,
                       as_crs=None, apply_mask=False, ignore_metadata=False, properties={},
                       metadata={}, **kwargs):
         # Filter warnings due to invalid values
@@ -1840,6 +1840,11 @@ class Grid(object):
                 except:
                     raise NameError("nodata value for '{0}' not found in instance."
                                     .format(data))
+            elif isinstance(data, Raster):
+                try:
+                    nodata_in = data.nodata
+                except:
+                    raise NameError("nodata value for Raster not found.")
         if override is not None:
             nodata_in = override
         return nodata_in
@@ -2709,7 +2714,7 @@ class Grid(object):
         inside = np.delete(a, exclude)
         return inside
 
-    def _set_dirmap(self, dirmap, data, default_dirmap=(1, 2, 3, 4, 5, 6, 7, 8)):
+    def _set_dirmap(self, dirmap, data, default_dirmap=(64, 128, 1, 2, 4, 8, 16, 32)):
         # TODO: Is setting a default dirmap even a good idea?
         if dirmap is None:
             if isinstance(data, str):
@@ -2897,15 +2902,7 @@ class Grid(object):
         # handle nodata values in dem
         np.warnings.filterwarnings(action='ignore', message='All-NaN axis encountered',
                                    category=RuntimeWarning)
-        if nodata_in is None:
-            if isinstance(data, str):
-                try:
-                    nodata_in = getattr(self, data).nodata
-                except:
-                    raise NameError("nodata value for '{0}' not found in instance."
-                                    .format(data))
-            else:
-                raise KeyError("No 'nodata' value specified.")
+        nodata_in = self._check_nodata_in(data, nodata_in)
         grid_props = {'nodata' : nodata_out}
         metadata = {}
         dem = self._input_handler(data, apply_mask=apply_mask, properties=grid_props,
@@ -3041,9 +3038,9 @@ class Grid(object):
         return self._output_handler(data=raised_dem, out_name=out_name, properties=grid_props,
                             inplace=inplace, metadata=metadata)
 
-    def detect_nondraining_flats(self, data, nodata_in=None, nodata_out=np.nan,
-                                 inplace=True, apply_mask=False, ignore_metadata=False,
-                                 **kwargs):
+    def detect_depressions(self, data, nodata_in=None, nodata_out=np.nan,
+                           inplace=True, apply_mask=False, ignore_metadata=False,
+                           **kwargs):
         """
         Detects nondraining flats (those with no low edge cells).
 

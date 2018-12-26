@@ -1,4 +1,4 @@
-# pysheds [![Build Status](https://travis-ci.org/mdbartos/pysheds.svg?branch=master)](https://travis-ci.org/mdbartos/pysheds)
+# pysheds [![Build Status](https://travis-ci.org/mdbartos/pysheds.svg?branch=master)](https://travis-ci.org/mdbartos/pysheds) [![Coverage Status](https://coveralls.io/repos/github/mdbartos/pysheds/badge.svg?branch=master)](https://coveralls.io/github/mdbartos/pysheds?branch=master)
 🌎 Simple and fast watershed delineation in python.
 
 ## Example usage
@@ -133,9 +133,10 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
   - `cell_distances`: Compute (projected) channel length within cells.
   - `cell_dh`: Compute the elevation change between cells.
   - `cell_slopes`: Compute the slopes of cells.
-  - `fill_pits`: Fill simple pits in a DEM.
-  - `raise_nondraining_flats`: Raise non-draining flats to the elevation of their lowest neighbor.
+  - `fill_pits`: Fill simple pits in a DEM (single cells lower than their surrounding neighbors).
+  - `fill_depressions`: Fill depressions in a DEM (regions of cells lower than their surrounding neighbors).
   - `resolve_flats`: Resolve drainable flats in a DEM using the modified method of Garbrecht and Martz (1997).
+  - `raise_nondraining_flats`: Raise non-draining flats to the elevation of their lowest neighbor.
 - Utilities:
   - `view`: Returns a view of a dataset at a given bounding box and resolution.
   - `clip_to`: Clip the current view to the extent of nonzero values in a given dataset.
@@ -154,7 +155,7 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
   - `to_ascii`: Write grids to delimited ascii files.
   - `to_raster`: Write grids to raster files (e.g. geotiff).
 
-`pysheds` currently only supports a d8 routing scheme
+`pysheds` supports both D8 and D-infinity routing schemes.
 
 ## Installation
 

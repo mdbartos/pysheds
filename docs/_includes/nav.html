@@ -1,0 +1,7 @@
+{% for item in site.data.nav.toc %}
+    <h3>{{ item.title }}</h3>
+        {% for entry in item.subfolderitems %}
+          &nbsp;&nbsp;&nbsp;&nbsp;•&nbsp;<a href="{{ entry.url }}">{{ entry.page }}</a><br>
+        {% endfor %}
+<br>
+{% endfor %}

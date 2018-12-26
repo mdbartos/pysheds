@@ -1,3 +1,7 @@
+---
+layout: default
+---
+
 # pysheds [![Build Status](https://travis-ci.org/mdbartos/pysheds.svg?branch=master)](https://travis-ci.org/mdbartos/pysheds) [![Coverage Status](https://coveralls.io/repos/github/mdbartos/pysheds/badge.svg?branch=master)](https://coveralls.io/github/mdbartos/pysheds?branch=master)
 🌎 Simple and fast watershed delineation in python.
 
@@ -8,117 +12,119 @@ See [examples/quickstart](https://github.com/mdbartos/pysheds/blob/master/exampl
 Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadownload.php) project.
 
 ```python
-    # Read elevation and flow direction rasters
-    # ----------------------------
-    from pysheds.grid import Grid
+# Read elevation and flow direction rasters
+# ----------------------------
+from pysheds.grid import Grid
 
-    grid = Grid.from_raster('n30w100_con', data_name='dem')
-    grid.read_raster('n30w100_dir', data_name='dir')
-    grid.view('dem')
+grid = Grid.from_raster('n30w100_con', data_name='dem')
+grid.read_raster('n30w100_dir', data_name='dir')
+grid.view('dem')
 ```
 
-![Example 1](../examples/img/conditioned_dem.png)
+![Example 1](https://s3.us-east-2.amazonaws.com/pysheds/img/conditioned_dem.png)
 
 ```python
-    # Determine D8 flow directions from DEM
-    # ----------------------
-    # Resolve flats in DEM
-    grid.resolve_flats('dem', out_name='inflated_dem')
+# Determine D8 flow directions from DEM
+# ----------------------
+# Resolve flats in DEM
+grid.resolve_flats('dem', out_name='inflated_dem')
     
-    # Specify directional mapping
-    dirmap = (64, 128, 1, 2, 4, 8, 16, 32)
+# Specify directional mapping
+dirmap = (64, 128, 1, 2, 4, 8, 16, 32)
     
-    # Compute flow directions
-    # -------------------------------------
-    grid.flowdir(data='inflated_dem', out_name='dir', dirmap=dirmap)
-    grid.view('dir')
+# Compute flow directions
+# -------------------------------------
+grid.flowdir(data='inflated_dem', out_name='dir', dirmap=dirmap)
+grid.view('dir')
 ```
 
-![Example 2](../examples/img/flow_direction.png)
+![Example 2](https://s3.us-east-2.amazonaws.com/pysheds/img/flow_direction.png)
 
 ```python
-    # Delineate a catchment
-    # ---------------------
-    # Specify pour point
-    x, y = -97.294167, 32.73750
+# Delineate a catchment
+# ---------------------
+# Specify pour point
+x, y = -97.294167, 32.73750
 
-    # Delineate the catchment
-    grid.catchment(data='dir', x=x, y=y, dirmap=dirmap, out_name='catch',
+# Delineate the catchment
+grid.catchment(data='dir', x=x, y=y, dirmap=dirmap, out_name='catch',
                recursionlimit=15000, xytype='label')
 
-    # Crop and plot the catchment
-    # ---------------------------
-    # Clip the bounding box to the catchment
-    grid.clip_to('catch')
-    grid.view('catch')
+# Crop and plot the catchment
+# ---------------------------
+# Clip the bounding box to the catchment
+grid.clip_to('catch')
+grid.view('catch')
 ```
 
-![Example 3](../examples/img/catchment.png)
+![Example 3](https://s3.us-east-2.amazonaws.com/pysheds/img/catchment.png)
 
 ```python
-    # Calculate flow accumulation
-    # --------------------------
-    grid.accumulation(data='catch', dirmap=dirmap, out_name='acc')
-    grid.view('acc')
+# Calculate flow accumulation
+# --------------------------
+grid.accumulation(data='catch', dirmap=dirmap, out_name='acc')
+grid.view('acc')
 ```
 
-![Example 4](../examples/img/flow_accumulation.png)
+![Example 4](https://s3.us-east-2.amazonaws.com/pysheds/img/flow_accumulation.png)
 
 ```python
-    # Calculate distance to outlet from each cell
-    # -------------------------------------------
-    grid.flow_distance(data='catch', x=x, y=y, dirmap=dirmap,
+# Calculate distance to outlet from each cell
+# -------------------------------------------
+grid.flow_distance(data='catch', x=x, y=y, dirmap=dirmap,
                    out_name='dist', xytype='label')
-    grid.view('dist')
+grid.view('dist')
 ```
 
-![Example 5](../examples/img/flow_distance.png)
+![Example 5](https://s3.us-east-2.amazonaws.com/pysheds/img/flow_distance.png)
 
 ```python
-    # Extract river network
-    # ---------------------
-    branches = grid.extract_river_network(fdir='catch', acc='acc',
-                                          threshold=50, dirmap=dirmap)
+# Extract river network
+# ---------------------
+branches = grid.extract_river_network(fdir='catch', acc='acc',
+                                      threshold=50, dirmap=dirmap)
 ```
 
-![Example 6](../examples/img/river_network.png)
+![Example 6](https://s3.us-east-2.amazonaws.com/pysheds/img/river_network.png)
 
 ```python
-    # Combine with land cover data
-    # ---------------------
-    grid.read_raster('nlcd_2011_impervious_2011_edition_2014_10_10.img',
-                      data_name='terrain', window=grid.bbox, window_crs=grid.crs)
-    grid.view('terrain')
+# Combine with land cover data
+# ---------------------
+grid.read_raster('nlcd_2011_impervious_2011_edition_2014_10_10.img',
+                 data_name='terrain', window=grid.bbox, window_crs=grid.crs)
+grid.view('terrain')
 ```
 
-![Example 7](../examples/img/impervious_area.png)
+![Example 7](https://s3.us-east-2.amazonaws.com/pysheds/img/impervious_area.png)
 
 ```python
-    # Convert catchment raster to vector and combine with soils shapefile
-    # ---------------------
-    # Read soils shapefile
-    import geopandas as gpd
-    from shapely import geometry, ops
-    soils = gpd.read_file('nrcs-soils-tarrant_439.shp')
-    # Convert catchment raster to vector geometry and find intersection
-    shapes = grid.polygonize()
-    catchment_polygon = ops.unary_union([geometry.shape(shape)
-                                         for shape, value in shapes])
-    soils = soils[soils.intersects(catchment_polygon)]
-    catchment_soils = soils.intersection(catchment_polygon)
+# Convert catchment raster to vector and combine with soils shapefile
+# ---------------------
+# Read soils shapefile
+import geopandas as gpd
+from shapely import geometry, ops
+
+soils = gpd.read_file('nrcs-soils-tarrant_439.shp')
+
+# Convert catchment raster to vector geometry and find intersection
+shapes = grid.polygonize()
+catchment_polygon = ops.unary_union([geometry.shape(shape)
+                                     for shape, value in shapes])
+soils = soils[soils.intersects(catchment_polygon)]
+catchment_soils = soils.intersection(catchment_polygon)
 ```
 
-![Example 8](../examples/img/vector_soil.png)
+![Example 8](https://s3.us-east-2.amazonaws.com/pysheds/img/vector_soil.png)
 
 ```python
-    # Convert soils polygons to raster
-    # ---------------------
-    soil_polygons = zip(catchment_soils.geometry.values,
-                        catchment_soils['soil_type'].values)
-    soil_raster = grid.rasterize(soil_polygons, fill=np.nan)
+# Convert soils polygons to raster
+# ---------------------
+soil_polygons = zip(catchment_soils.geometry.values,
+                    catchment_soils['soil_type'].values)
+soil_raster = grid.rasterize(soil_polygons, fill=np.nan)
 ```
 
-![Example 9](../examples/img/raster_soil.png)
+![Example 9](https://s3.us-east-2.amazonaws.com/pysheds/img/raster_soil.png)
 
 ## Features
 
@@ -168,17 +174,17 @@ pip install pysheds
 For the bleeding-edge version, you can install pysheds from this github repository.
 
 ```bash
-    $ git clone https://github.com/mdbartos/pysheds.git
-    $ cd pysheds
-    $ python setup.py install
+$ git clone https://github.com/mdbartos/pysheds.git
+$ cd pysheds
+$ python setup.py install
 ```
 
 or
 
 ```bash
-    $ git clone https://github.com/mdbartos/pysheds.git
-    $ cd pysheds
-    $ pip install .
+$ git clone https://github.com/mdbartos/pysheds.git
+$ cd pysheds
+$ pip install .
 ```
 
 # Performance

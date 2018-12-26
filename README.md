@@ -1,6 +1,10 @@
 # pysheds [![Build Status](https://travis-ci.org/mdbartos/pysheds.svg?branch=master)](https://travis-ci.org/mdbartos/pysheds) [![Coverage Status](https://coveralls.io/repos/github/mdbartos/pysheds/badge.svg?branch=master)](https://coveralls.io/github/mdbartos/pysheds?branch=master)
 🌎 Simple and fast watershed delineation in python.
 
+## Documentation
+
+Read the docs [here](https://mdbartos.github.io/pysheds).
+
 ## Example usage
 
 See [examples/quickstart](https://github.com/mdbartos/pysheds/blob/master/examples/quickstart.ipynb) for more details.
@@ -127,7 +131,6 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
   - `catchment`: Delineate catchment from flow direction.
   - `accumulation`: Flow direction to flow accumulation.
   - `flow_distance`: Compute flow distance to outlet.
-  - `fraction`: Compute fractional contributing area between differently-sized grids.
   - `extract_river_network`: Extract river network at a given accumulation threshold.
   - `cell_area`: Compute (projected) area of cells.
   - `cell_distances`: Compute (projected) channel length within cells.
@@ -136,17 +139,17 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
   - `fill_pits`: Fill simple pits in a DEM (single cells lower than their surrounding neighbors).
   - `fill_depressions`: Fill depressions in a DEM (regions of cells lower than their surrounding neighbors).
   - `resolve_flats`: Resolve drainable flats in a DEM using the modified method of Garbrecht and Martz (1997).
-  - `raise_nondraining_flats`: Raise non-draining flats to the elevation of their lowest neighbor.
 - Utilities:
   - `view`: Returns a view of a dataset at a given bounding box and resolution.
   - `clip_to`: Clip the current view to the extent of nonzero values in a given dataset.
+  - `set_bbox`: Set the current view to a rectangular bounding box.
   - `snap_to_mask`: Snap a set of coordinates to the nearest masked cells (e.g. cells with high accumulation).
   - `resize`: Resize a dataset to a new resolution.
   - `rasterize`: Convert a vector dataset to a raster dataset.
   - `polygonize`: Convert a raster dataset to a vector dataset.
   - `detect_pits`: Return boolean array indicating locations of simple pits in a DEM.
   - `detect_flats`: Return boolean array indicating locations of flats in a DEM.
-  - `detect_nondraining_flats`: Return boolean array indicating locations of nondraining flats in a DEM.
+  - `detect_depressions`: Return boolean array indicating locations of depressions in a DEM.
   - `check_cycles`: Check for cycles in a flow direction grid.
   - `set_nodata`: Set nodata value for a dataset.
 - I/O:
@@ -164,7 +167,7 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
 You can install `pysheds` using pip:
 
 ```bash
-pip install pysheds
+    $ pip install pysheds
 ```
 
 For the bleeding-edge version, you can install pysheds from this github repository.

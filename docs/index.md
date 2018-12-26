@@ -105,8 +105,8 @@ import geopandas as gpd
 from shapely import geometry, ops
 
 soils = gpd.read_file('nrcs-soils-tarrant_439.shp')
-# Convert catchment raster to vector geometry and find intersection
 
+# Convert catchment raster to vector geometry and find intersection
 shapes = grid.polygonize()
 catchment_polygon = ops.unary_union([geometry.shape(shape)
                                      for shape, value in shapes])
@@ -174,17 +174,17 @@ pip install pysheds
 For the bleeding-edge version, you can install pysheds from this github repository.
 
 ```bash
-    $ git clone https://github.com/mdbartos/pysheds.git
-    $ cd pysheds
-    $ python setup.py install
+$ git clone https://github.com/mdbartos/pysheds.git
+$ cd pysheds
+$ python setup.py install
 ```
 
 or
 
 ```bash
-    $ git clone https://github.com/mdbartos/pysheds.git
-    $ cd pysheds
-    $ pip install .
+$ git clone https://github.com/mdbartos/pysheds.git
+$ cd pysheds
+$ pip install .
 ```
 
 # Performance

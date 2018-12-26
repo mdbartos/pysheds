@@ -21,7 +21,7 @@ grid.read_raster('n30w100_dir', data_name='dir')
 grid.view('dem')
 ```
 
-![Example 1](../examples/img/conditioned_dem.png)
+![Example 1](https://s3.us-east-2.amazonaws.com/pysheds/img/conditioned_dem.png)
 
 ```python
 # Determine D8 flow directions from DEM
@@ -38,7 +38,7 @@ grid.flowdir(data='inflated_dem', out_name='dir', dirmap=dirmap)
 grid.view('dir')
 ```
 
-![Example 2](../examples/img/flow_direction.png)
+![Example 2](https://s3.us-east-2.amazonaws.com/pysheds/img/flow_direction.png)
 
 ```python
 # Delineate a catchment
@@ -57,7 +57,7 @@ grid.clip_to('catch')
 grid.view('catch')
 ```
 
-![Example 3](../examples/img/catchment.png)
+![Example 3](https://s3.us-east-2.amazonaws.com/pysheds/img/catchment.png)
 
 ```python
 # Calculate flow accumulation
@@ -66,7 +66,7 @@ grid.accumulation(data='catch', dirmap=dirmap, out_name='acc')
 grid.view('acc')
 ```
 
-![Example 4](../examples/img/flow_accumulation.png)
+![Example 4](https://s3.us-east-2.amazonaws.com/pysheds/img/flow_accumulation.png)
 
 ```python
 # Calculate distance to outlet from each cell
@@ -76,7 +76,7 @@ grid.flow_distance(data='catch', x=x, y=y, dirmap=dirmap,
 grid.view('dist')
 ```
 
-![Example 5](../examples/img/flow_distance.png)
+![Example 5](https://s3.us-east-2.amazonaws.com/pysheds/img/flow_distance.png)
 
 ```python
 # Extract river network
@@ -85,7 +85,7 @@ branches = grid.extract_river_network(fdir='catch', acc='acc',
                                       threshold=50, dirmap=dirmap)
 ```
 
-![Example 6](../examples/img/river_network.png)
+![Example 6](https://s3.us-east-2.amazonaws.com/pysheds/img/river_network.png)
 
 ```python
 # Combine with land cover data
@@ -95,7 +95,7 @@ grid.read_raster('nlcd_2011_impervious_2011_edition_2014_10_10.img',
 grid.view('terrain')
 ```
 
-![Example 7](../examples/img/impervious_area.png)
+![Example 7](https://s3.us-east-2.amazonaws.com/pysheds/img/impervious_area.png)
 
 ```python
 # Convert catchment raster to vector and combine with soils shapefile
@@ -114,7 +114,7 @@ soils = soils[soils.intersects(catchment_polygon)]
 catchment_soils = soils.intersection(catchment_polygon)
 ```
 
-![Example 8](../examples/img/vector_soil.png)
+![Example 8](https://s3.us-east-2.amazonaws.com/pysheds/img/vector_soil.png)
 
 ```python
 # Convert soils polygons to raster
@@ -124,7 +124,7 @@ soil_polygons = zip(catchment_soils.geometry.values,
 soil_raster = grid.rasterize(soil_polygons, fill=np.nan)
 ```
 
-![Example 9](../examples/img/raster_soil.png)
+![Example 9](https://s3.us-east-2.amazonaws.com/pysheds/img/raster_soil.png)
 
 ## Features
 

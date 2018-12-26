@@ -847,9 +847,14 @@ class Grid(object):
                                    properties=properties, ignore_metadata=ignore_metadata,
                                    **kwargs)
         xmin, ymin, xmax, ymax = fdir.bbox
-        if (x < xmin) or (x > xmax) or (y < ymin) or (y > ymax):
-            raise ValueError('Pour point ({}, {}) is out of bounds for dataset with bbox {}.'
-                             .format(x, y, (xmin, ymin, xmax, ymax)))
+        if xytype in ('label', 'coordinate'):
+            if (x < xmin) or (x > xmax) or (y < ymin) or (y > ymax):
+                raise ValueError('Pour point ({}, {}) is out of bounds for dataset with bbox {}.'
+                                .format(x, y, (xmin, ymin, xmax, ymax)))
+        elif xytype == 'index':
+            if (x < 0) or (y < 0) or (x >= fdir.shape[1]) or (y >= fdir.shape[0]):
+                raise ValueError('Pour point ({}, {}) is out of bounds for dataset with shape {}.'
+                                .format(x, y, fdir.shape))
         if routing.lower() == 'd8':
             return self._d8_catchment(x, y, fdir=fdir, pour_value=pour_value, out_name=out_name,
                                       dirmap=dirmap, nodata_in=nodata_in, nodata_out=nodata_out,
@@ -1436,9 +1441,14 @@ class Grid(object):
                                    properties=properties, ignore_metadata=ignore_metadata,
                                    **kwargs)
         xmin, ymin, xmax, ymax = fdir.bbox
-        if (x < xmin) or (x > xmax) or (y < ymin) or (y > ymax):
-            raise ValueError('Pour point ({}, {}) is out of bounds for dataset with bbox {}.'
-                             .format(x, y, (xmin, ymin, xmax, ymax)))
+        if xytype in ('label', 'coordinate'):
+            if (x < xmin) or (x > xmax) or (y < ymin) or (y > ymax):
+                raise ValueError('Pour point ({}, {}) is out of bounds for dataset with bbox {}.'
+                                .format(x, y, (xmin, ymin, xmax, ymax)))
+        elif xytype == 'index':
+            if (x < 0) or (y < 0) or (x >= fdir.shape[1]) or (y >= fdir.shape[0]):
+                raise ValueError('Pour point ({}, {}) is out of bounds for dataset with shape {}.'
+                                .format(x, y, fdir.shape))
         if routing.lower() == 'd8':
             return self._d8_flow_distance(x, y, fdir, weights=weights, dirmap=dirmap,
                                           nodata_in=nodata_in, nodata_out=nodata_out,

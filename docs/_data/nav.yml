@@ -2,10 +2,10 @@ toc:
   - title: Basic concepts
     subfolderitems:
       - page: Rasters
-        url: /raster.html
+        url: /pysheds/raster.html
   - title: Hydrologic processing
     subfolderitems:
       - page: DEM conditioning
-        url: /dem-conditioning.html
+        url: /pysheds/dem-conditioning.html
       - page: Flow directions
-        url: /flow-directions.html
+        url: /pysheds/flow-directions.html

@@ -3,6 +3,8 @@ toc:
     subfolderitems:
       - page: Rasters
         url: /pysheds/raster.html
+      - page: Views
+        url: /pysheds/views.html
   - title: Hydrologic processing
     subfolderitems:
       - page: DEM conditioning

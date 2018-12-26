@@ -19,6 +19,8 @@ Raw DEMs often contain depressions that must be removed before further processin
 >>> plt.imshow(grid.view('dem'))
 ```
 
+![Unconditioned DEM](https://s3.us-east-2.amazonaws.com/pysheds/img/unconditioned_dem.png)
+
 ### Detecting depressions
 Depressions can be detected using the `grid.detect_depressions` method:
 
@@ -29,6 +31,8 @@ depressions = grid.detect_depressions('dem')
 # Plot depressions
 plt.imshow(depressions)
 ```
+
+![Depressions](https://s3.us-east-2.amazonaws.com/pysheds/img/depressions.png)
 
 ### Filling depressions
 
@@ -53,8 +57,14 @@ Flats consist of cells at which every surrounding cell is at the same elevation 
 Flats can be detected using the `grid.detect_flats` method:
 
 ```python
+# Detect flats
 flats = grid.detect_flats('flooded_dem')
+
+# Plot flats
+plt.imshow(flats)
 ```
+
+![Depressions](https://s3.us-east-2.amazonaws.com/pysheds/img/flats.png)
 
 ### Resolving flats
 
@@ -75,6 +85,8 @@ grid.flowdir(data='inflated_dem', out_name='dir', dirmap=dirmap)
 # Compute flow accumulation based on computed flow direction
 grid.accumulation(data='dir', out_name='acc', dirmap=dirmap)
 ```
+
+![Depressions](https://s3.us-east-2.amazonaws.com/pysheds/img/conditioned_accumulation.png)
 
 ## Burning DEMs
 

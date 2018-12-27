@@ -5,6 +5,8 @@ toc:
         url: /pysheds/raster.html
       - page: Views
         url: /pysheds/views.html
+      - page: File I/O
+        url: /pysheds/file-io.html
   - title: Hydrologic processing
     subfolderitems:
       - page: DEM conditioning

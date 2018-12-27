@@ -2,7 +2,7 @@
 layout: default
 ---
 
-# pysheds [![Build Status](https://travis-ci.org/mdbartos/pysheds.svg?branch=master)](https://travis-ci.org/mdbartos/pysheds) [![Coverage Status](https://coveralls.io/repos/github/mdbartos/pysheds/badge.svg?branch=master)](https://coveralls.io/github/mdbartos/pysheds?branch=master)
+# pysheds [![Build Status](https://travis-ci.org/mdbartos/pysheds.svg?branch=master)](https://travis-ci.org/mdbartos/pysheds) [![Coverage Status](https://coveralls.io/repos/github/mdbartos/pysheds/badge.svg?branch=master)](https://coveralls.io/github/mdbartos/pysheds?branch=master) [![Python 3.6](https://img.shields.io/badge/python-3.6-blue.svg)](https://www.python.org/downloads/release/python-360/)
 🌎 Simple and fast watershed delineation in python.
 
 ## Example usage
@@ -168,7 +168,7 @@ soil_raster = grid.rasterize(soil_polygons, fill=np.nan)
 You can install `pysheds` using pip:
 
 ```bash
-pip install pysheds
+$ pip install pysheds
 ```
 
 For the bleeding-edge version, you can install pysheds from this github repository.

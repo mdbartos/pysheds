@@ -521,6 +521,11 @@ class Grid(object):
         ignore_metadata : bool
                           If False, require a valid affine transform and crs.
         """
+        # Filter warnings due to invalid values
+        np.warnings.filterwarnings(action='ignore', message='The default mode',
+                                   category=UserWarning)
+        np.warnings.filterwarnings(action='ignore', message='Anti-aliasing',
+                                   category=UserWarning)
         nodata_in = self._check_nodata_in(data, nodata_in)
         if isinstance(data, str):
             out_name = '{0}{1}'.format(data, out_suffix)
@@ -3002,61 +3007,61 @@ class Grid(object):
         return self._output_handler(data=dem_out, out_name=out_name, properties=grid_props,
                                     inplace=inplace, metadata=metadata)
 
-    def raise_nondraining_flats(self, data, out_name='raised_dem', nodata_in=None,
-                                nodata_out=np.nan, inplace=True, apply_mask=False,
-                                ignore_metadata=False, **kwargs):
-        """
-        Raises nondraining flats (those with no low edge cells) to the elevation of the
-        lowest surrounding neighbor cell.
+    # def raise_nondraining_flats(self, data, out_name='raised_dem', nodata_in=None,
+    #                             nodata_out=np.nan, inplace=True, apply_mask=False,
+    #                             ignore_metadata=False, **kwargs):
+    #     """
+    #     Raises nondraining flats (those with no low edge cells) to the elevation of the
+    #     lowest surrounding neighbor cell.
 
-        Parameters
-        ----------
-        data : str or Raster
-               DEM data.
-               If str: name of the dataset to be viewed.
-               If Raster: a Raster instance (see pysheds.view.Raster)
-        out_name : string
-                   Name of attribute containing new flat-resolved array.
-        nodata_in : int or float
-                     Value to indicate nodata in input array.
-        nodata_out : int or float
-                     Value indicating no data in output array.
-        inplace : bool
-                  If True, write output array to self.<out_name>.
-                  Otherwise, return the output array.
-        apply_mask : bool
-               If True, "mask" the output using self.mask.
-        ignore_metadata : bool
-                          If False, require a valid affine transform and CRS.
-        """
-        if not _HAS_SKIMAGE:
-            raise ImportError('resolve_flats requires skimage.measure module')
-        # TODO: Most of this is copied from resolve flats
-        if nodata_in is None:
-            if isinstance(data, str):
-                try:
-                    nodata_in = getattr(self, data).nodata
-                except:
-                    raise NameError("nodata value for '{0}' not found in instance."
-                                    .format(data))
-            else:
-                raise KeyError("No 'nodata' value specified.")
-        grid_props = {'nodata' : nodata_out}
-        metadata = {}
-        dem = self._input_handler(data, apply_mask=apply_mask, properties=grid_props,
-                                  ignore_metadata=ignore_metadata, metadata=metadata, **kwargs)
-        no_lec, labels, numlabels, neighbor_elevs, flatlabels = (
-            self._get_nondraining_flats(dem, nodata_in=nodata_in, nodata_out=nodata_out,
-                                        inplace=inplace, apply_mask=apply_mask,
-                                        ignore_metadata=ignore_metadata, **kwargs))
-        neighbor_elevmin = np.nanmin(neighbor_elevs, axis=0)
-        raise_elev = pd.Series(neighbor_elevmin, index=flatlabels).groupby(level=0).min()
-        elev_map = np.zeros(numlabels + 1, dtype=dem.dtype)
-        elev_map[no_lec] = raise_elev[no_lec].values
-        elev_replace = elev_map[labels]
-        raised_dem = np.where(elev_replace, elev_replace, dem).astype(dem.dtype)
-        return self._output_handler(data=raised_dem, out_name=out_name, properties=grid_props,
-                            inplace=inplace, metadata=metadata)
+    #     Parameters
+    #     ----------
+    #     data : str or Raster
+    #            DEM data.
+    #            If str: name of the dataset to be viewed.
+    #            If Raster: a Raster instance (see pysheds.view.Raster)
+    #     out_name : string
+    #                Name of attribute containing new flat-resolved array.
+    #     nodata_in : int or float
+    #                  Value to indicate nodata in input array.
+    #     nodata_out : int or float
+    #                  Value indicating no data in output array.
+    #     inplace : bool
+    #               If True, write output array to self.<out_name>.
+    #               Otherwise, return the output array.
+    #     apply_mask : bool
+    #            If True, "mask" the output using self.mask.
+    #     ignore_metadata : bool
+    #                       If False, require a valid affine transform and CRS.
+    #     """
+    #     if not _HAS_SKIMAGE:
+    #         raise ImportError('resolve_flats requires skimage.measure module')
+    #     # TODO: Most of this is copied from resolve flats
+    #     if nodata_in is None:
+    #         if isinstance(data, str):
+    #             try:
+    #                 nodata_in = getattr(self, data).nodata
+    #             except:
+    #                 raise NameError("nodata value for '{0}' not found in instance."
+    #                                 .format(data))
+    #         else:
+    #             raise KeyError("No 'nodata' value specified.")
+    #     grid_props = {'nodata' : nodata_out}
+    #     metadata = {}
+    #     dem = self._input_handler(data, apply_mask=apply_mask, properties=grid_props,
+    #                               ignore_metadata=ignore_metadata, metadata=metadata, **kwargs)
+    #     no_lec, labels, numlabels, neighbor_elevs, flatlabels = (
+    #         self._get_nondraining_flats(dem, nodata_in=nodata_in, nodata_out=nodata_out,
+    #                                     inplace=inplace, apply_mask=apply_mask,
+    #                                     ignore_metadata=ignore_metadata, **kwargs))
+    #     neighbor_elevmin = np.nanmin(neighbor_elevs, axis=0)
+    #     raise_elev = pd.Series(neighbor_elevmin, index=flatlabels).groupby(level=0).min()
+    #     elev_map = np.zeros(numlabels + 1, dtype=dem.dtype)
+    #     elev_map[no_lec] = raise_elev[no_lec].values
+    #     elev_replace = elev_map[labels]
+    #     raised_dem = np.where(elev_replace, elev_replace, dem).astype(dem.dtype)
+    #     return self._output_handler(data=raised_dem, out_name=out_name, properties=grid_props,
+    #                         inplace=inplace, metadata=metadata)
 
     def detect_depressions(self, data, nodata_in=None, nodata_out=np.nan,
                            inplace=True, apply_mask=False, ignore_metadata=False,
@@ -3130,8 +3135,10 @@ class Grid(object):
         flatlabels = labels[1:-1, 1:-1][flats[1:-1, 1:-1]]
         flat_neighbors = inner_neighbors[:, flats[1:-1, 1:-1].ravel()]
         flat_elevs = dem[1:-1, 1:-1][flats[1:-1, 1:-1]]
-        neighbor_elevs = dem.flat[flat_neighbors]
-        neighbor_elevs[neighbor_elevs == flat_elevs] = np.nan
+        # TODO: DEPRECATED
+        # neighbor_elevs = dem.flat[flat_neighbors]
+        # neighbor_elevs[neighbor_elevs == flat_elevs] = np.nan
+        neighbor_elevs = None
         flat_elevs = pd.Series(flat_elevs, index=flatlabels).groupby(level=0).mean()
         lec_elev = np.zeros(dem.shape, dtype=dem.dtype)
         lec_elev[1:-1, 1:-1].flat[low_edge_cells] = dem[1:-1, 1:-1].flat[low_edge_cells]

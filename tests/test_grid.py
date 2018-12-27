@@ -42,11 +42,18 @@ def test_catchment():
     grid.catchment(x, y, data='dir', dirmap=dirmap, out_name='catch',
                 recursionlimit=15000, xytype='label')
     assert(np.count_nonzero(grid.catch) == cells_in_catch)
+    col, row = grid.nearest_cell(x, y)
+    catch_ix = grid.catchment(col, row, data='dir', dirmap=dirmap, inplace=False,
+                              recursionlimit=15000, xytype='index')
 
 def test_clip():
     grid.clip_to('catch')
     assert(grid.shape == catch_shape)
     assert(grid.view('catch').shape == catch_shape)
+
+def test_fill_depressions():
+    depressions = grid.detect_depressions('dem')
+    filled = grid.fill_depressions('dem', inplace=False)
 
 def test_resolve_flats():
     flats = grid.detect_flats('dem')
@@ -64,6 +71,11 @@ def test_flowdir():
 
 def test_dinf_flowdir():
     grid.flowdir(data='inflated_dem', dirmap=dirmap, routing='dinf', out_name='dinf_dir')
+    dinf_fdir = grid.flowdir(data='inflated_dem', dirmap=dirmap, routing='dinf', as_crs=new_crs,
+                             inplace=False)
+
+def test_raster_input():
+    fdir = grid.flowdir(grid.inflated_dem, inplace=False)
 
 def test_clip_pad():
     grid.clip_to('catch')
@@ -103,8 +115,15 @@ def test_flow_distance():
     grid.clip_to('catch')
     grid.flow_distance(x, y, data='catch', dirmap=dirmap, out_name='dist', xytype='label')
     assert(grid.dist[~np.isnan(grid.dist)].max() == max_distance)
+    col, row = grid.nearest_cell(x, y)
+    grid.flow_distance(col, row, data='catch', dirmap=dirmap, out_name='dist', xytype='index')
+    assert(grid.dist[~np.isnan(grid.dist)].max() == max_distance)
     grid.flow_distance(x, y, data='dinf_dir', dirmap=dirmap, routing='dinf',
                        out_name='dinf_dist', xytype='label')
+    grid.flow_distance(x, y, data='catch', weights=np.ones(grid.size),
+                       dirmap=dirmap, out_name='dist', xytype='label')
+    grid.flow_distance(x, y, data='dinf_dir', dirmap=dirmap, weights=np.ones((grid.size, 2)),
+                       routing='dinf', out_name='dinf_dist', xytype='label')
 
 def test_set_nodata():
     grid.set_nodata('dir', 0)
@@ -161,6 +180,11 @@ def test_view_methods():
     grid.view('dem', interpolation='cubic')
     grid.view('dem', interpolation='linear', as_crs=new_crs)
     # TODO: Need checks for these
+    grid.view(grid.dem)
+
+def test_resize():
+    new_shape = tuple(np.asarray(grid.shape) // 2)
+    grid.resize('dem', new_shape=new_shape)
 
 def test_pits():
     # TODO: Need dem with pits
@@ -181,4 +205,23 @@ def test_snap_to():
     # TODO: Need checks
     grid.snap_to_mask(grid.view('acc') > 1000, [[-97.3, 32.72]])
 
+def test_set_bbox():
+    new_xmin = (grid.bbox[2] + grid.bbox[0]) / 2
+    new_ymin = (grid.bbox[3] + grid.bbox[1]) / 2
+    new_xmax = grid.bbox[2]
+    new_ymax = grid.bbox[3]
+    new_bbox = (new_xmin, new_ymin, new_xmax, new_ymax)
+    grid.set_bbox(new_bbox)
+    grid.clip_to('catch')
+    # TODO: Need to check that everything was reset properly
 
+def test_polygonize_rasterize():
+    shapes = grid.polygonize()
+    raster = grid.rasterize(shapes)
+    assert (raster == grid.mask).all()
+
+def test_detect_cycles():
+    cycles = grid.detect_cycles('dir')
+
+def test_add_gridded_data():
+    grid.add_gridded_data(grid.dem, data_name='dem_copy')

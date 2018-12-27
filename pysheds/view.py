@@ -126,7 +126,7 @@ class RegularViewFinder(BaseViewFinder):
         if affine is not None:
             self.affine = affine
         else:
-            self.affine = Affine(0,0,0,0)
+            self.affine = Affine(0,0,0,0,0,0)
         super().__init__(shape=shape, mask=mask, nodata=nodata, crs=crs,
                          y_coord_ix=y_coord_ix, x_coord_ix=x_coord_ix)
 

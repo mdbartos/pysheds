@@ -12,7 +12,8 @@ The `grid.view` method returns a copy of a dataset cropped to the grid's current
 The grid's view will be populated automatically upon reading the first dataset.
 
 ```python
->>> grid = Grid.from_raster('../data/dem.tif', data_name='dem')
+>>> grid = Grid.from_raster('../data/dem.tif',
+                            data_name='dem')
 >>> grid.affine
 Affine(0.0008333333333333, 0.0, -97.4849999999961,
        0.0, -0.0008333333333333, 32.82166666666536)
@@ -52,14 +53,14 @@ First, let's delineate a watershed and use the `grid.view` method to get the res
 
 ```python
 # Resolve flats
-grid.resolve_flats(data='dem', out_name='inflated_dem')
+>>> grid.resolve_flats(data='dem', out_name='inflated_dem')
 
 # Specify pour point
-x, y = -97.294167, 32.73750
+>>> x, y = -97.294167, 32.73750
 
 # Delineate the catchment
-grid.catchment(data='dir', x=x, y=y, out_name='catch',
-               recursionlimit=15000, xytype='label')
+>>> grid.catchment(data='dir', x=x, y=y, out_name='catch',
+                   recursionlimit=15000, xytype='label')
 
 # Get the current view and plot
 >>> catch = grid.view('catch')
@@ -113,14 +114,16 @@ The mask can be turned off by setting `apply_mask=False`.
 By default, the view method uses a nearest neighbors approach for interpolation. However, this can be changed using the `interpolation` keyword argument.
 
 ```python
->>> nn_interpolation = grid.view('terrain', nodata=np.nan)
+>>> nn_interpolation = grid.view('terrain',
+                                 nodata=np.nan)
 >>> plt.imshow(nn_interpolation)
 ```
 
 ![Nearest neighbors](https://s3.us-east-2.amazonaws.com/pysheds/img/nn_interpolation.png)
 
 ```python
->>> linear_interpolation = grid.view('terrain', interpolation='linear',
+>>> linear_interpolation = grid.view('terrain',
+                                     interpolation='linear',
                                      nodata=np.nan)
 >>> plt.imshow(linear_interpolation)
 ```
@@ -133,17 +136,17 @@ The grid's view can be set to a rectangular bounding box using the `grid.set_bbo
 
 ```python
 # Specify new bbox as upper-right quadrant of old bbox
-new_xmin = (grid.bbox[2] + grid.bbox[0]) / 2
-new_ymin = (grid.bbox[3] + grid.bbox[1]) / 2
-new_xmax = grid.bbox[2]
-new_ymax = grid.bbox[3]
-new_bbox = (new_xmin, new_ymin, new_xmax, new_ymax)
+>>> new_xmin = (grid.bbox[2] + grid.bbox[0]) / 2
+>>> new_ymin = (grid.bbox[3] + grid.bbox[1]) / 2
+>>> new_xmax = grid.bbox[2]
+>>> new_ymax = grid.bbox[3]
+>>> new_bbox = (new_xmin, new_ymin, new_xmax, new_ymax)
 
 # Set new bbox
-grid.set_bbox(new_bbox)
+>>> grid.set_bbox(new_bbox)
 
 # Plot the new view
-plt.imshow(grid.view('catch'))
+>>> plt.imshow(grid.view('catch'))
 ```
 
 ![Set bbox](https://s3.us-east-2.amazonaws.com/pysheds/img/catch_upper_quad.png)
@@ -151,4 +154,17 @@ plt.imshow(grid.view('catch'))
 
 ## Setting the view manually
 
-The `grid.affine`, `grid.shape` and `grid.mask` attributes can also be set manually.
+The `grid.affine`, `grid.crs`, `grid.shape` and `grid.mask` attributes can also be set manually.
+
+```python
+# Reset the view to the dataset's original view
+>>> grid.affine = grid.dem.affine
+>>> grid.crs = grid.dem.crs
+>>> grid.shape = grid.dem.shape
+>>> grid.mask = grid.dem.mask
+
+# Plot the new view
+>>> plt.imshow(grid.view('catch'))
+```
+
+![Set bbox](https://s3.us-east-2.amazonaws.com/pysheds/img/full_dem.png)

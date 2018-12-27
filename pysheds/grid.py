@@ -143,8 +143,18 @@ class Grid(object):
                    metadata={'dirmap' : (64, 128, 1, 2, 4, 8, 16, 32),
                              'routing' : 'd8'}
         """
-        if mask is None:
-            mask = np.ones(shape, dtype=np.bool)
+        if isinstance(data, Raster):
+            if affine is None:
+                affine = data.affine
+                shape = data.shape
+                crs = data.crs
+                nodata = data.nodata
+                mask = data.mask
+        else:
+            if mask is None:
+                mask = np.ones(shape, dtype=np.bool)
+            if shape is None:
+                shape = data.shape
         if not isinstance(data, np.ndarray):
             raise TypeError('Input data must be ndarray')
         # if there are no datasets, initialize bbox, shape,

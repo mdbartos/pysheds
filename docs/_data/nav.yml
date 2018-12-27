@@ -13,3 +13,7 @@ toc:
         url: /pysheds/dem-conditioning.html
       - page: Flow directions
         url: /pysheds/flow-directions.html
+      - page: Catchment delineation
+        url: /pysheds/catchment.html
+      - page: Flow accumulation
+        url: /pysheds/accumulation.html

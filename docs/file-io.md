@@ -72,3 +72,78 @@ Raw numpy arrays can also be added.
                           crs=grid.crs,
                           nodata=0)
 ```
+
+## Writing to raster files
+
+By default, the `grid.to_raster` method will write the grid's current view of the dataset.
+
+```python
+>>> grid = Grid.from_ascii('../data/dir.asc', data_name='dir')
+>>> grid.to_raster('dir', 'test_dir.tif', blockxsize=16, blockysize=16)
+```
+
+If the full dataset is desired, set `view=False`:
+
+```python
+>>> grid.to_raster('dir', 'test_dir.tif', view=False, 
+                   blockxsize=16, blockysize=16)
+```
+
+If you want the output file to be masked with the grid mask, set `apply_mask=True`:
+
+```python
+>>> grid.to_raster('dir', 'test_dir.tif',
+                   view=True, apply_mask=True, 
+                   blockxsize=16, blockysize=16)
+```
+
+## Writing to ASCII files
+
+```python
+>>> grid.to_ascii('dir', 'test_dir.asc')
+```
+
+## Writing to shapefiles
+
+For more detail, see the [jupyter notebook](https://github.com/mdbartos/pysheds/blob/master/recipes/write_shapefile.ipynb).
+
+```python
+>>> import fiona
+
+>>> grid = Grid.from_ascii('../data/dir.asc', data_name='dir')
+
+# Specify pour point
+>>> x, y = -97.294167, 32.73750
+
+# Delineate the catchment
+>>> grid.catchment(data='dir', x=x, y=y, out_name='catch',
+                   recursionlimit=15000, xytype='label',
+                   nodata_out=0)
+
+# Clip to catchment
+>>> grid.clip_to('catch')
+
+# Create a vector representation of the catchment mask
+>>> shapes = grid.polygonize()
+
+# Specify schema
+>>> schema = {
+        'geometry': 'Polygon',
+        'properties': {'LABEL': 'float:16'}
+    }
+
+# Write shapefile
+>>> with fiona.open('catchment.shp', 'w',
+                    driver='ESRI Shapefile',
+                    crs=grid.crs.srs,
+                    schema=schema) as c:
+        i = 0
+        for shape, value in shapes:
+            rec = {}
+            rec['geometry'] = shape
+            rec['properties'] = {'LABEL' : str(value)}
+            rec['id'] = str(i)
+            c.write(rec)
+            i += 1
+```
+

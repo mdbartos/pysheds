@@ -26,8 +26,11 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
 ```python
     # Determine D8 flow directions from DEM
     # ----------------------
+    # Fill depressions in DEM
+    grid.fill_depressions('dem', out_name='flooded_dem')
+    
     # Resolve flats in DEM
-    grid.resolve_flats('dem', out_name='inflated_dem')
+    grid.resolve_flats('flooded_dem', out_name='inflated_dem')
     
     # Specify directional mapping
     dirmap = (64, 128, 1, 2, 4, 8, 16, 32)

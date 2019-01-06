@@ -17,3 +17,7 @@ toc:
         url: /pysheds/catchment.html
       - page: Flow accumulation
         url: /pysheds/accumulation.html
+      - page: Flow distance
+        url: /pysheds/flow-distance.html
+      - page: Extracting river networks
+        url: /pysheds/extract-river-network.html

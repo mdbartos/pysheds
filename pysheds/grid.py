@@ -772,6 +772,7 @@ class Grid(object):
             R[S_max < 0] = pits
             R[S_max == 0] = flats
             fdir_out = np.full(dem.shape, nodata_out, dtype=float)
+            # TODO: Should use .flat[inside] instead of [1:-1]?
             fdir_out[1:-1, 1:-1] = R.reshape(dem.shape[0] - 2, dem.shape[1] - 2)
             fdir_out = fdir_out % (2 * np.pi)
         except:
@@ -2529,7 +2530,7 @@ class Grid(object):
         inner_neighbors, diff, fdir_defined = self._d8_diff(dem, inside)
         pits_bool = (diff < 0).all(axis=0)
         pits = np.zeros(dem.shape, dtype=np.bool)
-        pits[1:-1, 1:-1].flat[pits_bool] = True
+        pits.flat[inside] = pits_bool
         return pits
 
     def detect_flats(self, data, nodata_in=None, apply_mask=False, ignore_metadata=True, **kwargs):
@@ -2573,7 +2574,7 @@ class Grid(object):
         pits_bool = (diff < 0).all(axis=0)
         flats_bool = (~fdir_defined & ~pits_bool)
         flats = np.zeros(dem.shape, dtype=np.bool)
-        flats[1:-1, 1:-1].flat[flats_bool] = True
+        flats.flat[inside] = flats_bool
         return flats
 
     def detect_cycles(self, fdir, max_cycle_len=50, dirmap=None, nodata_in=0, nodata_out=-1,
@@ -2680,7 +2681,7 @@ class Grid(object):
         inner_neighbors, diff, fdir_defined = self._d8_diff(dem, inside)
         pits_bool = (diff < 0).all(axis=0)
         pits = np.zeros(dem.shape, dtype=np.bool)
-        pits[1:-1, 1:-1].flat[pits_bool] = True
+        pits.flat[inside] = pits_bool
         dem_out = dem.copy()
         dem_out.flat[inside[pits_bool]] = (dem.flat[inner_neighbors[:, pits_bool]
                                                    [np.argmin(np.abs(diff[:, pits_bool]), axis=0),
@@ -2767,11 +2768,11 @@ class Grid(object):
         return dirmap
 
     def _grad_from_higher(self, high_edge_cells, inner_neighbors, diff,
-                          fdir_defined, in_bounds, labels, numlabels, crosswalk):
+                          fdir_defined, in_bounds, labels, numlabels, crosswalk, inside):
         z = np.zeros_like(labels)
         max_iter = np.bincount(labels.ravel())[1:].max()
         u = high_edge_cells.copy()
-        z[1:-1, 1:-1].flat[u] = 1
+        z.flat[inside[u]] = 1
         for i in range(2, max_iter):
             # Select neighbors of high edge cells
             hec_neighbors = inner_neighbors[:, u]
@@ -2786,10 +2787,10 @@ class Grid(object):
             # Filter out neighbors that are in low edge_cells
             u = u[(~fdir_defined[u])]
             # Increment neighboring cells
-            z[1:-1, 1:-1].flat[u] = i
+            z.flat[inside[u]] = i
             if u.size <= 1:
                 break
-        z[1:-1,1:-1].flat[0] = 0
+        z.flat[inside[0]] = 0
         # Flip increments
         d = {}
         for i in range(1, z.max()):
@@ -2805,10 +2806,10 @@ class Grid(object):
         return grad_from_higher
 
     def _grad_towards_lower(self, low_edge_cells, inner_neighbors, diff,
-                          fdir_defined, in_bounds, labels, numlabels, crosswalk):
+                            fdir_defined, in_bounds, labels, numlabels, crosswalk, inside):
         x = np.zeros_like(labels)
         u = low_edge_cells.copy()
-        x[1:-1, 1:-1].flat[u] = 1
+        x.flat[inside[u]] = 1
         max_iter = np.bincount(labels.ravel())[1:].max()
 
         for i in range(2, max_iter):
@@ -2825,10 +2826,10 @@ class Grid(object):
             u = crosswalk.flat[u]
             u = u[~fdir_defined.flat[u]]
             # Increment neighboring cells
-            x[1:-1, 1:-1].flat[u] = i
+            x.flat[inside[u]] = i
             if u.size == 0:
                 break
-        x[1:-1,1:-1].flat[0] = 0
+        x.flat[inside[0]] = 0
         grad_towards_lower = x
         return grad_towards_lower
 
@@ -2841,7 +2842,7 @@ class Grid(object):
         high_edge_cells = np.where(high_edge_cells_bool)[0]
         return high_edge_cells
 
-    def _get_low_edge_cells(self, diff, fdir_defined, inner_neighbors, shape):
+    def _get_low_edge_cells(self, diff, fdir_defined, inner_neighbors, shape, inside):
         # TODO: There is probably a more efficient way to do this
         # TODO: Select neighbors of flats and then see which have direction defined
         # Low edge cells are defined as:
@@ -2852,7 +2853,7 @@ class Grid(object):
         same_elev_cell = (diff == 0).any(axis=0)
         low_edge_cell_candidates = (fdir_defined & same_elev_cell)
         fdir_def_all = -1 * np.ones(shape)
-        fdir_def_all[1:-1, 1:-1] = fdir_defined.reshape(shape[0] - 2, shape[1] - 2)
+        fdir_def_all.flat[inside] = fdir_defined.ravel()
         fdir_def_neighbors = fdir_def_all.flat[inner_neighbors[:, low_edge_cell_candidates]]
         same_elev_neighbors = ((diff[:, low_edge_cell_candidates]) == 0)
         low_edge_cell_passed = (fdir_def_neighbors == 0) & (same_elev_neighbors == 1)
@@ -2867,25 +2868,23 @@ class Grid(object):
         pits_bool = (diff < 0).all(axis=0)
         flats_bool = (~fdir_defined & ~pits_bool)
         flats = np.zeros(dem.shape, dtype=np.bool)
-        flats[1:-1, 1:-1].flat[flats_bool] = True
+        flats.flat[inside] = flats_bool
         high_edge_cells = self._get_high_edge_cells(diff, fdir_defined)
         low_edge_cells = self._get_low_edge_cells(diff, fdir_defined, inner_neighbors,
-                                                  shape=dem.shape)
+                                                  shape=dem.shape, inside=inside)
         # Get flats to label
         labels, numlabels = skimage.measure.label(flats, return_num=True)
         # Make sure cells stay in bounds
-        in_bounds = np.ones_like(labels)
-        in_bounds[0, :] = 0
-        in_bounds[:, 0] = 0
-        in_bounds[-1, :] = 0
-        in_bounds[:, -1] = 0
+        in_bounds = np.zeros_like(labels)
+        in_bounds.flat[inside] = 1
         crosswalk = np.zeros_like(labels)
-        crosswalk[1:-1, 1:-1] = (np.arange(inside.size)
-                                 .reshape(dem.shape[0] - 2, dem.shape[1] - 2))
+        crosswalk.flat[inside] = np.arange(inside.size)
         grad_from_higher = self._grad_from_higher(high_edge_cells, inner_neighbors, diff,
-                          fdir_defined, in_bounds, labels, numlabels, crosswalk)
+                                                  fdir_defined, in_bounds, labels, numlabels,
+                                                  crosswalk, inside)
         grad_towards_lower = self._grad_towards_lower(low_edge_cells, inner_neighbors, diff,
-                          fdir_defined, in_bounds, labels, numlabels, crosswalk)
+                                                      fdir_defined, in_bounds, labels, numlabels,
+                                                      crosswalk, inside)
         drainage_grad = (2*grad_towards_lower + grad_from_higher).astype(int)
         return drainage_grad, flats, high_edge_cells, low_edge_cells, labels, diff
 
@@ -2898,7 +2897,7 @@ class Grid(object):
         fdir_defined = (diff > 0).any(axis=0)
         return inner_neighbors, diff, fdir_defined
 
-    def resolve_flats(self, data=None, out_name='inflated_dem', nodata_in=None, nodata_out=np.nan,
+    def resolve_flats(self, data=None, out_name='inflated_dem', nodata_in=None, nodata_out=None,
                       inplace=True, apply_mask=False, ignore_metadata=False, **kwargs):
         """
         Resolve flats in a DEM using the modified method of Garbrecht and Martz (1997).
@@ -2928,34 +2927,40 @@ class Grid(object):
         np.warnings.filterwarnings(action='ignore', message='All-NaN axis encountered',
                                    category=RuntimeWarning)
         nodata_in = self._check_nodata_in(data, nodata_in)
+        if nodata_out is None:
+            nodata_out = nodata_in
         grid_props = {'nodata' : nodata_out}
         metadata = {}
         dem = self._input_handler(data, apply_mask=apply_mask, properties=grid_props,
                                   ignore_metadata=ignore_metadata, metadata=metadata, **kwargs)
-        # TODO: Note that this won't work for nans
-        # dem_mask = np.where(dem.ravel() == nodata_in)[0]
-        # TODO: This doesn't handle nodata cells
-        inside = self._inside_indices(dem)
+        if nodata_in is None:
+            dem_mask = np.array([]).astype(int)
+        else:
+            if np.isnan(nodata_in):
+                dem_mask = np.where(np.isnan(dem.ravel()))[0]
+            else:
+                dem_mask = np.where(dem.ravel() == nodata_in)[0]
+        inside = self._inside_indices(dem, mask=dem_mask)
         drainage_result = self._drainage_gradient(dem, inside)
         drainage_grad, flats, high_edge_cells, low_edge_cells, labels, diff = drainage_result
         drainage_grad = drainage_grad.astype(np.float)
-        flatlabels = labels[1:-1, 1:-1][flats[1:-1, 1:-1]]
-        flat_diffs = diff[:, flats[1:-1, 1:-1].ravel()].astype(float)
+        flatlabels = labels.flat[inside][flats.flat[inside]]
+        flat_diffs = diff[:, flats.flat[inside].ravel()].astype(float)
         flat_diffs[flat_diffs == 0] = np.nan
         # TODO:  Warning triggered here: all-nan axis encountered
         minsteps = np.nanmin(np.abs(flat_diffs), axis=0)
         minsteps = pd.Series(minsteps, index=flatlabels).fillna(0)
         minsteps = minsteps[minsteps != 0].groupby(level=0).min()
-        gradmax = pd.Series(drainage_grad[1:-1, 1:-1][flats[1:-1, 1:-1]],
+        gradmax = pd.Series(drainage_grad.flat[inside][flats.flat[inside]],
                             index=flatlabels).groupby(level=0).max().astype(int)
         gradfactor = (0.9 * (minsteps / gradmax)).replace(np.inf, 0).append(pd.Series({0 : 0}))
-        drainage_grad[1:-1, 1:-1][flats[1:-1, 1:-1]] *= gradfactor[flatlabels].values
-        drainage_grad[1:-1, 1:-1].flat[low_edge_cells] = 0
+        drainage_grad.flat[inside[flats.flat[inside]]] *= gradfactor[flatlabels].values
+        drainage_grad.flat[inside[low_edge_cells]] = 0
         dem_out = dem.astype(np.float) + drainage_grad
         return self._output_handler(data=dem_out, out_name=out_name, properties=grid_props,
                                     inplace=inplace, metadata=metadata)
 
-    def fill_depressions(self, data, out_name='flooded_dem', nodata_in=None, nodata_out=0,
+    def fill_depressions(self, data, out_name='flooded_dem', nodata_in=None, nodata_out=None,
                          inplace=True, apply_mask=False, ignore_metadata=False, **kwargs):
         """
         Fill depressions in a DEM. Raises depressions to same elevation as lowest neighbor.
@@ -2983,6 +2988,8 @@ class Grid(object):
         if not _HAS_SKIMAGE:
             raise ImportError('resolve_flats requires skimage.morphology module')
         nodata_in = self._check_nodata_in(data, nodata_in)
+        if nodata_out is None:
+            nodata_out = nodata_in
         grid_props = {'nodata' : nodata_out}
         metadata = {}
         dem = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
@@ -3117,31 +3124,35 @@ class Grid(object):
         nondraining_flats = bool_map[labels]
         return nondraining_flats
 
-    def _get_nondraining_flats(self, dem, out_name='raised_dem', nodata_in=None,
-                                nodata_out=np.nan, inplace=True, apply_mask=False,
-                                ignore_metadata=False, **kwargs):
-        # TODO: Note that this won't work for nans
-        dem_mask = np.where(dem.ravel() == nodata_in)[0]
+    def _get_nondraining_flats(self, dem, nodata_in=None, nodata_out=np.nan,
+                               inplace=True, apply_mask=False, ignore_metadata=False, **kwargs):
+        if nodata_in is None:
+            dem_mask = np.array([]).astype(int)
+        else:
+            if np.isnan(nodata_in):
+                dem_mask = np.where(np.isnan(dem.ravel()))[0]
+            else:
+                dem_mask = np.where(dem.ravel() == nodata_in)[0]
         inside = self._inside_indices(dem, mask=dem_mask)
         inner_neighbors, diff, fdir_defined = self._d8_diff(dem, inside)
         pits_bool = (diff < 0).all(axis=0)
         flats_bool = (~fdir_defined & ~pits_bool)
         flats = np.zeros(dem.shape, dtype=np.bool)
-        flats[1:-1, 1:-1].flat[flats_bool] = True
+        flats.flat[inside] = flats_bool
         low_edge_cells = self._get_low_edge_cells(diff, fdir_defined, inner_neighbors,
-                                                  shape=dem.shape)
+                                                  shape=dem.shape, inside=inside)
         # Get flats to label
         labels, numlabels = skimage.measure.label(flats, return_num=True)
-        flatlabels = labels[1:-1, 1:-1][flats[1:-1, 1:-1]]
-        flat_neighbors = inner_neighbors[:, flats[1:-1, 1:-1].ravel()]
-        flat_elevs = dem[1:-1, 1:-1][flats[1:-1, 1:-1]]
+        flatlabels = labels.flat[inside][flats.flat[inside]]
+        flat_neighbors = inner_neighbors[:, flats.flat[inside].ravel()]
+        flat_elevs = dem.flat[inside][flats.flat[inside]]
         # TODO: DEPRECATED
         # neighbor_elevs = dem.flat[flat_neighbors]
         # neighbor_elevs[neighbor_elevs == flat_elevs] = np.nan
         neighbor_elevs = None
         flat_elevs = pd.Series(flat_elevs, index=flatlabels).groupby(level=0).mean()
         lec_elev = np.zeros(dem.shape, dtype=dem.dtype)
-        lec_elev[1:-1, 1:-1].flat[low_edge_cells] = dem[1:-1, 1:-1].flat[low_edge_cells]
+        lec_elev.flat[inside[low_edge_cells]] = dem.flat[inside].flat[low_edge_cells]
         has_lec = (lec_elev.flat[flat_neighbors] == flat_elevs[flatlabels].values).any(axis=0)
         has_lec = pd.Series(has_lec, index=flatlabels).groupby(level=0).any()
         no_lec = has_lec[~has_lec].index.values

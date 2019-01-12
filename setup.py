@@ -9,6 +9,7 @@ setup(name='pysheds',
       author_email='mdbartos@umich.edu',
       url='http://open-storm.org',
       packages=["pysheds"],
+      include_package_data = True,
       install_requires=[
           'numpy',
           'pandas',

@@ -5,6 +5,14 @@
 
 Read the docs [here](https://mdbartos.github.io/pysheds).
 
+## Media
+
+*Hatari Labs* - [Watershed and stream network delineation with python and pysheds](https://www.hatarilabs.com/ih-en/watershed-and-stream-network-delimitation-with-python-and-pysheds-tutorial) <sup>:uk:</sup>
+
+*Gidahatari* - [Delimitación de límite de cuenca y red hidrica con python y pysheds](http://gidahatari.com/ih-es/delimitacion-de-limite-de-cuenca-y-red-hidrica-con-python-y-pysheds-tutorial) <sup>:es:</sup>
+
+*Earth Science Information Partners* - [Pysheds: a fast, open-source digital elevation model processing library](https://www.esipfed.org/student-fellow-blog/pysheds-a-fast-open-source-digital-elevation-model-processing-library) <sup>:uk:</sup>
+
 ## Example usage
 
 See [examples/quickstart](https://github.com/mdbartos/pysheds/blob/master/examples/quickstart.ipynb) for more details.
@@ -167,11 +175,15 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
 
 `pysheds` currently only supports Python 3.
 
+### Using pip
+
 You can install `pysheds` using pip:
 
 ```bash
     $ pip install pysheds
 ```
+
+### Installing from source
 
 For the bleeding-edge version, you can install pysheds from this github repository.
 

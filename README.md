@@ -183,6 +183,19 @@ You can install `pysheds` using pip:
     $ pip install pysheds
 ```
 
+### Using anaconda
+
+First, add conda forge to your channels, if you have not already done so:
+
+```bash
+    $ conda config --add channels conda-forge
+```
+
+Then, install pysheds:
+
+```bash
+    $ conda install pysheds
+```
 ### Installing from source
 
 For the bleeding-edge version, you can install pysheds from this github repository.

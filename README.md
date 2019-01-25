@@ -7,6 +7,8 @@ Read the docs [here](https://mdbartos.github.io/pysheds).
 
 ## Media
 
+*Hatari Labs* - [Elevation model conditioning and stream network delineation with python and pysheds](https://www.hatarilabs.com/ih-en/elevation-model-conditioning-and-stream-network-delimitation-with-python-and-pysheds-tutorial) <sup>:uk:</sup>
+
 *Hatari Labs* - [Watershed and stream network delineation with python and pysheds](https://www.hatarilabs.com/ih-en/watershed-and-stream-network-delimitation-with-python-and-pysheds-tutorial) <sup>:uk:</sup>
 
 *Gidahatari* - [Delimitación de límite de cuenca y red hidrica con python y pysheds](http://gidahatari.com/ih-es/delimitacion-de-limite-de-cuenca-y-red-hidrica-con-python-y-pysheds-tutorial) <sup>:es:</sup>

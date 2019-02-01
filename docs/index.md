@@ -141,6 +141,7 @@ soil_raster = grid.rasterize(soil_polygons, fill=np.nan)
   - `cell_distances`: Compute (projected) channel length within cells.
   - `cell_dh`: Compute the elevation change between cells.
   - `cell_slopes`: Compute the slopes of cells.
+  - `compute_hand`: Compute the height above nearest drainage (HAND) as described in Nobre et al. (2011).
 - Utilities:
   - `view`: Returns a view of a dataset at a given bounding box and resolution.
   - `clip_to`: Clip the current view to the extent of nonzero values in a given dataset.

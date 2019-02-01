@@ -1602,6 +1602,107 @@ class Grid(object):
         return self._output_handler(data=dist, out_name=out_name, properties=properties,
                                     inplace=inplace, metadata=metadata)
 
+    def compute_hand(self, fdir, dem, drainage_mask, out_name='hand', dirmap=None,
+                     nodata_in_fdir=None, nodata_in_dem=None, nodata_out=np.nan, routing='d8',
+                     inplace=True, apply_mask=False, ignore_metadata=False, **kwargs):
+        """
+        Computes the height above nearest drainage (HAND), based on a flow direction grid,
+        a digital elevation grid, and a grid containing the locations of drainage channels.
+ 
+        Parameters
+        ----------
+        fdir : str or Raster
+               Flow direction data.
+               If str: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        dem : str or Raster
+              Digital elevation data.
+              If str: name of the dataset to be viewed.
+              If Raster: a Raster instance (see pysheds.view.Raster)
+        drainage_mask : str or Raster
+                        Boolean raster or ndarray with nonzero elements indicating
+                        locations of drainage channels.
+                        If str: name of the dataset to be viewed.
+                        If Raster: a Raster instance (see pysheds.view.Raster)
+        out_name : string
+                   Name of attribute containing new catchment array.
+        dirmap : list or tuple (length 8)
+                 List of integer values representing the following
+                 cardinal and intercardinal directions (in order):
+                 [N, NE, E, SE, S, SW, W, NW]
+        nodata_in_fdir : int or float
+                         Value to indicate nodata in flow direction input array.
+        nodata_in_dem : int or float
+                        Value to indicate nodata in digital elevation input array.
+        nodata_out : int or float
+                     Value to indicate nodata in output array.
+        routing : str
+                  Routing algorithm to use:
+                  'd8'   : D8 flow directions
+                  'dinf' : D-infinity flow directions (not implemented)
+        recursionlimit : int
+                         Recursion limit--may need to be raised if
+                         recursion limit is reached.
+        inplace : bool
+                  If True, write output array to self.<out_name>.
+                  Otherwise, return the output array.
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and crs.
+        """
+        # TODO: Why does this use set_dirmap but flowdir doesn't?
+        dirmap = self._set_dirmap(dirmap, fdir)
+        nodata_in_fdir = self._check_nodata_in(fdir, nodata_in_fdir)
+        nodata_in_dem = self._check_nodata_in(dem, nodata_in_dem)
+        properties = {'nodata' : nodata_out}
+        # TODO: This will overwrite metadata if provided
+        metadata = {'dirmap' : dirmap}
+        # initialize array to collect catchment cells
+        fdir = self._input_handler(fdir, apply_mask=apply_mask, nodata_view=nodata_in_fdir,
+                                   properties=properties, ignore_metadata=ignore_metadata,
+                                   **kwargs)
+        dem = self._input_handler(dem, apply_mask=apply_mask, nodata_view=nodata_in_dem,
+                                  properties=properties, ignore_metadata=ignore_metadata,
+                                  **kwargs)
+        mask = self._input_handler(drainage_mask, apply_mask=apply_mask, nodata_view=0,
+                                   properties=properties, ignore_metadata=ignore_metadata,
+                                   **kwargs)
+        assert (np.asarray(dem.shape) == np.asarray(fdir.shape)).all()
+        assert (np.asarray(dem.shape) == np.asarray(mask.shape)).all()
+        if routing.lower() == 'dinf':
+            raise NotImplementedError('Only implemented for D8 routing.')
+        elif routing.lower() == 'd8':
+            try:
+                dirleft, dirright, dirtop, dirbottom = self._pop_rim(fdir, nodata=nodata_in_fdir)
+                maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=0)
+                mask = mask.ravel()
+                r_dirmap = np.array(dirmap)[[4, 5, 6, 7, 0, 1, 2, 3]].tolist()
+                source = np.flatnonzero(mask)
+                hand = -np.ones(fdir.size, dtype=np.int)
+                hand[source] = source
+                for _ in range(fdir.size):
+                    selection = self._select_surround_ravel(source, fdir.shape)
+                    ix = (fdir.flat[selection] == r_dirmap) & (hand.flat[selection] < 0)
+                    # TODO: Not optimized (a lot of copying here)
+                    parent = np.tile(source, (len(dirmap), 1)).T[ix]
+                    child = selection[ix]
+                    if not child.size:
+                        break
+                    hand[child] = hand[parent]
+                    source = child
+                hand = hand.reshape(dem.shape)
+                hand = np.where(hand != -1, dem - dem.flat[hand], nodata_out)
+            except:
+                raise
+            finally:
+                mask = mask.reshape(dem.shape)
+                self._replace_rim(fdir, dirleft, dirright, dirtop, dirbottom)
+                self._replace_rim(mask, maskleft, maskright, masktop, maskbottom)
+            return self._output_handler(data=hand, out_name=out_name, properties=properties,
+                                        inplace=inplace, metadata=metadata)
+
+
     def cell_area(self, out_name='area', nodata_out=0, inplace=True, as_crs=None):
         """
         Generates an array representing the area of each cell to the outlet.

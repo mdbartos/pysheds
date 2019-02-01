@@ -152,6 +152,7 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
   - `fill_pits`: Fill simple pits in a DEM (single cells lower than their surrounding neighbors).
   - `fill_depressions`: Fill depressions in a DEM (regions of cells lower than their surrounding neighbors).
   - `resolve_flats`: Resolve drainable flats in a DEM using the modified method of Garbrecht and Martz (1997).
+  - `compute_hand` : Compute the height above nearest drainage (HAND) as described in Nobre et al. (2011).
 - Utilities:
   - `view`: Returns a view of a dataset at a given bounding box and resolution.
   - `clip_to`: Clip the current view to the extent of nonzero values in a given dataset.

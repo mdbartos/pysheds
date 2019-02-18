@@ -56,16 +56,15 @@ class RFSM:
             seed[1:-1, 1:-1] = self.dem.max()
             rec = skimage.morphology.reconstruction(seed, mask, method='erosion')
             holes[(rec - self.dem) > 0] = self.dem[(rec - self.dem) > 0]
-        # Not sure if this is needed
-        holes[0, :] = 0
-        holes[-1, :] = 0
-        holes[:, 0] = 0
-        holes[:, -1] = 0
         # Specify levels
         levels = []
         mask = np.where(holes == 0, holes.min(), holes)
         seed = np.where(holes == 0, mask, holes.max())
         rec = skimage.morphology.reconstruction(seed, mask, method='erosion')
+        rec[0, :] = np.where((rec[0, :] != 0) & (rec[1, :] != 0), rec[0, :], 0)
+        rec[-1, :] = np.where((rec[-1, :] != 0) & (rec[-2, :] != 0), rec[-1, :], 0)
+        rec[:, 0] = np.where((rec[:, 0] != 0) & (rec[:, 1] != 0), rec[:, 0], 0)
+        rec[:, -1] = np.where((rec[:, -1] != 0) & (rec[:, -2] != 0), rec[:, -1], 0)
         levels.append(rec)
         for _ in range(self.max_levels):
             diff = rec - mask
@@ -73,6 +72,10 @@ class RFSM:
             mask = np.where(holes == 0, holes.min(), holes)
             seed = np.where(holes == 0, mask, holes.max())
             rec = skimage.morphology.reconstruction(seed, mask, method='erosion')
+            rec[0, :] = np.where((rec[0, :] != 0) & (rec[1, :] != 0), rec[0, :], 0)
+            rec[-1, :] = np.where((rec[-1, :] != 0) & (rec[-2, :] != 0), rec[-1, :], 0)
+            rec[:, 0] = np.where((rec[:, 0] != 0) & (rec[:, 1] != 0), rec[:, 0], 0)
+            rec[:, -1] = np.where((rec[:, -1] != 0) & (rec[:, -2] != 0), rec[:, -1], 0)
             if not rec.any():
                 break
             levels.append(rec)
@@ -139,6 +142,9 @@ class RFSM:
                                 c[index][subpair] = comm
                         else:
                             c[index][subpair] = comm
+                elif len(pair) < 2:
+                    # TODO: Not really sure what's happening in this case
+                    pass
                 else:
                     if pair in c[index]:
                         if self.dem.flat[comm] < self.dem.flat[c[index][pair]]:
@@ -192,7 +198,7 @@ class RFSM:
             s[0] = s[0].astype(int)
             s[1] = self.dem.flat[s[0].values]
             s[2] = [self.lup[index][i] for i in s.index.get_level_values(0)]
-            s = s.sort_values(1)
+            s = s.sort_values([2,1])
             num_connections = dict(s.groupby(2).size())
             self.tmap.append({})
             for i in s.index:
@@ -221,6 +227,11 @@ class RFSM:
                         self.nodes[index + 1][parent.name] = parent
                 else:
                     num_connections[upper_label] -= 1
+                    # TODO: Not totally sure if this part is correct
+                    if num_connections[upper_label] == 0:
+                        parent.level = (index + 1)
+                        parent.name = upper_label
+                        self.nodes[index + 1][parent.name] = parent
             if g:
                 for j in g:
                     upper_label = self.lup[index][j]
@@ -280,6 +291,7 @@ class RFSM:
             node.current_vol += vol
 
     def compute_vol(self, z, node, target_vol):
+        under_vol = node.cumulative_vol - node.vol
         if node.name:
             full = z - self.dem[self.ws[node.level] == node.name]
         else:
@@ -287,7 +299,7 @@ class RFSM:
             self.enumerate_leaves(node, level=node.level, stack=leaves)
             full = z - self.dem[np.isin(self.ws[node.level], leaves)]
         vol = abs(np.asscalar(full[full > 0].sum()) * self.x * self.y)
-        return vol - target_vol
+        return vol - target_vol - under_vol
 
     def spill(self):
         cur_iter = 0
@@ -298,6 +310,7 @@ class RFSM:
                 break
             self.spread_volumes(self.root)
             cur_iter += 1
+        self.pull_up(self.root)
 
     def compute_depths(self):
         waterlevel = np.zeros(self.dem.shape)
@@ -339,15 +352,19 @@ class RFSM:
     def set_marginal_capacities(self, node):
         if node.l and node.r:
             if node.l is node.r:
+                node.cumulative_vol = node.vol
                 node.vol -= node.l.vol
                 node.vol = max(node.vol, 0)
                 self.set_marginal_capacities(node.l)
             else:
+                node.cumulative_vol = node.vol
                 node.vol -= node.l.vol
                 node.vol -= node.r.vol
                 node.vol = max(node.vol, 0)
                 self.set_marginal_capacities(node.l)
                 self.set_marginal_capacities(node.r)
+        else:
+            node.cumulative_vol = node.vol
 
     def set_singleton_transfer(self, node):
         if node.l:
@@ -368,19 +385,30 @@ class RFSM:
     def accumulate(self, x, accumulator):
         accumulator += (x.vol)
 
+    def check_full(self, node, full):
+        if node.vol != 0:
+            full &= np.array(node.current_vol == node.vol, dtype=bool)
+        if full:
+            if node.l:
+                self.check_full(node.l, full)
+            if node.r:
+                self.check_full(node.r, full)
+
     def node_full(self, node):
         # TODO: This should be generalized using recursion
         if node.vol == 0:
-            if node.l and node.r:
-                return (node.l.current_vol >= node.l.vol) and (node.r.current_vol >= node.r.vol)
-            else:
-                return True
+            full = np.array(True, dtype=bool)
+            self.check_full(node, full)
+            full = np.asscalar(full)
+            return full
         return node.current_vol >= node.vol
 
     def spread_volumes(self, node):
         # Pull up
         if (node.l and node.r):
             singleton = (node.l is node.r)
+            # TODO: This is taking a lot of time.
+            # Should probably store full/empty state on the way up.
             if self.node_full(node.l) and self.node_full(node.r):
                 ltransfer = node.l.current_vol - node.l.vol
                 rtransfer = node.r.current_vol - node.r.vol
@@ -399,13 +427,30 @@ class RFSM:
         if node.r:
             self.spread_volumes(node.r)
 
-    def check_overflow(self, node, overflowing):
-        overflowing |= np.array(node.current_vol > node.vol, dtype=bool)
-        if not overflowing:
-            if node.l:
-                self.check_overflow(node.l, overflowing)
-            if node.r:
-                self.check_overflow(node.r, overflowing)
+    def pull_up(self, node):
+        if node.l:
+            self.pull_up(node.l)
+        if node.r:
+            self.pull_up(node.r)
+        if (node.l and node.r):
+            singleton = (node.l is node.r)
+            if self.node_full(node.l) and self.node_full(node.r):
+                ltransfer = node.l.current_vol - node.l.vol
+                rtransfer = node.r.current_vol - node.r.vol
+                node.l.current_vol -= ltransfer
+                node.current_vol += ltransfer
+                if not singleton:
+                    node.r.current_vol -= rtransfer
+                    node.current_vol += rtransfer
+
+    def check_overflow(self, node, overflowing, break_level=0):
+        if node.level > break_level:
+            overflowing |= np.array(node.current_vol > node.vol, dtype=bool)
+            if not overflowing:
+                if node.l:
+                    self.check_overflow(node.l, overflowing, break_level=break_level)
+                if node.r:
+                    self.check_overflow(node.r, overflowing, break_level=break_level)
 
     def volume_to_level(self, node, waterlevel):
         if node.current_vol > 0:
@@ -415,12 +460,7 @@ class RFSM:
             else:
                 # TODO: This bound could be a lot better
                 minelev = 0
-            under_vol = np.array(0, dtype=float)
-            if node.l:
-                self.map_nodes(node.l, op=self.accumulate, accumulator=under_vol)
-            if node.r:
-                self.map_nodes(node.r, op=self.accumulate, accumulator=under_vol)
-            target_vol = node.current_vol + under_vol
+            target_vol = node.current_vol
             elev = scipy.optimize.bisect(self.compute_vol, minelev, maxelev,
                                         args=(node, target_vol))
             if node.name:
@@ -521,7 +561,7 @@ class RFSM:
 
 class Node:
     def __init__(self, name=None, parent=None, l=None, r=None, level=None, elev=None,
-                 comm=None, t=None, vol=0, current_vol=0):
+                 comm=None, t=None, vol=0, current_vol=0, cumulative_vol=0):
         self.name = name
         self.parent = parent
         self.l = l
@@ -532,3 +572,4 @@ class Node:
         self.level = level
         self.vol = vol
         self.current_vol = current_vol
+        self.cumulative_vol = cumulative_vol

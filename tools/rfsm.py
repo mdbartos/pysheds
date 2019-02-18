@@ -241,7 +241,6 @@ class RFSM:
                                                        == upper_label].min())
                     child.parent = parent
                     parent.l = child
-                    parent.r = child
                     self.nodes[index][j] = child
                     self.nodes[index + 1][parent.name] = parent
         self.root = self.nodes[-1][1]
@@ -310,7 +309,9 @@ class RFSM:
                 break
             self.spread_volumes(self.root)
             cur_iter += 1
-        self.pull_up(self.root)
+        overflowing = np.array(False, dtype=bool)
+        self.check_overflow(self.root, overflowing)
+        assert not overflowing
 
     def compute_depths(self):
         waterlevel = np.zeros(self.dem.shape)
@@ -350,18 +351,14 @@ class RFSM:
                 node.vol = vol
 
     def set_marginal_capacities(self, node):
-        if node.l and node.r:
-            if node.l is node.r:
-                node.cumulative_vol = node.vol
-                node.vol -= node.l.vol
-                node.vol = max(node.vol, 0)
-                self.set_marginal_capacities(node.l)
-            else:
-                node.cumulative_vol = node.vol
-                node.vol -= node.l.vol
+        if node.l:
+            node.cumulative_vol = node.vol
+            node.vol -= node.l.vol
+            if node.r:
                 node.vol -= node.r.vol
-                node.vol = max(node.vol, 0)
-                self.set_marginal_capacities(node.l)
+            node.vol = max(node.vol, 0)
+            self.set_marginal_capacities(node.l)
+            if node.r:
                 self.set_marginal_capacities(node.r)
         else:
             node.cumulative_vol = node.vol
@@ -372,7 +369,7 @@ class RFSM:
         if node.r:
             self.set_singleton_transfer(node.r)
         if node.parent:
-            if node.parent.l is node.parent.r:
+            if node.parent.l and not node.parent.r:
                 node.t = node.parent
 
     def map_nodes(self, node, op=(lambda x: None), *args, **kwargs):
@@ -387,7 +384,7 @@ class RFSM:
 
     def check_full(self, node, full):
         if node.vol != 0:
-            full &= np.array(node.current_vol == node.vol, dtype=bool)
+            full &= np.array(node.current_vol >= node.vol, dtype=bool)
         if full:
             if node.l:
                 self.check_full(node.l, full)
@@ -404,46 +401,38 @@ class RFSM:
         return node.current_vol >= node.vol
 
     def spread_volumes(self, node):
-        # Pull up
-        if (node.l and node.r):
-            singleton = (node.l is node.r)
-            # TODO: This is taking a lot of time.
-            # Should probably store full/empty state on the way up.
-            if self.node_full(node.l) and self.node_full(node.r):
-                ltransfer = node.l.current_vol - node.l.vol
-                rtransfer = node.r.current_vol - node.r.vol
-                node.l.current_vol -= ltransfer
-                node.current_vol += ltransfer
-                if not singleton:
-                    node.r.current_vol -= rtransfer
-                    node.current_vol += rtransfer
         # Push down
         if (node.current_vol > node.vol) and (node.t):
             transfer = node.current_vol - node.vol
             node.current_vol -= transfer
             node.t.current_vol += transfer
+        # Recurse
         if node.l:
             self.spread_volumes(node.l)
         if node.r:
             self.spread_volumes(node.r)
-
-    def pull_up(self, node):
+        # Pull up
         if node.l:
-            self.pull_up(node.l)
-        if node.r:
-            self.pull_up(node.r)
-        if (node.l and node.r):
-            singleton = (node.l is node.r)
-            if self.node_full(node.l) and self.node_full(node.r):
+            l_full = self.node_full(node.l)
+            if node.r:
+                r_full = self.node_full(node.r)
+            else:
+                r_full = True
+            # TODO: This is taking a lot of time.
+            # Should probably store full/empty state on the way up.
+            if l_full and r_full:
                 ltransfer = node.l.current_vol - node.l.vol
-                rtransfer = node.r.current_vol - node.r.vol
+                if node.r:
+                    rtransfer = node.r.current_vol - node.r.vol
+                else:
+                    rtransfer = 0
                 node.l.current_vol -= ltransfer
                 node.current_vol += ltransfer
-                if not singleton:
+                if node.r:
                     node.r.current_vol -= rtransfer
                     node.current_vol += rtransfer
 
-    def check_overflow(self, node, overflowing, break_level=0):
+    def check_overflow(self, node, overflowing, break_level=-1):
         if node.level > break_level:
             overflowing |= np.array(node.current_vol > node.vol, dtype=bool)
             if not overflowing:
@@ -462,7 +451,7 @@ class RFSM:
                 minelev = 0
             target_vol = node.current_vol
             elev = scipy.optimize.bisect(self.compute_vol, minelev, maxelev,
-                                        args=(node, target_vol))
+                                    args=(node, target_vol))
             if node.name:
                 ix = self.ws[node.level] == node.name
             else:
@@ -474,7 +463,7 @@ class RFSM:
         else:
             if node.l:
                 self.volume_to_level(node.l, waterlevel)
-            if node.r and (not node.l is node.r):
+            if node.r:
                 self.volume_to_level(node.r, waterlevel)
 
     def reset_volumes(self):
@@ -487,8 +476,9 @@ class RFSM:
         if node.r:
             self.remove_volume(node.r)
 
-    def show_tree(self):
-        tree = self.root
+    def show_tree(self, tree=None):
+        if tree is None:
+            tree = self.root
         depth = ""
         treestr = ""
 
@@ -504,7 +494,7 @@ class RFSM:
         def print_tree(node):
             nonlocal depth
             nonlocal treestr
-            if (node.l or node.r):
+            if node.l:
                 if (node.name):
                     treestr += '({0}-{1})\n'.format(node.level, node.name)
                 else:
@@ -513,18 +503,20 @@ class RFSM:
                 print_push(chr(9474))
                 print_tree(node.l)
                 print_pop()
-                treestr += '{0} {1}{2}{2}'.format(depth, chr(9492), chr(9472))
-                print_push(' ')
-                print_tree(node.r)
-                print_pop()
+                if node.r:
+                    treestr += '{0} {1}{2}{2}'.format(depth, chr(9492), chr(9472))
+                    print_push(' ')
+                    print_tree(node.r)
+                    print_pop()
             else:
                 treestr += '({0}-{1})\n'.format(node.level, node.name)
 
         print_tree(tree)
         return treestr
 
-    def show_vol(self):
-        tree = self.root
+    def show_vol(self, tree=None):
+        if tree is None:
+            tree = self.root
         depth = ""
         treestr = ""
 
@@ -540,7 +532,7 @@ class RFSM:
         def print_tree(node):
             nonlocal depth
             nonlocal treestr
-            if (node.l or node.r):
+            if node.l:
                 if (node.name):
                     treestr += '({0:.2f} | {1:.2f})\n'.format(node.current_vol, node.vol)
                 else:
@@ -549,10 +541,11 @@ class RFSM:
                 print_push(chr(9474))
                 print_tree(node.l)
                 print_pop()
-                treestr += '{0} {1}{2}{2}'.format(depth, chr(9492), chr(9472))
-                print_push(' ')
-                print_tree(node.r)
-                print_pop()
+                if node.r:
+                    treestr += '{0} {1}{2}{2}'.format(depth, chr(9492), chr(9472))
+                    print_push(' ')
+                    print_tree(node.r)
+                    print_pop()
             else:
                 treestr += '({0:.2f} | {1:.2f})\n'.format(node.current_vol, node.vol)
 

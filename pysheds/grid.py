@@ -1571,7 +1571,7 @@ class Grid(object):
                     assert(isinstance(weights[0], np.ndarray))
                     weights_0 = weights[0].ravel()
                     assert(isinstance(weights[1], np.ndarray))
-                    weights_0 = weights[1].ravel()
+                    weights_1 = weights[1].ravel()
                     assert(weights_0.size == startnodes.size)
                     assert(weights_1.size == startnodes.size)
                 elif isinstance(weights, np.ndarray):

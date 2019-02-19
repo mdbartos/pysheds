@@ -1210,11 +1210,12 @@ class Grid(object):
             # percentage converted to relative values
             if efficiency is not None:
                 assert(efficiency.size == fdir.size)
-                eff_max, eff_min = np.max(efficiency), np.min(efficiency)
+                eff = efficiency.flatten() # must be flattened to avoid IndexError below
+                acc = acc.astype(float)
+                eff_max, eff_min = np.max(eff), np.min(eff)
                 if eff_max>1:       # percent?
                     assert((eff_max<=100) and (eff_min>=0))
-                    # TODO: flatten to prevent original values from being modified?
-                    efficiency = efficiency.flatten() / 100.
+                    eff /= 100. # change to relative value
                 else:
                     assert((eff_max<=1) and (eff_min>=0))
             #else:
@@ -1238,7 +1239,8 @@ class Grid(object):
             else:               # apply efficiency
                 for _ in range(fdir.size):
                     if endnodes.any():
-                        np.add.at(acc, endnodes, acc[startnodes] * efficiency[startnodes])
+                        # we need flattened efficiency, otherwise IndexError
+                        np.add.at(acc, endnodes, acc[startnodes] * eff[startnodes])
                         np.subtract.at(indegree, endnodes, 1)
                         startnodes = np.unique(endnodes)
                         startnodes = startnodes[indegree[startnodes] == 0]
@@ -1314,11 +1316,11 @@ class Grid(object):
             # percentage converted to relative values
             if efficiency is not None:
                 assert(efficiency.size == fdir.size)
-                eff_max, eff_min = np.max(efficiency), np.min(efficiency)
+                eff = efficiency.flatten()
+                eff_max, eff_min = np.max(eff), np.min(eff)
                 if eff_max>1:       # percent?
                     assert((eff_max<=100) and (eff_min>=0))
-                    # TODO: flatten to prevent original values from being modified?
-                    efficiency = efficiency.flatten() / 100.
+                    eff /= 100. # change to relative value
                 else:
                     assert((eff_max<=1) and (eff_min>=0))
             #else:
@@ -1371,8 +1373,8 @@ class Grid(object):
             else:
                 for _ in range(fdir.size):
                     if (startnodes.any()):
-                        np.add.at(acc_i, endnodes_0, prop_0[startnodes]*acc[startnodes] * efficiency[startnodes])
-                        np.add.at(acc_i, endnodes_1, prop_1[startnodes]*acc[startnodes] * efficiency[startnodes])
+                        np.add.at(acc_i, endnodes_0, prop_0[startnodes]*acc[startnodes] * eff[startnodes])
+                        np.add.at(acc_i, endnodes_1, prop_1[startnodes]*acc[startnodes] * eff[startnodes])
                         acc += acc_i
                         acc_i.fill(0)
                         np.subtract.at(indegree, endnodes_0, prop_0[startnodes])

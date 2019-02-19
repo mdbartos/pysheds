@@ -11,7 +11,7 @@ current_dir = os.path.dirname(os.path.realpath(__file__))
 data_dir = os.path.abspath(os.path.join(current_dir, '../data'))
 dir_path = os.path.join(data_dir, 'dir.asc')
 dem_path = os.path.join(data_dir, 'dem.tif')
-eff_path = os.path.join(data_dir, 'efficiency.tif')
+eff_path = os.path.join(data_dir, 'eff.tif')
 
 # Initialize grid
 grid = Grid()

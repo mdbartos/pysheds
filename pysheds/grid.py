@@ -2915,7 +2915,7 @@ class Grid(object):
                         dirmap = default_dirmap
                 else:
                     raise KeyError("{0} not found in grid instance"
-                                   .format(direction_name))
+                                   .format(data))
             elif isinstance(data, Raster):
                 try:
                     dirmap = data.metadata['dirmap']

@@ -1116,20 +1116,18 @@ class Grid(object):
                Flow direction data.
                If str: name of the dataset to be viewed.
                If Raster: a Raster instance (see pysheds.view.Raster)
-        weights: str or Raster
-                 Array of weights to be applied to each accumulation cell.
-                 If str: name of the dataset to be viewed.
-                 If Raster: a Raster instance (see pysheds.view.Raster)
+        weights: numpy ndarray
+-                 Array of weights to be applied to each accumulation cell. Must
+-                 be same size as data.
         dirmap : list or tuple (length 8)
                  List of integer values representing the following
                  cardinal and intercardinal directions (in order):
                  [N, NE, E, SE, S, SW, W, NW]
-        efficiency: str or Raster
+        efficiency: numpy ndarray
                  transport efficiency, relative correction factor applied to the
                  outflow of each cell
                  nodata will be set to 1, i.e. no correction
-                 If str: name of the dataset to be viewed.
-                 If Raster: a Raster instance (see pysheds.view.Raster)
+                 Must be same size as data.
         nodata_in : int or float
                     Value to indicate nodata in input array. If using a named dataset, will
                     default to the 'nodata' value of the named dataset. If using an ndarray,
@@ -1161,30 +1159,21 @@ class Grid(object):
         fdir = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
                                    properties=properties,
                                    ignore_metadata=ignore_metadata, **kwargs)
-        if weights is None:
-            wgt = None
-        else:
-            # CHECK: do we need nodata_view?
-            # should nodata in weights but not in fdir set to 0?
-            wgt = self._input_handler(weights, apply_mask=apply_mask,
-                                   properties=properties,
-                                   ignore_metadata=ignore_metadata, **kwargs)
-        if efficiency is None:
-            eff = None
-        else:
-            eff = self._input_handler(efficiency, apply_mask=apply_mask, properties=properties,
-                                   ignore_metadata=ignore_metadata, **kwargs)
+        
+            # something for the future 
+            #eff = self._input_handler(efficiency, apply_mask=apply_mask, properties=properties,
+                  #                 ignore_metadata=ignore_metadata, **kwargs)
             # default efficiency for nodata is 1
-            eff[eff==self._check_nodata_in(efficiency, None)] = 1
+            #eff[eff==self._check_nodata_in(efficiency, None)] = 1
 
         if routing.lower() == 'd8':
-            return self._d8_accumulation(fdir=fdir, weights=wgt, dirmap=dirmap, efficiency=eff,
+            return self._d8_accumulation(fdir=fdir, weights=weights, dirmap=dirmap, efficiency=efficiency,
                                          nodata_in=nodata_in, nodata_out=nodata_out,
                                          out_name=out_name, inplace=inplace, pad=pad,
                                          apply_mask=apply_mask, ignore_metadata=ignore_metadata,
                                          properties=properties, metadata=metadata, **kwargs)
         elif routing.lower() == 'dinf':
-            return self._dinf_accumulation(fdir=fdir, weights=wgt, dirmap=dirmap,efficiency=eff,
+            return self._dinf_accumulation(fdir=fdir, weights=weights, dirmap=dirmap,efficiency=efficiency,
                                            nodata_in=nodata_in, nodata_out=nodata_out,
                                            out_name=out_name, inplace=inplace, pad=pad,
                                            apply_mask=apply_mask, ignore_metadata=ignore_metadata,

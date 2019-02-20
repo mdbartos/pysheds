@@ -21,6 +21,10 @@ grid.read_ascii(dir_path, 'dir', dtype=np.uint8, crs=crs)
 grid.read_raster(dem_path, 'dem')
 grid.read_raster(eff_path, 'eff')
 grid.read_raster(dinf_eff_path, 'dinf_eff')
+# set nodata to 1
+# why is that not working with grid.view() in test_accumulation?
+#grid.eff[grid.eff==grid.eff.nodata] = 1
+#grid.dinf_eff[grid.dinf_eff==grid.dinf_eff.nodata] = 1
 
 # Initialize parameters
 dirmap = (64,  128,  1,   2,    4,   8,    16,  32)
@@ -106,7 +110,10 @@ def test_accumulation():
     grid.clip_to('dir')
     grid.accumulation(data='dir', dirmap=dirmap, out_name='acc')
     assert(grid.acc.max() == acc_in_frame)
-    grid.accumulation(data='dir', dirmap=dirmap, out_name='acc_eff', efficiency="eff")
+    # set nodata to 1
+    eff = grid.view("eff")
+    eff[eff==grid.eff.nodata] = 1
+    grid.accumulation(data='dir', dirmap=dirmap, out_name='acc_eff', efficiency=eff)
     assert(abs(grid.acc_eff.max() - acc_in_frame_eff) < 0.001)
     assert(abs(grid.acc_eff[grid.acc==grid.acc.max()] - acc_in_frame_eff1) < 0.001)
     # TODO: Should eventually assert: grid.acc.dtype == np.min_scalar_type(grid.acc.max())
@@ -120,8 +127,11 @@ def test_accumulation():
                       routing='dinf')
     assert(grid.d8_acc.max() > 11300)
     assert(grid.dinf_acc.max() > 11400)
+    #set nodata to 1
+    eff = grid.view("dinf_eff")
+    eff[eff==grid.dinf_eff.nodata] = 1
     grid.accumulation(data='dinf_dir', dirmap=dirmap, out_name='dinf_acc_eff', routing='dinf',
-                      efficiency="dinf_eff")
+                      efficiency=eff)
     pos = np.where(grid.dinf_acc==grid.dinf_acc.max())
     assert(np.round(grid.dinf_acc[pos] / grid.dinf_acc_eff[pos]) == 4.)
 

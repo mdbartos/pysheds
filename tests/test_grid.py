@@ -11,15 +11,26 @@ current_dir = os.path.dirname(os.path.realpath(__file__))
 data_dir = os.path.abspath(os.path.join(current_dir, '../data'))
 dir_path = os.path.join(data_dir, 'dir.asc')
 dem_path = os.path.join(data_dir, 'dem.tif')
+eff_path = os.path.join(data_dir, 'eff.tif')
+dinf_eff_path = os.path.join(data_dir, 'dinf_eff.tif')
 
 # Initialize grid
 grid = Grid()
 crs = pyproj.Proj('+init=epsg:4326', preserve_units=True)
 grid.read_ascii(dir_path, 'dir', dtype=np.uint8, crs=crs)
 grid.read_raster(dem_path, 'dem')
+grid.read_raster(eff_path, 'eff')
+grid.read_raster(dinf_eff_path, 'dinf_eff')
+# set nodata to 1
+# why is that not working with grid.view() in test_accumulation?
+#grid.eff[grid.eff==grid.eff.nodata] = 1
+#grid.dinf_eff[grid.dinf_eff==grid.dinf_eff.nodata] = 1
+
 # Initialize parameters
 dirmap = (64,  128,  1,   2,    4,   8,    16,  32)
 acc_in_frame = 76499
+acc_in_frame_eff = 76498 # max value with efficiency
+acc_in_frame_eff1 = 19125.5 # accumulation for raster cell with acc_in_frame with transport efficiency
 cells_in_catch = 11422
 catch_shape = (159, 169)
 max_distance = 209
@@ -99,6 +110,12 @@ def test_accumulation():
     grid.clip_to('dir')
     grid.accumulation(data='dir', dirmap=dirmap, out_name='acc')
     assert(grid.acc.max() == acc_in_frame)
+    # set nodata to 1
+    eff = grid.view("eff")
+    eff[eff==grid.eff.nodata] = 1
+    grid.accumulation(data='dir', dirmap=dirmap, out_name='acc_eff', efficiency=eff)
+    assert(abs(grid.acc_eff.max() - acc_in_frame_eff) < 0.001)
+    assert(abs(grid.acc_eff[grid.acc==grid.acc.max()] - acc_in_frame_eff1) < 0.001)
     # TODO: Should eventually assert: grid.acc.dtype == np.min_scalar_type(grid.acc.max())
     grid.clip_to('catch', pad=(1,1,1,1))
     grid.accumulation(data='catch', dirmap=dirmap, out_name='acc')
@@ -110,6 +127,13 @@ def test_accumulation():
                       routing='dinf')
     assert(grid.d8_acc.max() > 11300)
     assert(grid.dinf_acc.max() > 11400)
+    #set nodata to 1
+    eff = grid.view("dinf_eff")
+    eff[eff==grid.dinf_eff.nodata] = 1
+    grid.accumulation(data='dinf_dir', dirmap=dirmap, out_name='dinf_acc_eff', routing='dinf',
+                      efficiency=eff)
+    pos = np.where(grid.dinf_acc==grid.dinf_acc.max())
+    assert(np.round(grid.dinf_acc[pos] / grid.dinf_acc_eff[pos]) == 4.)
 
 def test_flow_distance():
     grid.clip_to('catch')

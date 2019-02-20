@@ -1116,16 +1116,20 @@ class Grid(object):
                Flow direction data.
                If str: name of the dataset to be viewed.
                If Raster: a Raster instance (see pysheds.view.Raster)
-        weights: numpy ndarray
-                 Array of weights to be applied to each accumulation cell. Must
-                 be same size as data.
+        weights: str or Raster
+                 Array of weights to be applied to each accumulation cell.
+                 If str: name of the dataset to be viewed.
+                 If Raster: a Raster instance (see pysheds.view.Raster)
         dirmap : list or tuple (length 8)
                  List of integer values representing the following
                  cardinal and intercardinal directions (in order):
                  [N, NE, E, SE, S, SW, W, NW]
-        efficiency: numpy ndarray
-                 Array of relative efficiency factors (0..1) or percentages (0..100)
-                 to be applied to each accumulation cell. Must be same size as data.
+        efficiency: str or Raster
+                 transport efficiency, relative correction factor applied to the
+                 outflow of each cell
+                 nodata will be set to 1, i.e. no correction
+                 If str: name of the dataset to be viewed.
+                 If Raster: a Raster instance (see pysheds.view.Raster)
         nodata_in : int or float
                     Value to indicate nodata in input array. If using a named dataset, will
                     default to the 'nodata' value of the named dataset. If using an ndarray,
@@ -1157,14 +1161,30 @@ class Grid(object):
         fdir = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
                                    properties=properties,
                                    ignore_metadata=ignore_metadata, **kwargs)
+        if weights is None:
+            wgt = None
+        else:
+            # CHECK: do we need nodata_view?
+            # should nodata in weights but not in fdir set to 0?
+            wgt = self._input_handler(weights, apply_mask=apply_mask,
+                                   properties=properties,
+                                   ignore_metadata=ignore_metadata, **kwargs)
+        if efficiency is None:
+            eff = None
+        else:
+            eff = self._input_handler(efficiency, apply_mask=apply_mask, properties=properties,
+                                   ignore_metadata=ignore_metadata, **kwargs)
+            # default efficiency for nodata is 1
+            eff[eff==self._check_nodata_in(efficiency, None)] = 1
+
         if routing.lower() == 'd8':
-            return self._d8_accumulation(fdir=fdir, weights=weights, dirmap=dirmap, efficiency=efficiency,
+            return self._d8_accumulation(fdir=fdir, weights=wgt, dirmap=dirmap, efficiency=eff,
                                          nodata_in=nodata_in, nodata_out=nodata_out,
                                          out_name=out_name, inplace=inplace, pad=pad,
                                          apply_mask=apply_mask, ignore_metadata=ignore_metadata,
                                          properties=properties, metadata=metadata, **kwargs)
         elif routing.lower() == 'dinf':
-            return self._dinf_accumulation(fdir=fdir, weights=weights, dirmap=dirmap,efficiency=efficiency,
+            return self._dinf_accumulation(fdir=fdir, weights=wgt, dirmap=dirmap,efficiency=eff,
                                            nodata_in=nodata_in, nodata_out=nodata_out,
                                            out_name=out_name, inplace=inplace, pad=pad,
                                            apply_mask=apply_mask, ignore_metadata=ignore_metadata,
@@ -1206,20 +1226,14 @@ class Grid(object):
                 acc = weights.flatten()
             else:
                 acc = (~nodata_cells).ravel().astype(int)
-            # efficiency either percentage or relative
-            # percentage converted to relative values
+
             if efficiency is not None:
                 assert(efficiency.size == fdir.size)
                 eff = efficiency.flatten() # must be flattened to avoid IndexError below
                 acc = acc.astype(float)
                 eff_max, eff_min = np.max(eff), np.min(eff)
-                if eff_max>1:       # percent?
-                    assert((eff_max<=100) and (eff_min>=0))
-                    eff /= 100. # change to relative value
-                else:
-                    assert((eff_max<=1) and (eff_min>=0))
-            #else:
-            #    efficiency = np.ones_like(acc)
+                assert((eff_max<=1) and (eff_min>=0))
+
             indegree = np.bincount(endnodes)
             indegree = indegree.reshape(acc.shape).astype(np.uint8)
             startnodes = startnodes[(indegree == 0)]
@@ -1312,19 +1326,12 @@ class Grid(object):
                 acc = weights.flatten().astype(float)
             else:
                 acc = (~nodata_cells).ravel().astype(float)
-            # efficiency either percentage or relative
-            # percentage converted to relative values
+            
             if efficiency is not None:
                 assert(efficiency.size == fdir.size)
                 eff = efficiency.flatten()
                 eff_max, eff_min = np.max(eff), np.min(eff)
-                if eff_max>1:       # percent?
-                    assert((eff_max<=100) and (eff_min>=0))
-                    eff /= 100. # change to relative value
-                else:
-                    assert((eff_max<=1) and (eff_min>=0))
-            #else:
-            #    efficiency = np.ones_like(acc)
+                assert((eff_max<=1) and (eff_min>=0))
             
             # Ensure no flow directions with zero proportion
             fdir_0.flat[prop_0 == 0] = fdir_1.flat[prop_0 == 0]

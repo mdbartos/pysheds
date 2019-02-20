@@ -1,12 +1,10 @@
 import numpy as np
 import pandas as pd
-import scipy.optimize
+from scipy import ndimage, optimize
 from pysheds.grid import Grid
 from pysheds.view import Raster
 import skimage.morphology
-import skimage.segmentation
-from itertools import zip_longest, cycle, permutations
-from scipy import ndimage
+from itertools import combinations, chain
 
 class RFSM:
     def __init__(self, dem, max_levels=100, max_spills=100):
@@ -48,9 +46,9 @@ class RFSM:
         # Rotate the barrier to ensure that all depressions touching edges are captured
         # TODO: This may not capture all depressions if they are touching all edges
         holes = np.zeros(self.shape)
-        for permutation in permutations([top, bottom, left, right], 3):
+        for combination in combinations([top, bottom, left, right], 3):
             mask = np.copy(self.dem)
-            exterior = np.concatenate(permutation)
+            exterior = np.concatenate(combination)
             mask.flat[exterior] = self.dem.max()
             seed = np.copy(mask)
             seed[1:-1, 1:-1] = self.dem.max()
@@ -119,10 +117,12 @@ class RFSM:
 
     def find_connections(self):
         c = {}
+        b = {}
         inside = np.zeros(self.shape, dtype=bool)
         inside[1:-1, 1:-1] = True
         for index in range(len(self.levels) - 1):
             c[index] = {}
+            b[index] = {}
             comm = np.flatnonzero((self.ws[index] == 0) & inside)
             # TODO: Not super elegant
             neighbors = self.ws[index].flat[Grid._select_surround_ravel(self, comm,
@@ -135,23 +135,28 @@ class RFSM:
                 comms[elem] = tuple(comms[elem])
             for comm, pair in comms.items():
                 if len(pair) > 2:
-                    for permutation in permutations(pair, 2):
-                        subpair = tuple(sorted(permutation))
+                    for combination in combinations(pair, 2):
+                        subpair = tuple(sorted(combination))
                         if subpair in c[index]:
+                            b[index][subpair].append(comm)
                             if self.dem.flat[comm] < self.dem.flat[c[index][subpair]]:
                                 c[index][subpair] = comm
                         else:
                             c[index][subpair] = comm
+                            b[index][subpair] = [comm]
                 elif len(pair) < 2:
                     # TODO: Not really sure what's happening in this case
                     pass
                 else:
                     if pair in c[index]:
+                        b[index][pair].append(comm)
                         if self.dem.flat[comm] < self.dem.flat[c[index][pair]]:
                             c[index][pair] = comm
                     else:
                         c[index][pair] = comm
+                        b[index][pair] = [comm]
         self.c = c
+        self.b = b
 
     def find_drop(self):
         level = []
@@ -292,11 +297,16 @@ class RFSM:
     def compute_vol(self, z, node, target_vol):
         under_vol = node.cumulative_vol - node.vol
         if node.name:
-            full = z - self.dem[self.ws[node.level] == node.name]
+            mask = (self.ws[node.level] == node.name)
+            full = z - self.dem[mask]
         else:
             leaves = []
             self.enumerate_leaves(node, level=node.level, stack=leaves)
-            full = z - self.dem[np.isin(self.ws[node.level], leaves)]
+            mask = np.isin(self.ws[node.level], leaves)
+            boundary = list(chain.from_iterable([self.b[node.level].setdefault(pair, [])
+                                                    for pair in combinations(leaves, 2)]))
+            mask.flat[boundary] = True
+            full = z - self.dem[mask]
         vol = abs(np.asscalar(full[full > 0].sum()) * self.x * self.y)
         return vol - target_vol - under_vol
 
@@ -448,18 +458,21 @@ class RFSM:
                 minelev = node.elev
             else:
                 # TODO: This bound could be a lot better
-                minelev = 0
+                minelev = np.nanmin(self.dem)
             target_vol = node.current_vol
-            elev = scipy.optimize.bisect(self.compute_vol, minelev, maxelev,
-                                    args=(node, target_vol))
+            elev = optimize.bisect(self.compute_vol, minelev, maxelev,
+                                   args=(node, target_vol))
             if node.name:
-                ix = self.ws[node.level] == node.name
+                mask = self.ws[node.level] == node.name
             else:
                 leaves = []
                 self.enumerate_leaves(node, level=node.level, stack=leaves)
-                ix = np.isin(self.ws[node.level], leaves)
-            fullindex = np.flatnonzero(ix & (self.dem < elev))
-            waterlevel.flat[fullindex] = elev
+                mask = np.isin(self.ws[node.level], leaves)
+                boundary = list(chain.from_iterable([self.b[node.level].setdefault(pair, [])
+                                                     for pair in combinations(leaves, 2)]))
+                mask.flat[boundary] = True
+            mask = np.flatnonzero(mask & (self.dem < elev))
+            waterlevel.flat[mask] = elev
         else:
             if node.l:
                 self.volume_to_level(node.l, waterlevel)

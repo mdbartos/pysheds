@@ -17,6 +17,7 @@ class RFSM:
         self.max_spills = max_spills
         self.shape = dem.shape
         self.size = dem.size
+        self.exit_node = Node(name='exit', vol=np.inf, cumulative_vol=np.inf)
         self.construct_topology()
 
     def construct_topology(self):
@@ -109,7 +110,7 @@ class RFSM:
         for index in range(len(self.levels) - 1):
             mask = (self.has_lower[index + 1][self.levels[index + 1]])
             w = skimage.morphology.watershed(self.dem, self.levels[index],
-                                            mask=mask, watershed_line=True)
+                                             mask=mask, watershed_line=True)
             w = np.where(mask, w, -1)
             ws.append(w)
         ws.append(self.levels[-1])
@@ -249,6 +250,7 @@ class RFSM:
                     self.nodes[index][j] = child
                     self.nodes[index + 1][parent.name] = parent
         self.root = self.nodes[-1][1]
+        self.root.t = self.exit_node
 
     def set_node_capacities(self):
         self.set_cumulative_capacities(self.root)
@@ -321,6 +323,7 @@ class RFSM:
             cur_iter += 1
         overflowing = np.array(False, dtype=bool)
         self.check_overflow(self.root, overflowing)
+        print(cur_iter)
         assert not overflowing
 
     def compute_depths(self):
@@ -356,7 +359,11 @@ class RFSM:
             else:
                 leaves = []
                 self.enumerate_leaves(node, level=node.level, stack=leaves)
-                elevdiff = node.parent.elev - self.dem[np.isin(self.ws[node.level], leaves)]
+                mask = np.isin(self.ws[node.level], leaves)
+                boundary = list(chain.from_iterable([self.b[node.level].setdefault(pair, [])
+                                                        for pair in combinations(leaves, 2)]))
+                mask.flat[boundary] = True
+                elevdiff = node.parent.elev - self.dem[mask]
                 vol = abs(np.asscalar(elevdiff[elevdiff > 0].sum()) * self.x * self.y)
                 node.vol = vol
 
@@ -461,7 +468,7 @@ class RFSM:
                 minelev = np.nanmin(self.dem)
             target_vol = node.current_vol
             elev = optimize.bisect(self.compute_vol, minelev, maxelev,
-                                   args=(node, target_vol))
+                                args=(node, target_vol))
             if node.name:
                 mask = self.ws[node.level] == node.name
             else:

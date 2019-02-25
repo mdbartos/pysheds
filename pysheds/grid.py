@@ -587,7 +587,7 @@ class Grid(object):
         ul = np.around(~affine * (xmin, ymax)).astype(int)
         lr = np.around(~affine * (xmax, ymin)).astype(int)
         xmin, ymax = affine * tuple(ul)
-        shape = tuple(lr - ul)
+        shape = tuple(lr - ul)[::-1]
         new_affine = Affine(affine.a, affine.b, xmin,
                             affine.d, affine.e, ymax)
         self.affine = new_affine

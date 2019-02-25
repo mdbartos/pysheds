@@ -218,6 +218,16 @@ def test_set_bbox():
     grid.clip_to('catch')
     # TODO: Need to check that everything was reset properly
 
+def test_set_indices():
+    new_xmin = int(grid.shape[1] // 2)
+    new_ymin = int(grid.shape[0])
+    new_xmax = int(grid.shape[1])
+    new_ymax = int(grid.shape[0] // 2)
+    new_indices = (new_xmin, new_ymin, new_xmax, new_ymax)
+    grid.set_indices(new_indices)
+    grid.clip_to('catch')
+    # TODO: Need to check that everything was reset properly
+
 def test_polygonize_rasterize():
     shapes = grid.polygonize()
     raster = grid.rasterize(shapes)

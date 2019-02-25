@@ -323,7 +323,6 @@ class RFSM:
             cur_iter += 1
         overflowing = np.array(False, dtype=bool)
         self.check_overflow(self.root, overflowing)
-        print(cur_iter)
         assert not overflowing
 
     def compute_depths(self):

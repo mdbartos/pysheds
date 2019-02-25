@@ -2,6 +2,7 @@ import pyproj
 import os
 import numpy as np
 from pysheds.grid import Grid
+from pysheds.rfsm import RFSM
 
 # TODO: Major todo's
 # - self.mask should be a raster
@@ -11,12 +12,14 @@ current_dir = os.path.dirname(os.path.realpath(__file__))
 data_dir = os.path.abspath(os.path.join(current_dir, '../data'))
 dir_path = os.path.join(data_dir, 'dir.asc')
 dem_path = os.path.join(data_dir, 'dem.tif')
+roi_path = os.path.join(data_dir, 'roi.tif')
 
 # Initialize grid
 grid = Grid()
 crs = pyproj.Proj('+init=epsg:4326', preserve_units=True)
 grid.read_ascii(dir_path, 'dir', dtype=np.uint8, crs=crs)
 grid.read_raster(dem_path, 'dem')
+grid.read_raster(roi_path, 'roi')
 # Initialize parameters
 dirmap = (64,  128,  1,   2,    4,   8,    16,  32)
 acc_in_frame = 76499
@@ -225,3 +228,14 @@ def test_detect_cycles():
 
 def test_add_gridded_data():
     grid.add_gridded_data(grid.dem, data_name='dem_copy')
+
+def test_rfsm():
+    grid.clip_to('roi')
+    dem = grid.view('roi')
+    rfsm = RFSM(dem)
+    rfsm.reset_volumes()
+    area = np.abs(grid.affine.a * grid.affine.e)
+    input_vol = 0.1*area*np.ones(dem.shape)
+    waterlevel = rfsm.compute_waterlevel(input_vol)
+    end_vol = (area*np.where(waterlevel, waterlevel - dem, 0)).sum()
+    assert np.allclose(end_vol, input_vol.sum())

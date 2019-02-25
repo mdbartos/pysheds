@@ -1126,7 +1126,7 @@ class Grid(object):
     #     grid_props = self._generate_grid_props(**private_props)
     #     return self._output_handler(result, inplace, out_name=out_name, **grid_props)
 
-    def accumulation(self, data, weights=None, dirmap=None, nodata_in=None, nodata_out=0,
+    def accumulation(self, data, weights=None, dirmap=None, nodata_in=None, nodata_out=0, efficiency=None,
                      out_name='acc', routing='d8', inplace=True, pad=False, apply_mask=False,
                      ignore_metadata=False, **kwargs):
         """
@@ -1140,12 +1140,17 @@ class Grid(object):
                If str: name of the dataset to be viewed.
                If Raster: a Raster instance (see pysheds.view.Raster)
         weights: numpy ndarray
-                 Array of weights to be applied to each accumulation cell. Must
-                 be same size as data.
+-                 Array of weights to be applied to each accumulation cell. Must
+-                 be same size as data.
         dirmap : list or tuple (length 8)
                  List of integer values representing the following
                  cardinal and intercardinal directions (in order):
                  [N, NE, E, SE, S, SW, W, NW]
+        efficiency: numpy ndarray
+                 transport efficiency, relative correction factor applied to the
+                 outflow of each cell
+                 nodata will be set to 1, i.e. no correction
+                 Must be same size as data.
         nodata_in : int or float
                     Value to indicate nodata in input array. If using a named dataset, will
                     default to the 'nodata' value of the named dataset. If using an ndarray,
@@ -1177,20 +1182,27 @@ class Grid(object):
         fdir = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
                                    properties=properties,
                                    ignore_metadata=ignore_metadata, **kwargs)
+        
+            # something for the future 
+            #eff = self._input_handler(efficiency, apply_mask=apply_mask, properties=properties,
+                  #                 ignore_metadata=ignore_metadata, **kwargs)
+            # default efficiency for nodata is 1
+            #eff[eff==self._check_nodata_in(efficiency, None)] = 1
+
         if routing.lower() == 'd8':
-            return self._d8_accumulation(fdir=fdir, weights=weights, dirmap=dirmap,
+            return self._d8_accumulation(fdir=fdir, weights=weights, dirmap=dirmap, efficiency=efficiency,
                                          nodata_in=nodata_in, nodata_out=nodata_out,
                                          out_name=out_name, inplace=inplace, pad=pad,
                                          apply_mask=apply_mask, ignore_metadata=ignore_metadata,
                                          properties=properties, metadata=metadata, **kwargs)
         elif routing.lower() == 'dinf':
-            return self._dinf_accumulation(fdir=fdir, weights=weights, dirmap=dirmap,
+            return self._dinf_accumulation(fdir=fdir, weights=weights, dirmap=dirmap,efficiency=efficiency,
                                            nodata_in=nodata_in, nodata_out=nodata_out,
                                            out_name=out_name, inplace=inplace, pad=pad,
                                            apply_mask=apply_mask, ignore_metadata=ignore_metadata,
                                            properties=properties, metadata=metadata, **kwargs)
 
-    def _d8_accumulation(self, fdir=None, weights=None, dirmap=None, nodata_in=None, nodata_out=0,
+    def _d8_accumulation(self, fdir=None, weights=None, dirmap=None, nodata_in=None, nodata_out=0,efficiency=None,
                          out_name='acc', inplace=True, pad=False, apply_mask=False,
                          ignore_metadata=False, properties={}, metadata={}, **kwargs):
         # Pad the rim
@@ -1226,20 +1238,41 @@ class Grid(object):
                 acc = weights.flatten()
             else:
                 acc = (~nodata_cells).ravel().astype(int)
-            # TODO: Does this need to have a min length?
+
+            if efficiency is not None:
+                assert(efficiency.size == fdir.size)
+                eff = efficiency.flatten() # must be flattened to avoid IndexError below
+                acc = acc.astype(float)
+                eff_max, eff_min = np.max(eff), np.min(eff)
+                assert((eff_max<=1) and (eff_min>=0))
+
             indegree = np.bincount(endnodes)
             indegree = indegree.reshape(acc.shape).astype(np.uint8)
             startnodes = startnodes[(indegree == 0)]
             endnodes = fdir.flat[startnodes]
-            for _ in range(fdir.size):
-                if endnodes.any():
-                    np.add.at(acc, endnodes, acc[startnodes])
-                    np.subtract.at(indegree, endnodes, 1)
-                    startnodes = np.unique(endnodes)
-                    startnodes = startnodes[indegree[startnodes] == 0]
-                    endnodes = fdir.flat[startnodes]
-                else:
-                    break
+            # separate for loop to avoid performance hit when
+            # efficiency is None
+            if efficiency is None: # no efficiency
+                for _ in range(fdir.size):
+                    if endnodes.any():
+                        np.add.at(acc, endnodes, acc[startnodes])
+                        np.subtract.at(indegree, endnodes, 1)
+                        startnodes = np.unique(endnodes)
+                        startnodes = startnodes[indegree[startnodes] == 0]
+                        endnodes = fdir.flat[startnodes]
+                    else:
+                        break
+            else:               # apply efficiency
+                for _ in range(fdir.size):
+                    if endnodes.any():
+                        # we need flattened efficiency, otherwise IndexError
+                        np.add.at(acc, endnodes, acc[startnodes] * eff[startnodes])
+                        np.subtract.at(indegree, endnodes, 1)
+                        startnodes = np.unique(endnodes)
+                        startnodes = startnodes[indegree[startnodes] == 0]
+                        endnodes = fdir.flat[startnodes]
+                    else:
+                        break
             # TODO: Hacky: should probably fix this
             acc[0] = 1
             # Reshape and offset accumulation
@@ -1262,7 +1295,7 @@ class Grid(object):
         return self._output_handler(data=acc, out_name=out_name, properties=properties,
                                     inplace=inplace, metadata=metadata)
 
-    def _dinf_accumulation(self, fdir=None, weights=None, dirmap=None, nodata_in=None, nodata_out=0,
+    def _dinf_accumulation(self, fdir=None, weights=None, dirmap=None, nodata_in=None, nodata_out=0,efficiency=None,
                            out_name='acc', inplace=True, pad=False, apply_mask=False,
                            ignore_metadata=False, properties={}, metadata={}, **kwargs):
         # Filter warnings due to invalid values
@@ -1305,6 +1338,13 @@ class Grid(object):
                 acc = weights.flatten().astype(float)
             else:
                 acc = (~nodata_cells).ravel().astype(float)
+            
+            if efficiency is not None:
+                assert(efficiency.size == fdir.size)
+                eff = efficiency.flatten()
+                eff_max, eff_min = np.max(eff), np.min(eff)
+                assert((eff_max<=1) and (eff_min>=0))
+            
             # Ensure no flow directions with zero proportion
             fdir_0.flat[prop_0 == 0] = fdir_1.flat[prop_0 == 0]
             fdir_1.flat[prop_1 == 0] = fdir_0.flat[prop_1 == 0]
@@ -1329,25 +1369,46 @@ class Grid(object):
             endnodes_0 = fdir_0.flat[startnodes]
             endnodes_1 = fdir_1.flat[startnodes]
             epsilon = 1e-8
-            for _ in range(fdir.size):
-                if (startnodes.any()):
-                    np.add.at(acc_i, endnodes_0, prop_0[startnodes]*acc[startnodes])
-                    np.add.at(acc_i, endnodes_1, prop_1[startnodes]*acc[startnodes])
-                    acc += acc_i
-                    acc_i.fill(0)
-                    np.subtract.at(indegree, endnodes_0, prop_0[startnodes])
-                    np.subtract.at(indegree, endnodes_1, prop_1[startnodes])
-                    startnodes = np.unique(np.concatenate([endnodes_0, endnodes_1]))
-                    startnodes = startnodes[np.abs(indegree[startnodes]) < epsilon]
-                    endnodes_0 = fdir_0.flat[startnodes]
-                    endnodes_1 = fdir_1.flat[startnodes]
-                    # TODO: This part is kind of gross
-                    startnodes = startnodes[~((startnodes == endnodes_0) &
-                                              (startnodes == endnodes_1))]
-                    endnodes_0 = fdir_0.flat[startnodes]
-                    endnodes_1 = fdir_1.flat[startnodes]
-                else:
-                    break
+            if efficiency is None:
+                for _ in range(fdir.size):
+                    if (startnodes.any()):
+                        np.add.at(acc_i, endnodes_0, prop_0[startnodes]*acc[startnodes])
+                        np.add.at(acc_i, endnodes_1, prop_1[startnodes]*acc[startnodes])
+                        acc += acc_i
+                        acc_i.fill(0)
+                        np.subtract.at(indegree, endnodes_0, prop_0[startnodes])
+                        np.subtract.at(indegree, endnodes_1, prop_1[startnodes])
+                        startnodes = np.unique(np.concatenate([endnodes_0, endnodes_1]))
+                        startnodes = startnodes[np.abs(indegree[startnodes]) < epsilon]
+                        endnodes_0 = fdir_0.flat[startnodes]
+                        endnodes_1 = fdir_1.flat[startnodes]
+                        # TODO: This part is kind of gross
+                        startnodes = startnodes[~((startnodes == endnodes_0) &
+                                                  (startnodes == endnodes_1))]
+                        endnodes_0 = fdir_0.flat[startnodes]
+                        endnodes_1 = fdir_1.flat[startnodes]
+                    else:
+                        break
+            else:
+                for _ in range(fdir.size):
+                    if (startnodes.any()):
+                        np.add.at(acc_i, endnodes_0, prop_0[startnodes]*acc[startnodes] * eff[startnodes])
+                        np.add.at(acc_i, endnodes_1, prop_1[startnodes]*acc[startnodes] * eff[startnodes])
+                        acc += acc_i
+                        acc_i.fill(0)
+                        np.subtract.at(indegree, endnodes_0, prop_0[startnodes])
+                        np.subtract.at(indegree, endnodes_1, prop_1[startnodes])
+                        startnodes = np.unique(np.concatenate([endnodes_0, endnodes_1]))
+                        startnodes = startnodes[np.abs(indegree[startnodes]) < epsilon]
+                        endnodes_0 = fdir_0.flat[startnodes]
+                        endnodes_1 = fdir_1.flat[startnodes]
+                        # TODO: This part is kind of gross
+                        startnodes = startnodes[~((startnodes == endnodes_0) &
+                                                  (startnodes == endnodes_1))]
+                        endnodes_0 = fdir_0.flat[startnodes]
+                        endnodes_1 = fdir_1.flat[startnodes]
+                    else:
+                        break
             # TODO: Hacky: should probably fix this
             acc[0] = 1
             # Reshape and offset accumulation
@@ -1594,7 +1655,7 @@ class Grid(object):
                     assert(isinstance(weights[0], np.ndarray))
                     weights_0 = weights[0].ravel()
                     assert(isinstance(weights[1], np.ndarray))
-                    weights_0 = weights[1].ravel()
+                    weights_1 = weights[1].ravel()
                     assert(weights_0.size == startnodes.size)
                     assert(weights_1.size == startnodes.size)
                 elif isinstance(weights, np.ndarray):
@@ -2875,7 +2936,7 @@ class Grid(object):
                         dirmap = default_dirmap
                 else:
                     raise KeyError("{0} not found in grid instance"
-                                   .format(direction_name))
+                                   .format(data))
             elif isinstance(data, Raster):
                 try:
                     dirmap = data.metadata['dirmap']

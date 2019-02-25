@@ -587,7 +587,30 @@ class Grid(object):
         ul = np.around(~affine * (xmin, ymax)).astype(int)
         lr = np.around(~affine * (xmax, ymin)).astype(int)
         xmin, ymax = affine * tuple(ul)
-        shape = tuple(lr - ul)
+        shape = tuple(lr - ul)[::-1]
+        new_affine = Affine(affine.a, affine.b, xmin,
+                            affine.d, affine.e, ymax)
+        self.affine = new_affine
+        self.shape = shape
+        #TODO: For now, simply reset mask
+        self.mask = np.ones(shape, dtype=np.bool)
+
+    def set_indices(self, new_indices):
+        """
+        Updates self.affine and self.shape to correspond to new indices representing
+        a new bounding rectangle. Also resets self.mask.
+
+        Parameters
+        ----------
+        new_indices : tuple of ints (length 4)
+                      (xmin_index, ymin_index, xmax_index, ymax_index)
+        """
+        affine = self.affine
+        assert all((isinstance(ix, int) for ix in new_indices))
+        ul = np.asarray((new_indices[0], new_indices[3]))
+        lr = np.asarray((new_indices[2], new_indices[1]))
+        xmin, ymax = affine * tuple(ul)
+        shape = tuple(lr - ul)[::-1]
         new_affine = Affine(affine.a, affine.b, xmin,
                             affine.d, affine.e, ymax)
         self.affine = new_affine

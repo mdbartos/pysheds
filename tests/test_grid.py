@@ -2,6 +2,7 @@ import pyproj
 import os
 import numpy as np
 from pysheds.grid import Grid
+from pysheds.rfsm import RFSM
 
 # TODO: Major todo's
 # - self.mask should be a raster
@@ -11,6 +12,7 @@ current_dir = os.path.dirname(os.path.realpath(__file__))
 data_dir = os.path.abspath(os.path.join(current_dir, '../data'))
 dir_path = os.path.join(data_dir, 'dir.asc')
 dem_path = os.path.join(data_dir, 'dem.tif')
+roi_path = os.path.join(data_dir, 'roi.tif')
 eff_path = os.path.join(data_dir, 'eff.tif')
 dinf_eff_path = os.path.join(data_dir, 'dinf_eff.tif')
 
@@ -19,6 +21,7 @@ grid = Grid()
 crs = pyproj.Proj('+init=epsg:4326', preserve_units=True)
 grid.read_ascii(dir_path, 'dir', dtype=np.uint8, crs=crs)
 grid.read_raster(dem_path, 'dem')
+grid.read_raster(roi_path, 'roi')
 grid.read_raster(eff_path, 'eff')
 grid.read_raster(dinf_eff_path, 'dinf_eff')
 # set nodata to 1
@@ -239,6 +242,16 @@ def test_set_bbox():
     grid.clip_to('catch')
     # TODO: Need to check that everything was reset properly
 
+def test_set_indices():
+    new_xmin = int(grid.shape[1] // 2)
+    new_ymin = int(grid.shape[0])
+    new_xmax = int(grid.shape[1])
+    new_ymax = int(grid.shape[0] // 2)
+    new_indices = (new_xmin, new_ymin, new_xmax, new_ymax)
+    grid.set_indices(new_indices)
+    grid.clip_to('catch')
+    # TODO: Need to check that everything was reset properly
+
 def test_polygonize_rasterize():
     shapes = grid.polygonize()
     raster = grid.rasterize(shapes)
@@ -249,3 +262,14 @@ def test_detect_cycles():
 
 def test_add_gridded_data():
     grid.add_gridded_data(grid.dem, data_name='dem_copy')
+
+def test_rfsm():
+    grid.clip_to('roi')
+    dem = grid.view('roi')
+    rfsm = RFSM(dem)
+    rfsm.reset_volumes()
+    area = np.abs(grid.affine.a * grid.affine.e)
+    input_vol = 0.1*area*np.ones(dem.shape)
+    waterlevel = rfsm.compute_waterlevel(input_vol)
+    end_vol = (area*np.where(waterlevel, waterlevel - dem, 0)).sum()
+    assert np.allclose(end_vol, input_vol.sum())

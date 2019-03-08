@@ -1755,7 +1755,60 @@ class Grid(object):
         assert (np.asarray(dem.shape) == np.asarray(fdir.shape)).all()
         assert (np.asarray(dem.shape) == np.asarray(mask.shape)).all()
         if routing.lower() == 'dinf':
-            raise NotImplementedError('Only implemented for D8 routing.')
+            try:
+                # Split dinf flowdir
+                fdir_0, fdir_1, prop_0, prop_1 = self.angle_to_d8(fdir, dirmap=dirmap)
+                # Find invalid cells
+                invalid_cells = ((fdir < 0) | (fdir > (np.pi * 2)))
+                # Pad the rim
+                dirleft_0, dirright_0, dirtop_0, dirbottom_0 = self._pop_rim(fdir_0,
+                                                                            nodata=nodata_in_fdir)
+                dirleft_1, dirright_1, dirtop_1, dirbottom_1 = self._pop_rim(fdir_1,
+                                                                            nodata=nodata_in_fdir)
+                maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=0)
+                mask = mask.ravel()
+                # Ensure proportion of flow is never zero
+                fdir_0.flat[prop_0 == 0] = fdir_1.flat[prop_0 == 0]
+                fdir_1.flat[prop_1 == 0] = fdir_0.flat[prop_1 == 0]
+                # Set nodata cells to zero
+                fdir_0[invalid_cells] = 0
+                fdir_1[invalid_cells] = 0
+                # Create indexing arrays for convenience
+                visited = np.zeros(fdir.size, dtype=np.bool)
+                # nvisited = np.zeros(fdir.size, dtype=int)
+                r_dirmap = np.array(dirmap)[[4, 5, 6, 7, 0, 1, 2, 3]].tolist()
+                source = np.flatnonzero(mask)
+                hand = -np.ones(fdir.size, dtype=np.int)
+                hand[source] = source
+                visited[source] = True
+                # nvisited[source] += 1
+                for _ in range(fdir.size):
+                    selection = self._select_surround_ravel(source, fdir.shape)
+                    ix = (((fdir_0.flat[selection] == r_dirmap) |
+                          (fdir_1.flat[selection] == r_dirmap)) &
+                          (hand.flat[selection] < 0) &
+                          (~visited.flat[selection])
+                     )
+                    # TODO: Not optimized (a lot of copying here)
+                    parent = np.tile(source, (len(dirmap), 1)).T[ix]
+                    child = selection[ix]
+                    if not child.size:
+                        break
+                    visited.flat[child] = True
+                    hand[child] = hand[parent]
+                    source = np.unique(child)
+                hand = hand.reshape(dem.shape)
+                hand = np.where(hand != -1, dem - dem.flat[hand], nodata_out)
+            except:
+                raise
+            finally:
+                mask = mask.reshape(dem.shape)
+                self._replace_rim(fdir_0, dirleft_0, dirright_0, dirtop_0, dirbottom_0)
+                self._replace_rim(fdir_1, dirleft_1, dirright_1, dirtop_1, dirbottom_1)
+                self._replace_rim(mask, maskleft, maskright, masktop, maskbottom)
+            return self._output_handler(data=hand, out_name=out_name, properties=properties,
+                                        inplace=inplace, metadata=metadata)
+
         elif routing.lower() == 'd8':
             try:
                 dirleft, dirright, dirtop, dirbottom = self._pop_rim(fdir, nodata=nodata_in_fdir)

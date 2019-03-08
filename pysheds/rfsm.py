@@ -7,7 +7,7 @@ import skimage.morphology
 from itertools import combinations, chain
 
 class RFSM:
-    def __init__(self, dem, max_levels=100, max_spills=100):
+    def __init__(self, dem, max_levels=100, max_spills=100, min_size=0):
         self.dem = dem
         if isinstance(dem, Raster):
             self.x, self.y = abs(dem.affine.a), abs(dem.affine.e)
@@ -15,6 +15,7 @@ class RFSM:
             self.x, self.y = 1, 1
         self.max_levels = max_levels
         self.max_spills = max_spills
+        self.min_size = min_size
         self.shape = dem.shape
         self.size = dem.size
         self.exit_node = Node(name='exit', vol=np.inf, cumulative_vol=np.inf)
@@ -55,6 +56,9 @@ class RFSM:
             seed[1:-1, 1:-1] = self.dem.max()
             rec = skimage.morphology.reconstruction(seed, mask, method='erosion')
             holes[(rec - self.dem) > 0] = self.dem[(rec - self.dem) > 0]
+        if self.min_size:
+            holes_mask = skimage.morphology.remove_small_objects(holes != 0, min_size=self.min_size)
+            holes = np.where(holes_mask, holes, 0)
         # Specify levels
         levels = []
         mask = np.where(holes == 0, holes.min(), holes)
@@ -68,6 +72,10 @@ class RFSM:
         for _ in range(self.max_levels):
             diff = rec - mask
             holes = np.where(diff, holes, 0)
+            if self.min_size:
+                holes_mask = skimage.morphology.remove_small_objects(holes != 0,
+                                                                     min_size=self.min_size)
+                holes = np.where(holes_mask, holes, 0)
             mask = np.where(holes == 0, holes.min(), holes)
             seed = np.where(holes == 0, mask, holes.max())
             rec = skimage.morphology.reconstruction(seed, mask, method='erosion')

@@ -7,7 +7,7 @@ import skimage.morphology
 from itertools import combinations, chain
 
 class RFSM:
-    def __init__(self, dem, max_levels=100, max_spills=100, min_size=0):
+    def __init__(self, dem, max_levels=100, max_spills=100, min_size=0, boundary=None):
         self.dem = dem
         if isinstance(dem, Raster):
             self.x, self.y = abs(dem.affine.a), abs(dem.affine.e)
@@ -16,6 +16,7 @@ class RFSM:
         self.max_levels = max_levels
         self.max_spills = max_spills
         self.min_size = min_size
+        self.boundary = boundary
         self.shape = dem.shape
         self.size = dem.size
         self.exit_node = Node(name='exit', vol=np.inf, cumulative_vol=np.inf)
@@ -40,22 +41,31 @@ class RFSM:
 
     def find_depressions(self):
         # Identify depressions in DEM
-        ix = np.arange(self.size).reshape(self.shape)
-        top = ix[0, :]
-        bottom = ix[-1, :]
-        left = ix[:, 0]
-        right = ix[:, -1]
-        # Rotate the barrier to ensure that all depressions touching edges are captured
-        # TODO: This may not capture all depressions if they are touching all edges
-        holes = np.zeros(self.shape)
-        for combination in combinations([top, bottom, left, right], 3):
+        if self.boundary is None:
+            # Rotate the barrier to ensure that all depressions touching edges are captured
+            # TODO: This may not capture all depressions if they are touching all edges
+            ix = np.arange(self.size).reshape(self.shape)
+            top = ix[0, :]
+            bottom = ix[-1, :]
+            left = ix[:, 0]
+            right = ix[:, -1]
+            holes = np.zeros(self.shape)
+            for combination in combinations([top, bottom, left, right], 3):
+                mask = np.copy(self.dem)
+                exterior = np.concatenate(combination)
+                mask.flat[exterior] = self.dem.max()
+                seed = np.copy(mask)
+                seed[1:-1, 1:-1] = self.dem.max()
+                rec = skimage.morphology.reconstruction(seed, mask, method='erosion')
+                holes[(rec - self.dem) > 0] = self.dem[(rec - self.dem) > 0]
+        else:
             mask = np.copy(self.dem)
-            exterior = np.concatenate(combination)
-            mask.flat[exterior] = self.dem.max()
+            mask[self.boundary > 0] = self.dem.max() + 1
+            mask[self.boundary < 0] = self.dem.min() - 1
             seed = np.copy(mask)
-            seed[1:-1, 1:-1] = self.dem.max()
+            seed[1:-1, 1:-1] = mask.max()
             rec = skimage.morphology.reconstruction(seed, mask, method='erosion')
-            holes[(rec - self.dem) > 0] = self.dem[(rec - self.dem) > 0]
+            holes = rec - mask
         if self.min_size:
             holes_mask = skimage.morphology.remove_small_objects(holes != 0, min_size=self.min_size)
             holes = np.where(holes_mask, holes, 0)

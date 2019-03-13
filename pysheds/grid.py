@@ -2561,6 +2561,104 @@ class Grid(object):
         with rasterio.open(file_name, 'w', **profile) as dst:
             dst.write(np.asarray(data), 1)
 
+    def extract_profiles(self, fdir, mask, dirmap=None, nodata_in=None, routing='d8',
+                         apply_mask=True, ignore_metadata=False, **kwargs):
+        """
+        Generates river profiles from flow_direction and mask arrays.
+ 
+        Parameters
+        ----------
+        fdir : str or Raster
+               Flow direction data.
+               If str: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        mask : np.ndarray or Raster
+               Boolean array indicating channelized regions
+        dirmap : list or tuple (length 8)
+                 List of integer values representing the following
+                 cardinal and intercardinal directions (in order):
+                 [N, NE, E, SE, S, SW, W, NW]
+        nodata_in : int or float
+                     Value to indicate nodata in input array.
+        routing : str
+                  Routing algorithm to use:
+                  'd8'   : D8 flow directions
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and CRS.
+ 
+        Returns
+        -------
+        profiles : np.ndarray
+                   Array of channel profiles
+        """
+        if routing.lower() != 'd8':
+            raise NotImplementedError('Only implemented for D8 routing.')
+        # TODO: If two "forks" are directly connected, it can introduce a gap
+        nodata_in = self._check_nodata_in(fdir, nodata_in)
+        fdir_props = {}
+        acc_props = {}
+        fdir = self._input_handler(fdir, apply_mask=apply_mask, nodata_view=nodata_in,
+                                   properties=fdir_props,
+                                   ignore_metadata=ignore_metadata, **kwargs)
+        try:
+            assert(fdir.shape == mask.shape)
+        except:
+            raise ValueError('Flow direction and accumulation grids not aligned.')
+        dirmap = self._set_dirmap(dirmap, fdir)
+        flat_idx = np.arange(fdir.size)
+        fdir_orig_type = fdir.dtype
+        try:
+            mintype = np.min_scalar_type(fdir.size)
+            fdir = fdir.astype(mintype)
+            flat_idx = flat_idx.astype(mintype)
+            startnodes, endnodes = self._construct_matching(fdir, flat_idx,
+                                                            dirmap=dirmap)
+            start = startnodes[mask.flat[startnodes]]
+            end = fdir.flat[start]
+            # Find nodes with indegree > 1
+            indegree = (np.bincount(end)).astype(np.uint8)
+            forks_end = np.flatnonzero(indegree > 1)
+            # Find fork nodes
+            is_fork = np.in1d(end, forks_end)
+            forks = pd.Series(end[is_fork], index=start[is_fork])
+            # Cut endnode at forks
+            endnodes[start[is_fork]] = 0
+            endnodes[0] = 0
+            end = endnodes[start]
+            no_pred = ~np.in1d(start, end)
+            start = start[no_pred]
+            end = endnodes[start]
+            ixes = []
+            ixes.append(start)
+            ixes.append(end)
+            while end.any():
+                end = endnodes[end]
+                ixes.append(end)
+            ixes = np.column_stack(ixes)
+            forkorder = pd.Series(np.arange(len(ixes)), index=ixes[:, 0])
+            profiles = []
+            connections = {}
+            for row in ixes:
+                profile = row[row != 0]
+                profile_start, profile_end = profile[0], profile[-1]
+                start_num = forkorder.at[profile_start]
+                if profile_end in forks.index:
+                    profile_end = forks.at[profile_end]
+                if profile_end in forkorder.index:
+                    end_num = forkorder.at[profile_end]
+                else:
+                    end_num = -1
+                profiles.append(profile)
+                connections.update({start_num : end_num})
+        except:
+            raise
+        finally:
+            self._unflatten_fdir(fdir, flat_idx, dirmap)
+            fdir = fdir.astype(fdir_orig_type)
+        return profiles, connections
+
     def extract_river_network(self, fdir, acc, threshold=100,
                               dirmap=None, nodata_in=None, routing='d8',
                               apply_mask=True, ignore_metadata=False, **kwargs):

@@ -1688,7 +1688,8 @@ class Grid(object):
 
     def compute_hand(self, fdir, dem, drainage_mask, out_name='hand', dirmap=None,
                      nodata_in_fdir=None, nodata_in_dem=None, nodata_out=np.nan, routing='d8',
-                     inplace=True, apply_mask=False, ignore_metadata=False, **kwargs):
+                     inplace=True, apply_mask=False, ignore_metadata=False, return_index=False,
+                     **kwargs):
         """
         Computes the height above nearest drainage (HAND), based on a flow direction grid,
         a digital elevation grid, and a grid containing the locations of drainage channels.
@@ -1798,7 +1799,8 @@ class Grid(object):
                     hand[child] = hand[parent]
                     source = np.unique(child)
                 hand = hand.reshape(dem.shape)
-                hand = np.where(hand != -1, dem - dem.flat[hand], nodata_out)
+                if not return_index:
+                    hand = np.where(hand != -1, dem - dem.flat[hand], nodata_out)
             except:
                 raise
             finally:
@@ -1829,7 +1831,8 @@ class Grid(object):
                     hand[child] = hand[parent]
                     source = child
                 hand = hand.reshape(dem.shape)
-                hand = np.where(hand != -1, dem - dem.flat[hand], nodata_out)
+                if not return_index:
+                    hand = np.where(hand != -1, dem - dem.flat[hand], nodata_out)
             except:
                 raise
             finally:
@@ -2592,6 +2595,8 @@ class Grid(object):
         -------
         profiles : np.ndarray
                    Array of channel profiles
+        connections : dict
+                      Dictionary containing connections between channel profiles
         """
         if routing.lower() != 'd8':
             raise NotImplementedError('Only implemented for D8 routing.')

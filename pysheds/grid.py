@@ -30,6 +30,11 @@ try:
 except:
     _HAS_RASTERIO = False
 
+_OLD_PYPROJ = LooseVersion(pyproj.__version__) < LooseVersion('2.2')
+_pyproj_crs = lambda Proj: Proj.crs if not _OLD_PYPROJ else Proj
+_pyproj_crs_is_geographic = 'is_latlong' if _OLD_PYPROJ else 'is_geographic'
+_pyproj_init = '+init=epsg:4326' if _OLD_PYPROJ else 'epsg:4326'
+
 from pysheds.view import Raster
 from pysheds.view import BaseViewFinder, RegularViewFinder, IrregularViewFinder
 from pysheds.view import RegularGridViewer, IrregularGridViewer
@@ -91,7 +96,7 @@ class Grid(object):
     """
 
     def __init__(self, affine=Affine(0,0,0,0,0,0), shape=(1,1), nodata=0,
-                 crs=pyproj.Proj('+init=epsg:4326'),
+                 crs=pyproj.Proj(_pyproj_init),
                  mask=None):
         self.affine = affine
         self.shape = shape
@@ -108,7 +113,7 @@ class Grid(object):
             'affine' : Affine(0,0,0,0,0,0),
             'shape' : (1,1),
             'nodata' : 0,
-            'crs' : pyproj.Proj('+init=epsg:4326'),
+            'crs' : pyproj.Proj(_pyproj_init),
         }
         return props
 
@@ -190,7 +195,7 @@ class Grid(object):
         self.grids.append(data_name)
         setattr(self, data_name, data)
 
-    def read_ascii(self, data, data_name, skiprows=6, crs=pyproj.Proj('+init=epsg:4326'),
+    def read_ascii(self, data, data_name, skiprows=6, crs=pyproj.Proj(_pyproj_init),
                    xll='lower', yll='lower', metadata={}, **kwargs):
         """
         Reads data from an ascii file into a named attribute of Grid
@@ -277,8 +282,13 @@ class Grid(object):
                 if window_crs is not None:
                     if window_crs.srs != crs.srs:
                         xmin, ymin, xmax, ymax = window
-                        extent = pyproj.transform(window_crs, crs, (xmin, xmax),
-                                                  (ymin, ymax))
+                        if _OLD_PYPROJ:
+                            extent = pyproj.transform(window_crs, crs, (xmin, xmax),
+                                                    (ymin, ymax))
+                        else:
+                            extent = pyproj.transform(window_crs, crs, (xmin, xmax),
+                                                      (ymin, ymax), errcheck=True,
+                                                      always_xy=True)
                         window = (extent[0][0], extent[1][0], extent[0][1], extent[1][1])
                 # If window crs not specified, assume it's in raster crs
                 ix_window = f.window(*window)
@@ -424,8 +434,8 @@ class Grid(object):
         if as_crs is not None:
             assert(isinstance(as_crs, pyproj.Proj))
             target_coords = target_view.coords
-            new_x, new_y = pyproj.transform(target_view.crs, as_crs,
-                                            target_coords[:,1], target_coords[:,0])
+            new_coords = self._convert_grid_indices_crs(target_coords, target_view.crs, as_crs)
+            new_x, new_y = new_coords[:,1], new_coords[:,0]
             # TODO: In general, crs conversion will yield irregular grid (though not necessarily)
             target_view = IrregularViewFinder(coords=np.column_stack([new_y, new_x]),
                                             shape=target_view.shape, crs=as_crs,
@@ -440,8 +450,8 @@ class Grid(object):
         if not same_crs:
             data_coords = data_view.coords
             # TODO: x and y order might be different
-            new_x, new_y = pyproj.transform(data_view.crs, target_view.crs,
-                                            data_coords[:,1], data_coords[:,0])
+            new_coords = self._convert_grid_indices_crs(data_coords, data_view.crs, target_view.crs)
+            new_x, new_y = new_coords[:,1], new_coords[:,0]
             # TODO: In general, crs conversion will yield irregular grid (though not necessarily)
             data_view = IrregularViewFinder(coords=np.column_stack([new_y, new_x]),
                                             shape=data_view.shape, crs=target_view.crs,
@@ -457,7 +467,7 @@ class Grid(object):
             # If spline interpolation is needed, use RectBivariate
             elif interpolation == 'spline':
                 # If latitude/longitude, use RectSphereBivariate
-                if target_view.crs.is_latlong():
+                if getattr(_pyproj_crs(target_view.crs), _pyproj_crs_is_geographic):
                     array_view = RegularGridViewer._view_rectspherebivariate(data, data_view,
                                                                              target_view,
                                                                              x_tolerance=tolerance,
@@ -1688,7 +1698,8 @@ class Grid(object):
 
     def compute_hand(self, fdir, dem, drainage_mask, out_name='hand', dirmap=None,
                      nodata_in_fdir=None, nodata_in_dem=None, nodata_out=np.nan, routing='d8',
-                     inplace=True, apply_mask=False, ignore_metadata=False, **kwargs):
+                     inplace=True, apply_mask=False, ignore_metadata=False, return_index=False,
+                     **kwargs):
         """
         Computes the height above nearest drainage (HAND), based on a flow direction grid,
         a digital elevation grid, and a grid containing the locations of drainage channels.
@@ -1798,7 +1809,8 @@ class Grid(object):
                     hand[child] = hand[parent]
                     source = np.unique(child)
                 hand = hand.reshape(dem.shape)
-                hand = np.where(hand != -1, dem - dem.flat[hand], nodata_out)
+                if not return_index:
+                    hand = np.where(hand != -1, dem - dem.flat[hand], nodata_out)
             except:
                 raise
             finally:
@@ -1829,7 +1841,8 @@ class Grid(object):
                     hand[child] = hand[parent]
                     source = child
                 hand = hand.reshape(dem.shape)
-                hand = np.where(hand != -1, dem - dem.flat[hand], nodata_out)
+                if not return_index:
+                    hand = np.where(hand != -1, dem - dem.flat[hand], nodata_out)
             except:
                 raise
             finally:
@@ -1857,11 +1870,11 @@ class Grid(object):
                  CRS at which to compute the area of each cell.
         """
         if as_crs is None:
-            if self.crs.is_latlong():
+            if getattr(_pyproj_crs(self.crs), _pyproj_crs_is_geographic):
                 warnings.warn(('CRS is geographic. Area will not have meaningful '
                             'units.'))
         else:
-            if as_crs.is_latlong():
+            if getattr(_pyproj_crs(as_crs), _pyproj_crs_is_geographic):
                 warnings.warn(('CRS is geographic. Area will not have meaningful '
                             'units.'))
         indices = np.vstack(np.dstack(np.meshgrid(*self.grid_indices(),
@@ -1918,11 +1931,11 @@ class Grid(object):
         if routing.lower() != 'd8':
             raise NotImplementedError('Only implemented for D8 routing.')
         if as_crs is None:
-            if self.crs.is_latlong():
+            if getattr(_pyproj_crs(self.crs), _pyproj_crs_is_geographic):
                 warnings.warn(('CRS is geographic. Area will not have meaningful '
                             'units.'))
         else:
-            if as_crs.is_latlong():
+            if getattr(_pyproj_crs(as_crs), _pyproj_crs_is_geographic):
                 warnings.warn(('CRS is geographic. Area will not have meaningful '
                             'units.'))
         indices = np.vstack(np.dstack(np.meshgrid(*self.grid_indices(),
@@ -2221,8 +2234,13 @@ class Grid(object):
     #     return new_bbox
 
     def _convert_grid_indices_crs(self, grid_indices, old_crs, new_crs):
-        x2, y2 = pyproj.transform(old_crs, new_crs, grid_indices[:,1],
-                                  grid_indices[:,0])
+        if _OLD_PYPROJ:
+            x2, y2 = pyproj.transform(old_crs, new_crs, grid_indices[:,1],
+                                    grid_indices[:,0])
+        else:
+            x2, y2 = pyproj.transform(old_crs, new_crs, grid_indices[:,1],
+                                      grid_indices[:,0], errcheck=True,
+                                      always_xy=True)
         yx2 = np.column_stack([y2, x2])
         return yx2
 
@@ -2592,6 +2610,8 @@ class Grid(object):
         -------
         profiles : np.ndarray
                    Array of channel profiles
+        connections : dict
+                      Dictionary containing connections between channel profiles
         """
         if routing.lower() != 'd8':
             raise NotImplementedError('Only implemented for D8 routing.')

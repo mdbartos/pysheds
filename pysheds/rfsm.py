@@ -485,7 +485,7 @@ class RFSM:
                 minelev = np.nanmin(self.dem)
             target_vol = node.current_vol
             elev = optimize.bisect(self.compute_vol, minelev, maxelev,
-                                args=(node, target_vol))
+                                   args=(node, target_vol))
             if node.name:
                 mask = self.ws[node.level] == node.name
             else:

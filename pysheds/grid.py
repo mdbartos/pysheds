@@ -428,8 +428,10 @@ class Grid(object):
         if as_crs is not None:
             assert(isinstance(as_crs, pyproj.Proj))
             target_coords = target_view.coords
-            new_x, new_y = pyproj.transform(target_view.crs, as_crs,
-                                            target_coords[:,1], target_coords[:,0])
+            new_coords = self._convert_grid_indices_crs(target_coords, target_view.crs, as_crs)
+            new_x, new_y = new_coords[:,1], new_coords[:,0]
+            # new_x, new_y = pyproj.transform(target_view.crs, as_crs,
+            #                                 target_coords[:,1], target_coords[:,0])
             # TODO: In general, crs conversion will yield irregular grid (though not necessarily)
             target_view = IrregularViewFinder(coords=np.column_stack([new_y, new_x]),
                                             shape=target_view.shape, crs=as_crs,
@@ -444,8 +446,10 @@ class Grid(object):
         if not same_crs:
             data_coords = data_view.coords
             # TODO: x and y order might be different
-            new_x, new_y = pyproj.transform(data_view.crs, target_view.crs,
-                                            data_coords[:,1], data_coords[:,0])
+            new_coords = self._convert_grid_indices_crs(data_coords, data_view.crs, target_view.crs)
+            new_x, new_y = new_coords[:,1], new_coords[:,0]
+            # new_x, new_y = pyproj.transform(data_view.crs, target_view.crs,
+            #                                 data_coords[:,1], data_coords[:,0])
             # TODO: In general, crs conversion will yield irregular grid (though not necessarily)
             data_view = IrregularViewFinder(coords=np.column_stack([new_y, new_x]),
                                             shape=data_view.shape, crs=target_view.crs,

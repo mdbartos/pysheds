@@ -3,6 +3,10 @@ from scipy import spatial
 from scipy import interpolate
 import pyproj
 from affine import Affine
+from distutils.version import LooseVersion
+
+_OLD_PYPROJ = LooseVersion(pyproj.__version__) < LooseVersion('2.2')
+_pyproj_init = '+init=epsg:4326' if _OLD_PYPROJ else 'epsg:4326'
 
 class Raster(np.ndarray):
     def __new__(cls, input_array, viewfinder, metadata=None):
@@ -74,7 +78,7 @@ class Raster(np.ndarray):
 
 class BaseViewFinder():
     def __init__(self, shape=None, mask=None, nodata=None,
-                 crs=pyproj.Proj('+init=epsg:4326'), y_coord_ix=0, x_coord_ix=1):
+                 crs=pyproj.Proj(_pyproj_init), y_coord_ix=0, x_coord_ix=1):
         if shape is not None:
             self.shape = shape
         else:
@@ -121,7 +125,7 @@ class BaseViewFinder():
 
 class RegularViewFinder(BaseViewFinder):
     def __init__(self, affine, shape, mask=None, nodata=None,
-                 crs=pyproj.Proj('+init=epsg:4326'),
+                 crs=pyproj.Proj(_pyproj_init),
                  y_coord_ix=0, x_coord_ix=1):
         if affine is not None:
             self.affine = affine
@@ -219,7 +223,7 @@ class RegularViewFinder(BaseViewFinder):
 
 class IrregularViewFinder(BaseViewFinder):
     def __init__(self, coords, shape=None, mask=None, nodata=None,
-                 crs=pyproj.Proj('+init=epsg:4326'),
+                 crs=pyproj.Proj(_pyproj_init),
                  y_coord_ix=0, x_coord_ix=1):
         if coords is not None:
             self.coords = coords

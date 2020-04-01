@@ -33,6 +33,7 @@ except:
 _OLD_PYPROJ = LooseVersion(pyproj.__version__) < LooseVersion('2.2')
 _pyproj_crs = lambda Proj: Proj.crs if not _OLD_PYPROJ else Proj
 _pyproj_crs_is_geographic = 'is_latlong' if _OLD_PYPROJ else 'is_geographic'
+_pyproj_init = '+init=epsg:4326' if _OLD_PYPROJ else 'epsg:4326'
 
 from pysheds.view import Raster
 from pysheds.view import BaseViewFinder, RegularViewFinder, IrregularViewFinder
@@ -95,7 +96,7 @@ class Grid(object):
     """
 
     def __init__(self, affine=Affine(0,0,0,0,0,0), shape=(1,1), nodata=0,
-                 crs=pyproj.Proj('+init=epsg:4326'),
+                 crs=pyproj.Proj(_pyproj_init),
                  mask=None):
         self.affine = affine
         self.shape = shape
@@ -112,7 +113,7 @@ class Grid(object):
             'affine' : Affine(0,0,0,0,0,0),
             'shape' : (1,1),
             'nodata' : 0,
-            'crs' : pyproj.Proj('+init=epsg:4326'),
+            'crs' : pyproj.Proj(_pyproj_init),
         }
         return props
 
@@ -194,7 +195,7 @@ class Grid(object):
         self.grids.append(data_name)
         setattr(self, data_name, data)
 
-    def read_ascii(self, data, data_name, skiprows=6, crs=pyproj.Proj('+init=epsg:4326'),
+    def read_ascii(self, data, data_name, skiprows=6, crs=pyproj.Proj(_pyproj_init),
                    xll='lower', yll='lower', metadata={}, **kwargs):
         """
         Reads data from an ascii file into a named attribute of Grid

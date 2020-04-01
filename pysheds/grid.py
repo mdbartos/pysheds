@@ -30,6 +30,10 @@ try:
 except:
     _HAS_RASTERIO = False
 
+_OLD_PYPROJ = LooseVersion(pyproj.__version__) < LooseVersion('2.2')
+_pyproj_crs = lambda Proj: Proj.crs if not _OLD_PYPROJ else Proj
+_pyproj_crs_is_geographic = 'is_latlong' if _OLD_PYPROJ else 'is_geographic'
+
 from pysheds.view import Raster
 from pysheds.view import BaseViewFinder, RegularViewFinder, IrregularViewFinder
 from pysheds.view import RegularGridViewer, IrregularGridViewer
@@ -457,7 +461,7 @@ class Grid(object):
             # If spline interpolation is needed, use RectBivariate
             elif interpolation == 'spline':
                 # If latitude/longitude, use RectSphereBivariate
-                if target_view.crs.is_latlong():
+                if getattr(_pyproj_crs(target_view.crs), _pyproj_crs_is_geographic):
                     array_view = RegularGridViewer._view_rectspherebivariate(data, data_view,
                                                                              target_view,
                                                                              x_tolerance=tolerance,
@@ -1860,11 +1864,11 @@ class Grid(object):
                  CRS at which to compute the area of each cell.
         """
         if as_crs is None:
-            if self.crs.is_latlong():
+            if getattr(_pyproj_crs(self.crs), _pyproj_crs_is_geographic):
                 warnings.warn(('CRS is geographic. Area will not have meaningful '
                             'units.'))
         else:
-            if as_crs.is_latlong():
+            if getattr(_pyproj_crs(as_crs), _pyproj_crs_is_geographic):
                 warnings.warn(('CRS is geographic. Area will not have meaningful '
                             'units.'))
         indices = np.vstack(np.dstack(np.meshgrid(*self.grid_indices(),
@@ -1921,11 +1925,11 @@ class Grid(object):
         if routing.lower() != 'd8':
             raise NotImplementedError('Only implemented for D8 routing.')
         if as_crs is None:
-            if self.crs.is_latlong():
+            if getattr(_pyproj_crs(self.crs), _pyproj_crs_is_geographic):
                 warnings.warn(('CRS is geographic. Area will not have meaningful '
                             'units.'))
         else:
-            if as_crs.is_latlong():
+            if getattr(_pyproj_crs(as_crs), _pyproj_crs_is_geographic):
                 warnings.warn(('CRS is geographic. Area will not have meaningful '
                             'units.'))
         indices = np.vstack(np.dstack(np.meshgrid(*self.grid_indices(),
@@ -2224,8 +2228,13 @@ class Grid(object):
     #     return new_bbox
 
     def _convert_grid_indices_crs(self, grid_indices, old_crs, new_crs):
-        x2, y2 = pyproj.transform(old_crs, new_crs, grid_indices[:,1],
-                                  grid_indices[:,0])
+        if _OLD_PYPROJ:
+            x2, y2 = pyproj.transform(old_crs, new_crs, grid_indices[:,1],
+                                    grid_indices[:,0])
+        else:
+            x2, y2 = pyproj.transform(old_crs, new_crs, grid_indices[:,1],
+                                      grid_indices[:,0], errcheck=True,
+                                      always_xy=True)
         yx2 = np.column_stack([y2, x2])
         return yx2
 

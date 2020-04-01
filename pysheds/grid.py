@@ -281,8 +281,13 @@ class Grid(object):
                 if window_crs is not None:
                     if window_crs.srs != crs.srs:
                         xmin, ymin, xmax, ymax = window
-                        extent = pyproj.transform(window_crs, crs, (xmin, xmax),
-                                                  (ymin, ymax))
+                        if _OLD_PYPROJ:
+                            extent = pyproj.transform(window_crs, crs, (xmin, xmax),
+                                                    (ymin, ymax))
+                        else:
+                            extent = pyproj.transform(window_crs, crs, (xmin, xmax),
+                                                      (ymin, ymax), errcheck=True,
+                                                      always_xy=True)
                         window = (extent[0][0], extent[1][0], extent[0][1], extent[1][1])
                 # If window crs not specified, assume it's in raster crs
                 ix_window = f.window(*window)

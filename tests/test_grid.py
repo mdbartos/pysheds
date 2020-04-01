@@ -18,7 +18,7 @@ dinf_eff_path = os.path.join(data_dir, 'dinf_eff.tif')
 
 # Initialize grid
 grid = Grid()
-crs = pyproj.Proj('+init=epsg:4326', preserve_units=True)
+crs = pyproj.Proj('epsg:4326', preserve_units=True)
 grid.read_ascii(dir_path, 'dir', dtype=np.uint8, crs=crs)
 grid.read_raster(dem_path, 'dem')
 grid.read_raster(roi_path, 'roi')
@@ -37,8 +37,8 @@ acc_in_frame_eff1 = 19125.5 # accumulation for raster cell with acc_in_frame wit
 cells_in_catch = 11422
 catch_shape = (159, 169)
 max_distance = 209
-new_crs = pyproj.Proj('+init=epsg:3083')
-old_crs = pyproj.Proj('+init=epsg:4326', preserve_units=True)
+new_crs = pyproj.Proj('epsg:3083')
+old_crs = pyproj.Proj('epsg:4326', preserve_units=True)
 x, y = -97.29416666666677, 32.73749999999989
 
 
@@ -137,6 +137,9 @@ def test_accumulation():
                       efficiency=eff)
     pos = np.where(grid.dinf_acc==grid.dinf_acc.max())
     assert(np.round(grid.dinf_acc[pos] / grid.dinf_acc_eff[pos]) == 4.)
+
+def test_hand():
+    grid.compute_hand('dir', 'dem', grid.acc > 100)
 
 def test_flow_distance():
     grid.clip_to('catch')

@@ -2,7 +2,7 @@
 layout: default
 ---
 
-# pysheds [![Build Status](https://travis-ci.org/mdbartos/pysheds.svg?branch=master)](https://travis-ci.org/mdbartos/pysheds) [![Coverage Status](https://coveralls.io/repos/github/mdbartos/pysheds/badge.svg?branch=master)](https://coveralls.io/github/mdbartos/pysheds?branch=master)
+# pysheds [![Build Status](https://travis-ci.org/mdbartos/pysheds.svg?branch=master)](https://travis-ci.org/mdbartos/pysheds) [![Coverage Status](https://coveralls.io/repos/github/mdbartos/pysheds/badge.svg?branch=master)](https://coveralls.io/github/mdbartos/pysheds?branch=master) [![Python 3.6](https://img.shields.io/badge/python-3.6-blue.svg)](https://www.python.org/downloads/release/python-360/)
 🌎 Simple and fast watershed delineation in python.
 
 ## Example usage
@@ -141,6 +141,7 @@ soil_raster = grid.rasterize(soil_polygons, fill=np.nan)
   - `cell_distances`: Compute (projected) channel length within cells.
   - `cell_dh`: Compute the elevation change between cells.
   - `cell_slopes`: Compute the slopes of cells.
+  - `compute_hand`: Compute the height above nearest drainage (HAND) as described in Nobre et al. (2011).
 - Utilities:
   - `view`: Returns a view of a dataset at a given bounding box and resolution.
   - `clip_to`: Clip the current view to the extent of nonzero values in a given dataset.
@@ -168,7 +169,7 @@ soil_raster = grid.rasterize(soil_polygons, fill=np.nan)
 You can install `pysheds` using pip:
 
 ```bash
-pip install pysheds
+$ pip install pysheds
 ```
 
 For the bleeding-edge version, you can install pysheds from this github repository.

@@ -30,6 +30,11 @@ try:
 except:
     _HAS_RASTERIO = False
 
+_OLD_PYPROJ = LooseVersion(pyproj.__version__) < LooseVersion('2.2')
+_pyproj_crs = lambda Proj: Proj.crs if not _OLD_PYPROJ else Proj
+_pyproj_crs_is_geographic = 'is_latlong' if _OLD_PYPROJ else 'is_geographic'
+_pyproj_init = '+init=epsg:4326' if _OLD_PYPROJ else 'epsg:4326'
+
 from pysheds.view import Raster
 from pysheds.view import BaseViewFinder, RegularViewFinder, IrregularViewFinder
 from pysheds.view import RegularGridViewer, IrregularGridViewer
@@ -91,7 +96,7 @@ class Grid(object):
     """
 
     def __init__(self, affine=Affine(0,0,0,0,0,0), shape=(1,1), nodata=0,
-                 crs=pyproj.Proj('+init=epsg:4326'),
+                 crs=pyproj.Proj(_pyproj_init),
                  mask=None):
         self.affine = affine
         self.shape = shape
@@ -108,7 +113,7 @@ class Grid(object):
             'affine' : Affine(0,0,0,0,0,0),
             'shape' : (1,1),
             'nodata' : 0,
-            'crs' : pyproj.Proj('+init=epsg:4326'),
+            'crs' : pyproj.Proj(_pyproj_init),
         }
         return props
 
@@ -190,7 +195,7 @@ class Grid(object):
         self.grids.append(data_name)
         setattr(self, data_name, data)
 
-    def read_ascii(self, data, data_name, skiprows=6, crs=pyproj.Proj('+init=epsg:4326'),
+    def read_ascii(self, data, data_name, skiprows=6, crs=pyproj.Proj(_pyproj_init),
                    xll='lower', yll='lower', metadata={}, **kwargs):
         """
         Reads data from an ascii file into a named attribute of Grid
@@ -277,8 +282,13 @@ class Grid(object):
                 if window_crs is not None:
                     if window_crs.srs != crs.srs:
                         xmin, ymin, xmax, ymax = window
-                        extent = pyproj.transform(window_crs, crs, (xmin, xmax),
-                                                  (ymin, ymax))
+                        if _OLD_PYPROJ:
+                            extent = pyproj.transform(window_crs, crs, (xmin, xmax),
+                                                    (ymin, ymax))
+                        else:
+                            extent = pyproj.transform(window_crs, crs, (xmin, xmax),
+                                                      (ymin, ymax), errcheck=True,
+                                                      always_xy=True)
                         window = (extent[0][0], extent[1][0], extent[0][1], extent[1][1])
                 # If window crs not specified, assume it's in raster crs
                 ix_window = f.window(*window)
@@ -424,8 +434,8 @@ class Grid(object):
         if as_crs is not None:
             assert(isinstance(as_crs, pyproj.Proj))
             target_coords = target_view.coords
-            new_x, new_y = pyproj.transform(target_view.crs, as_crs,
-                                            target_coords[:,1], target_coords[:,0])
+            new_coords = self._convert_grid_indices_crs(target_coords, target_view.crs, as_crs)
+            new_x, new_y = new_coords[:,1], new_coords[:,0]
             # TODO: In general, crs conversion will yield irregular grid (though not necessarily)
             target_view = IrregularViewFinder(coords=np.column_stack([new_y, new_x]),
                                             shape=target_view.shape, crs=as_crs,
@@ -440,8 +450,8 @@ class Grid(object):
         if not same_crs:
             data_coords = data_view.coords
             # TODO: x and y order might be different
-            new_x, new_y = pyproj.transform(data_view.crs, target_view.crs,
-                                            data_coords[:,1], data_coords[:,0])
+            new_coords = self._convert_grid_indices_crs(data_coords, data_view.crs, target_view.crs)
+            new_x, new_y = new_coords[:,1], new_coords[:,0]
             # TODO: In general, crs conversion will yield irregular grid (though not necessarily)
             data_view = IrregularViewFinder(coords=np.column_stack([new_y, new_x]),
                                             shape=data_view.shape, crs=target_view.crs,
@@ -457,7 +467,7 @@ class Grid(object):
             # If spline interpolation is needed, use RectBivariate
             elif interpolation == 'spline':
                 # If latitude/longitude, use RectSphereBivariate
-                if target_view.crs.is_latlong():
+                if getattr(_pyproj_crs(target_view.crs), _pyproj_crs_is_geographic):
                     array_view = RegularGridViewer._view_rectspherebivariate(data, data_view,
                                                                              target_view,
                                                                              x_tolerance=tolerance,
@@ -1688,7 +1698,8 @@ class Grid(object):
 
     def compute_hand(self, fdir, dem, drainage_mask, out_name='hand', dirmap=None,
                      nodata_in_fdir=None, nodata_in_dem=None, nodata_out=np.nan, routing='d8',
-                     inplace=True, apply_mask=False, ignore_metadata=False, **kwargs):
+                     inplace=True, apply_mask=False, ignore_metadata=False, return_index=False,
+                     **kwargs):
         """
         Computes the height above nearest drainage (HAND), based on a flow direction grid,
         a digital elevation grid, and a grid containing the locations of drainage channels.
@@ -1755,7 +1766,61 @@ class Grid(object):
         assert (np.asarray(dem.shape) == np.asarray(fdir.shape)).all()
         assert (np.asarray(dem.shape) == np.asarray(mask.shape)).all()
         if routing.lower() == 'dinf':
-            raise NotImplementedError('Only implemented for D8 routing.')
+            try:
+                # Split dinf flowdir
+                fdir_0, fdir_1, prop_0, prop_1 = self.angle_to_d8(fdir, dirmap=dirmap)
+                # Find invalid cells
+                invalid_cells = ((fdir < 0) | (fdir > (np.pi * 2)))
+                # Pad the rim
+                dirleft_0, dirright_0, dirtop_0, dirbottom_0 = self._pop_rim(fdir_0,
+                                                                            nodata=nodata_in_fdir)
+                dirleft_1, dirright_1, dirtop_1, dirbottom_1 = self._pop_rim(fdir_1,
+                                                                            nodata=nodata_in_fdir)
+                maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=0)
+                mask = mask.ravel()
+                # Ensure proportion of flow is never zero
+                fdir_0.flat[prop_0 == 0] = fdir_1.flat[prop_0 == 0]
+                fdir_1.flat[prop_1 == 0] = fdir_0.flat[prop_1 == 0]
+                # Set nodata cells to zero
+                fdir_0[invalid_cells] = 0
+                fdir_1[invalid_cells] = 0
+                # Create indexing arrays for convenience
+                visited = np.zeros(fdir.size, dtype=np.bool)
+                # nvisited = np.zeros(fdir.size, dtype=int)
+                r_dirmap = np.array(dirmap)[[4, 5, 6, 7, 0, 1, 2, 3]].tolist()
+                source = np.flatnonzero(mask)
+                hand = -np.ones(fdir.size, dtype=np.int)
+                hand[source] = source
+                visited[source] = True
+                # nvisited[source] += 1
+                for _ in range(fdir.size):
+                    selection = self._select_surround_ravel(source, fdir.shape)
+                    ix = (((fdir_0.flat[selection] == r_dirmap) |
+                          (fdir_1.flat[selection] == r_dirmap)) &
+                          (hand.flat[selection] < 0) &
+                          (~visited.flat[selection])
+                     )
+                    # TODO: Not optimized (a lot of copying here)
+                    parent = np.tile(source, (len(dirmap), 1)).T[ix]
+                    child = selection[ix]
+                    if not child.size:
+                        break
+                    visited.flat[child] = True
+                    hand[child] = hand[parent]
+                    source = np.unique(child)
+                hand = hand.reshape(dem.shape)
+                if not return_index:
+                    hand = np.where(hand != -1, dem - dem.flat[hand], nodata_out)
+            except:
+                raise
+            finally:
+                mask = mask.reshape(dem.shape)
+                self._replace_rim(fdir_0, dirleft_0, dirright_0, dirtop_0, dirbottom_0)
+                self._replace_rim(fdir_1, dirleft_1, dirright_1, dirtop_1, dirbottom_1)
+                self._replace_rim(mask, maskleft, maskright, masktop, maskbottom)
+            return self._output_handler(data=hand, out_name=out_name, properties=properties,
+                                        inplace=inplace, metadata=metadata)
+
         elif routing.lower() == 'd8':
             try:
                 dirleft, dirright, dirtop, dirbottom = self._pop_rim(fdir, nodata=nodata_in_fdir)
@@ -1776,7 +1841,8 @@ class Grid(object):
                     hand[child] = hand[parent]
                     source = child
                 hand = hand.reshape(dem.shape)
-                hand = np.where(hand != -1, dem - dem.flat[hand], nodata_out)
+                if not return_index:
+                    hand = np.where(hand != -1, dem - dem.flat[hand], nodata_out)
             except:
                 raise
             finally:
@@ -1804,11 +1870,11 @@ class Grid(object):
                  CRS at which to compute the area of each cell.
         """
         if as_crs is None:
-            if self.crs.is_latlong():
+            if getattr(_pyproj_crs(self.crs), _pyproj_crs_is_geographic):
                 warnings.warn(('CRS is geographic. Area will not have meaningful '
                             'units.'))
         else:
-            if as_crs.is_latlong():
+            if getattr(_pyproj_crs(as_crs), _pyproj_crs_is_geographic):
                 warnings.warn(('CRS is geographic. Area will not have meaningful '
                             'units.'))
         indices = np.vstack(np.dstack(np.meshgrid(*self.grid_indices(),
@@ -1865,11 +1931,11 @@ class Grid(object):
         if routing.lower() != 'd8':
             raise NotImplementedError('Only implemented for D8 routing.')
         if as_crs is None:
-            if self.crs.is_latlong():
+            if getattr(_pyproj_crs(self.crs), _pyproj_crs_is_geographic):
                 warnings.warn(('CRS is geographic. Area will not have meaningful '
                             'units.'))
         else:
-            if as_crs.is_latlong():
+            if getattr(_pyproj_crs(as_crs), _pyproj_crs_is_geographic):
                 warnings.warn(('CRS is geographic. Area will not have meaningful '
                             'units.'))
         indices = np.vstack(np.dstack(np.meshgrid(*self.grid_indices(),
@@ -2168,8 +2234,13 @@ class Grid(object):
     #     return new_bbox
 
     def _convert_grid_indices_crs(self, grid_indices, old_crs, new_crs):
-        x2, y2 = pyproj.transform(old_crs, new_crs, grid_indices[:,1],
-                                  grid_indices[:,0])
+        if _OLD_PYPROJ:
+            x2, y2 = pyproj.transform(old_crs, new_crs, grid_indices[:,1],
+                                    grid_indices[:,0])
+        else:
+            x2, y2 = pyproj.transform(old_crs, new_crs, grid_indices[:,1],
+                                      grid_indices[:,0], errcheck=True,
+                                      always_xy=True)
         yx2 = np.column_stack([y2, x2])
         return yx2
 
@@ -2507,6 +2578,106 @@ class Grid(object):
         profile.update(profile_updates)
         with rasterio.open(file_name, 'w', **profile) as dst:
             dst.write(np.asarray(data), 1)
+
+    def extract_profiles(self, fdir, mask, dirmap=None, nodata_in=None, routing='d8',
+                         apply_mask=True, ignore_metadata=False, **kwargs):
+        """
+        Generates river profiles from flow_direction and mask arrays.
+ 
+        Parameters
+        ----------
+        fdir : str or Raster
+               Flow direction data.
+               If str: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        mask : np.ndarray or Raster
+               Boolean array indicating channelized regions
+        dirmap : list or tuple (length 8)
+                 List of integer values representing the following
+                 cardinal and intercardinal directions (in order):
+                 [N, NE, E, SE, S, SW, W, NW]
+        nodata_in : int or float
+                     Value to indicate nodata in input array.
+        routing : str
+                  Routing algorithm to use:
+                  'd8'   : D8 flow directions
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and CRS.
+ 
+        Returns
+        -------
+        profiles : np.ndarray
+                   Array of channel profiles
+        connections : dict
+                      Dictionary containing connections between channel profiles
+        """
+        if routing.lower() != 'd8':
+            raise NotImplementedError('Only implemented for D8 routing.')
+        # TODO: If two "forks" are directly connected, it can introduce a gap
+        nodata_in = self._check_nodata_in(fdir, nodata_in)
+        fdir_props = {}
+        acc_props = {}
+        fdir = self._input_handler(fdir, apply_mask=apply_mask, nodata_view=nodata_in,
+                                   properties=fdir_props,
+                                   ignore_metadata=ignore_metadata, **kwargs)
+        try:
+            assert(fdir.shape == mask.shape)
+        except:
+            raise ValueError('Flow direction and accumulation grids not aligned.')
+        dirmap = self._set_dirmap(dirmap, fdir)
+        flat_idx = np.arange(fdir.size)
+        fdir_orig_type = fdir.dtype
+        try:
+            mintype = np.min_scalar_type(fdir.size)
+            fdir = fdir.astype(mintype)
+            flat_idx = flat_idx.astype(mintype)
+            startnodes, endnodes = self._construct_matching(fdir, flat_idx,
+                                                            dirmap=dirmap)
+            start = startnodes[mask.flat[startnodes]]
+            end = fdir.flat[start]
+            # Find nodes with indegree > 1
+            indegree = (np.bincount(end)).astype(np.uint8)
+            forks_end = np.flatnonzero(indegree > 1)
+            # Find fork nodes
+            is_fork = np.in1d(end, forks_end)
+            forks = pd.Series(end[is_fork], index=start[is_fork])
+            # Cut endnode at forks
+            endnodes[start[is_fork]] = 0
+            endnodes[0] = 0
+            end = endnodes[start]
+            no_pred = ~np.in1d(start, end)
+            start = start[no_pred]
+            end = endnodes[start]
+            ixes = []
+            ixes.append(start)
+            ixes.append(end)
+            while end.any():
+                end = endnodes[end]
+                ixes.append(end)
+            ixes = np.column_stack(ixes)
+            forkorder = pd.Series(np.arange(len(ixes)), index=ixes[:, 0])
+            profiles = []
+            connections = {}
+            for row in ixes:
+                profile = row[row != 0]
+                profile_start, profile_end = profile[0], profile[-1]
+                start_num = forkorder.at[profile_start]
+                if profile_end in forks.index:
+                    profile_end = forks.at[profile_end]
+                if profile_end in forkorder.index:
+                    end_num = forkorder.at[profile_end]
+                else:
+                    end_num = -1
+                profiles.append(profile)
+                connections.update({start_num : end_num})
+        except:
+            raise
+        finally:
+            self._unflatten_fdir(fdir, flat_idx, dirmap)
+            fdir = fdir.astype(fdir_orig_type)
+        return profiles, connections
 
     def extract_river_network(self, fdir, acc, threshold=100,
                               dirmap=None, nodata_in=None, routing='d8',

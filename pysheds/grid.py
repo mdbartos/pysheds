@@ -550,7 +550,7 @@ class Grid(object):
         return self._output_handler(data=data, out_name=out_name, properties=grid_props,
                                     inplace=inplace, metadata=metadata)
 
-    def nearest_cell(self, x, y, affine=None):
+    def nearest_cell(self, x, y, affine=None, reside=False):
         """
         Returns the index of the cell (column, row) closest
         to a given geographical coordinate.
@@ -565,6 +565,11 @@ class Grid(object):
                  Affine transformation that defines the translation between
                  geographic x/y coordinate and array row/column coordinate.
                  Defaults to self.affine.
+        reside : bool
+            Indicates the cell indexing method. If False, will resolve to 
+            snapping the (x,y) geometry to the index of the nearest top-left 
+            cell corner. If True, will return the index of the cell that the
+            geometry resides.
         Returns
         -------
         x_i, y_i : tuple of ints
@@ -576,7 +581,10 @@ class Grid(object):
             assert isinstance(affine, Affine)
         except:
             raise TypeError('affine must be an Affine instance.')
-        col, row = np.around(~affine * (x, y)).astype(int)
+        if reside:
+            col, row = np.floor(~affine * (x, y)).astype(int)
+        else:
+            col, row = np.around(~affine * (x, y)).astype(int)
         return col, row
 
     def set_bbox(self, new_bbox):
@@ -837,7 +845,7 @@ class Grid(object):
     def catchment(self, x, y, data, pour_value=None, out_name='catch', dirmap=None,
                   nodata_in=None, nodata_out=0, xytype='index', routing='d8',
                   recursionlimit=15000, inplace=True, apply_mask=False, ignore_metadata=False,
-                  **kwargs):
+                  reside=False, **kwargs):
         """
         Delineates a watershed from a given pour point (x, y).
  
@@ -884,6 +892,8 @@ class Grid(object):
                If True, "mask" the output using self.mask.
         ignore_metadata : bool
                           If False, require a valid affine transform and crs.
+        reside : bool
+                If True, index point geometry to it's residing cell.
         """
         # TODO: Why does this use set_dirmap but flowdir doesn't?
         dirmap = self._set_dirmap(dirmap, data)
@@ -909,7 +919,7 @@ class Grid(object):
                                       dirmap=dirmap, nodata_in=nodata_in, nodata_out=nodata_out,
                                       xytype=xytype, recursionlimit=recursionlimit, inplace=inplace,
                                       apply_mask=apply_mask, ignore_metadata=ignore_metadata,
-                                      properties=properties, metadata=metadata, **kwargs)
+                                      properties=properties, metadata=metadata, reside=reside, **kwargs)
         elif routing.lower() == 'dinf':
             return self._dinf_catchment(x, y, fdir=fdir, pour_value=pour_value, out_name=out_name,
                                       dirmap=dirmap, nodata_in=nodata_in, nodata_out=nodata_out,
@@ -920,7 +930,7 @@ class Grid(object):
     def _d8_catchment(self, x, y, fdir=None, pour_value=None, out_name='catch', dirmap=None,
                       nodata_in=None, nodata_out=0, xytype='index', recursionlimit=15000,
                       inplace=True, apply_mask=False, ignore_metadata=False, properties={},
-                      metadata={}, **kwargs):
+                      metadata={}, reside=False, **kwargs):
 
         # Vectorized Recursive algorithm:
         # for each cell j, recursively search through grid to determine
@@ -943,7 +953,7 @@ class Grid(object):
             # to given geographic coordinate
             # Valid if the dataset is a view.
             if xytype == 'label':
-                x, y = self.nearest_cell(x, y, fdir.affine)
+                x, y = self.nearest_cell(x, y, fdir.affine, reside)
             # get the flattened index of the pour point
             pour_point = np.ravel_multi_index(np.array([y, x]),
                                               fdir.shape)
@@ -977,7 +987,7 @@ class Grid(object):
     def _dinf_catchment(self, x, y, fdir=None, pour_value=None, out_name='catch', dirmap=None,
                         nodata_in=None, nodata_out=0, xytype='index', recursionlimit=15000,
                         inplace=True, apply_mask=False, ignore_metadata=False, properties={},
-                        metadata={}, **kwargs):
+                        metadata={}, reside=False, **kwargs):
         # Filter warnings due to invalid values
         np.warnings.filterwarnings(action='ignore', message='Invalid value encountered',
                                    category=RuntimeWarning)
@@ -1028,7 +1038,7 @@ class Grid(object):
             # TODO: This relies on the bbox of the grid instance, not the dataset
             # Valid if the dataset is a view.
             if xytype == 'label':
-                x, y = self.nearest_cell(x, y, fdir.affine)
+                x, y = self.nearest_cell(x, y, fdir.affine, reside)
             # get the flattened index of the pour point
             pour_point = np.ravel_multi_index(np.array([y, x]),
                                               fdir.shape)
@@ -1496,7 +1506,7 @@ class Grid(object):
     def flow_distance(self, x, y, data, weights=None, dirmap=None, nodata_in=None,
                       nodata_out=0, out_name='dist', routing='d8', method='shortest',
                       inplace=True, xytype='index', apply_mask=True, ignore_metadata=False,
-                      **kwargs):
+                      reside=False, **kwargs):
         """
         Generates an array representing the topological distance from each cell
         to the outlet.
@@ -1540,6 +1550,8 @@ class Grid(object):
                If True, "mask" the output using self.mask.
         ignore_metadata : bool
                           If False, require a valid affine transform and CRS.
+        reside : bool
+                If True, index point geometry to it's residing cell.
         """
         if not _HAS_SCIPY:
             raise ImportError('flow_distance requires scipy.sparse module')
@@ -1565,19 +1577,21 @@ class Grid(object):
                                           out_name=out_name, method=method, inplace=inplace,
                                           xytype=xytype, apply_mask=apply_mask,
                                           ignore_metadata=ignore_metadata,
-                                          properties=properties, metadata=metadata, **kwargs)
+                                          properties=properties, metadata=metadata,
+                                          reside=reside, **kwargs)
         elif routing.lower() == 'dinf':
             return self._dinf_flow_distance(x, y, fdir, weights=weights, dirmap=dirmap,
                                             nodata_in=nodata_in, nodata_out=nodata_out,
                                             out_name=out_name, method=method, inplace=inplace,
                                             xytype=xytype, apply_mask=apply_mask,
                                             ignore_metadata=ignore_metadata,
-                                            properties=properties, metadata=metadata, **kwargs)
+                                            properties=properties, metadata=metadata,
+                                            reside=reside, **kwargs)
 
     def _d8_flow_distance(self, x, y, fdir, weights=None, dirmap=None, nodata_in=None,
                           nodata_out=0, out_name='dist', method='shortest', inplace=True,
                           xytype='index', apply_mask=True, ignore_metadata=False, properties={},
-                          metadata={}, **kwargs):
+                          metadata={}, reside=False, **kwargs):
         # Construct flat index onto flow direction array
         domain = np.arange(fdir.size)
         fdir_orig_type = fdir.dtype
@@ -1595,7 +1609,7 @@ class Grid(object):
             startnodes, endnodes = self._construct_matching(fdir, domain,
                                                             dirmap=dirmap)
             if xytype == 'label':
-                x, y = self.nearest_cell(x, y, fdir.affine)
+                x, y = self.nearest_cell(x, y, fdir.affine, reside)
             # TODO: Currently the size of weights is hard to understand
             if weights is not None:
                 weights = weights.ravel()
@@ -1625,7 +1639,7 @@ class Grid(object):
     def _dinf_flow_distance(self, x, y, fdir, weights=None, dirmap=None, nodata_in=None,
                             nodata_out=0, out_name='dist', method='shortest', inplace=True,
                             xytype='index', apply_mask=True, ignore_metadata=False,
-                            properties={}, metadata={}, **kwargs):
+                            properties={}, metadata={}, reside=False, **kwargs):
         # Filter warnings due to invalid values
         np.warnings.filterwarnings(action='ignore', message='Invalid value encountered',
                                    category=RuntimeWarning)
@@ -1658,7 +1672,7 @@ class Grid(object):
             assert(startnodes.size == endnodes_0.size)
             assert(startnodes.size == endnodes_1.size)
             if xytype == 'label':
-                x, y = self.nearest_cell(x, y, fdir.affine)
+                x, y = self.nearest_cell(x, y, fdir.affine, reside)
             # TODO: Currently the size of weights is hard to understand
             if weights is not None:
                 if isinstance(weights, list) or isinstance(weights, tuple):

@@ -581,10 +581,8 @@ class Grid(object):
             assert isinstance(affine, Affine)
         except:
             raise TypeError('affine must be an Affine instance.')
-        if reside:
-            col, row = np.floor(~affine * (x, y)).astype(int)
-        else:
-            col, row = np.around(~affine * (x, y)).astype(int)
+        index_method = np.floor if reside else np.around
+        col, row = index_method(~affine * (x, y)).astype(int)
         return col, row
 
     def set_bbox(self, new_bbox):

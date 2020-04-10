@@ -51,6 +51,16 @@ def test_constructors():
 def test_dtype():
     assert(grid.dir.dtype == np.uint8)
 
+def test_nearest_cell():
+    '''
+    corner: snaps to nearest top/left
+    center: snaps to index of cell that contains the geometry
+    '''
+    col, row = grid.nearest_cell(x, y, snap='corner')
+    assert (col, row) == (229, 101)
+    col, row = grid.nearest_cell(x, y, snap='center')
+    assert (col, row) == (228, 100)
+
 def test_catchment():
     # Reference routing
     grid.catchment(x, y, data='dir', dirmap=dirmap, out_name='catch',

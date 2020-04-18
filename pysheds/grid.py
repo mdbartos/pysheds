@@ -239,7 +239,7 @@ class Grid(object):
                               crs=crs, nodata=nodata, metadata=metadata)
 
     def read_raster(self, data, data_name, band=1, window=None, window_crs=None,
-                    metadata={}, **kwargs):
+                    metadata={}, mask_geometry=False, **kwargs):
         """
         Reads data from a raster file into a named attribute of Grid
         (name of attribute determined by keyword 'data_name').
@@ -257,6 +257,9 @@ class Grid(object):
                  If using windowed reading, specify window (xmin, ymin, xmax, ymax).
         window_crs : pyproj.Proj instance
                      Coordinate reference system of window. If None, assume it's in raster's crs.
+        mask_geometry : iterable object
+                        The values must be a GeoJSON-like dict or an object that implements
+                        the Python geo interface protocol (such as a Shapely Polygon).
         metadata : dict
                    Other attributes describing dataset, such as direction
                    mapping for flow direction files. e.g.:
@@ -268,6 +271,7 @@ class Grid(object):
         # read raster file
         if not _HAS_RASTERIO:
             raise ImportError('Requires rasterio module')
+        mask = None
         with rasterio.open(data, **kwargs) as f:
             crs = pyproj.Proj(f.crs, preserve_units=True)
             if window is None:
@@ -299,11 +303,13 @@ class Grid(object):
                 affine = f.window_transform(ix_window)
                 data = np.squeeze(data)
                 shape = data.shape
+            if mask_geometry:
+                mask = rasterio.features.geometry_mask(mask_geometry, shape, affine, invert=True)
             nodata = f.nodatavals[0]
         if nodata is not None:
             nodata = data.dtype.type(nodata)
         self.add_gridded_data(data=data, data_name=data_name, affine=affine, shape=shape,
-                              crs=crs, nodata=nodata, metadata=metadata)
+                              crs=crs, nodata=nodata, mask=mask, metadata=metadata)
 
     @classmethod
     def from_ascii(cls, path, data_name, **kwargs):

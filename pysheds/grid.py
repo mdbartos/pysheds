@@ -2667,6 +2667,8 @@ class Grid(object):
             # Cut endnode at forks
             endnodes[start[is_fork]] = 0
             endnodes[0] = 0
+            # Make sure while loop terminates
+            endnodes[endnodes == startnodes] = 0
             end = endnodes[start]
             no_pred = ~np.in1d(start, end)
             start = start[no_pred]

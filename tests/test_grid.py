@@ -1,5 +1,6 @@
 import pyproj
 import os
+import warnings
 import numpy as np
 from pysheds.grid import Grid
 from pysheds.rfsm import RFSM
@@ -15,7 +16,18 @@ dem_path = os.path.join(data_dir, 'dem.tif')
 roi_path = os.path.join(data_dir, 'roi.tif')
 eff_path = os.path.join(data_dir, 'eff.tif')
 dinf_eff_path = os.path.join(data_dir, 'dinf_eff.tif')
-
+feature_geometry = [{'type': 'Polygon',
+                      'coordinates': (((-97.29749977660477, 32.74000135435936),
+                        (-97.29083107907053, 32.74000328969928),
+                        (-97.29083343776601, 32.734166727851886),
+                        (-97.29749995804616, 32.73416660689317),
+                        (-97.29749977660477, 32.74000135435936)),)}]
+out_of_bounds = [{'type': 'Polygon',
+                      'coordinates': (((-97.29304075342363, 32.847513357726825),
+                        (-97.28637205588939, 32.84751529306675),
+                        (-97.28637441458487, 32.84167873121935),
+                        (-97.29304093486502, 32.84167861026064),
+                        (-97.29304075342363, 32.847513357726825)),)}]
 # Initialize grid
 grid = Grid()
 crs = pyproj.Proj('epsg:4326', preserve_units=True)
@@ -200,6 +212,25 @@ def test_from_raster():
 
 def test_windowed_reading():
     newgrid = Grid.from_raster('test_dir.tif', 'dir_output', window=grid.bbox, window_crs=grid.crs)
+
+def test_mask_geometry():
+    grid = Grid.from_raster(dem_path,'dem', mask_geometry=feature_geometry)
+#    this was my first attempt at the test, but I thought below was cleaner?
+#    rows = np.array([225, 226, 227, 228, 229, 230, 231, 232] * 7)
+#    cols = np.array([np.arange(98,105)] * 8).T.reshape(1,56)
+#    masked_cols, masked_rows = grid.mask.nonzero()
+#    assert (masked_cols == cols).all()
+#    assert (masked_rows == rows).all()
+    true_count = np.count_nonzero(grid.mask)
+    assert true_count == 56, "number of True cells in mask is incorrect"
+    assert (np.size(grid.mask) - true_count) == 131697, "mask is incorrect"
+    with warnings.catch_warnings(record=True) as warn:
+        warnings.simplefilter("always")
+        grid = Grid.from_raster(dem_path,'dem', mask_geometry=out_of_bounds)
+        assert len(warn) == 1
+        assert issubclass(warn[-1].category, UserWarning)
+        assert "does not fall within the bounds" in str(warn[-1].message)
+        assert grid.mask.all(), "mask should be returned to all True as normal"
 
 def test_properties():
     bbox = grid.bbox

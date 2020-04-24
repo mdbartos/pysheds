@@ -305,6 +305,9 @@ class Grid(object):
                 shape = data.shape
             if mask_geometry:
                 mask = rasterio.features.geometry_mask(mask_geometry, shape, affine, invert=True)
+                if not mask.any():  # no mask was applied if all False, out of bounds
+                    warnings.warn('mask_geometry does not fall within the bounds of the raster!')
+                    mask = ~mask  # return mask to all True and deliver warning???
             nodata = f.nodatavals[0]
         if nodata is not None:
             nodata = data.dtype.type(nodata)

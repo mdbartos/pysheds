@@ -215,15 +215,11 @@ def test_windowed_reading():
 
 def test_mask_geometry():
     grid = Grid.from_raster(dem_path,'dem', mask_geometry=feature_geometry)
-#    this was my first attempt at the test, but I thought below was cleaner?
-#    rows = np.array([225, 226, 227, 228, 229, 230, 231, 232] * 7)
-#    cols = np.array([np.arange(98,105)] * 8).T.reshape(1,56)
-#    masked_cols, masked_rows = grid.mask.nonzero()
-#    assert (masked_cols == cols).all()
-#    assert (masked_rows == rows).all()
-    true_count = np.count_nonzero(grid.mask)
-    assert true_count == 56, "number of True cells in mask is incorrect"
-    assert (np.size(grid.mask) - true_count) == 131697, "mask is incorrect"
+    rows = np.array([225, 226, 227, 228, 229, 230, 231, 232] * 7)
+    cols = np.array([np.arange(98,105)] * 8).T.reshape(1,56)
+    masked_cols, masked_rows = grid.mask.nonzero()
+    assert (masked_cols == cols).all()
+    assert (masked_rows == rows).all()
     with warnings.catch_warnings(record=True) as warn:
         warnings.simplefilter("always")
         grid = Grid.from_raster(dem_path,'dem', mask_geometry=out_of_bounds)

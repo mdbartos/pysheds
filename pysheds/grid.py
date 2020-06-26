@@ -1255,7 +1255,7 @@ class Grid(object):
             invalid_entries = fdir.flat[invalid_cells]
             fdir.flat[invalid_cells] = 0
             # Ensure consistent types
-            fdir = fdir.astype(mintype)
+            fdir = fdir.astype('int32')
             # Set nodata cells to zero
             fdir[nodata_cells] = 0
             # Get matching of start and end nodes

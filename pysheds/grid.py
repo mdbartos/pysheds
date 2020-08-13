@@ -277,7 +277,7 @@ class Grid(object):
             if window is None:
                 shape = f.shape
                 if len(f.indexes) > 1:
-                    data = np.ma.filled(f.read_band(band))
+                    data = np.ma.filled(f.read(band))
                 else:
                     data = np.ma.filled(f.read())
                 affine = f.transform
@@ -297,7 +297,7 @@ class Grid(object):
                 # If window crs not specified, assume it's in raster crs
                 ix_window = f.window(*window)
                 if len(f.indexes) > 1:
-                    data = np.ma.filled(f.read_band(band, window=ix_window))
+                    data = np.ma.filled(f.read(band, window=ix_window))
                 else:
                     data = np.ma.filled(f.read(window=ix_window))
                 affine = f.window_transform(ix_window)

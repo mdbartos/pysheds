@@ -2641,14 +2641,19 @@ class Grid(object):
         if routing.lower() != 'd8':
             raise NotImplementedError('Only implemented for D8 routing.')
         # TODO: If two "forks" are directly connected, it can introduce a gap
-        nodata_in = self._check_nodata_in(fdir, nodata_in)
+        fdir_nodata_in = self._check_nodata_in(fdir, nodata_in)
+        mask_nodata_in = self._check_nodata_in(mask, nodata_in)
         fdir_props = {}
-        acc_props = {}
-        fdir = self._input_handler(fdir, apply_mask=apply_mask, nodata_view=nodata_in,
+        mask_props = {}
+        fdir = self._input_handler(fdir, apply_mask=apply_mask, nodata_view=fdir_nodata_in,
                                    properties=fdir_props,
+                                   ignore_metadata=ignore_metadata, **kwargs)
+        mask = self._input_handler(mask, apply_mask=apply_mask, nodata_view=mask_nodata_in,
+                                   properties=mask_props,
                                    ignore_metadata=ignore_metadata, **kwargs)
         try:
             assert(fdir.shape == mask.shape)
+            assert(fdir.affine == mask.affine)
         except:
             raise ValueError('Flow direction and accumulation grids not aligned.')
         dirmap = self._set_dirmap(dirmap, fdir)
@@ -2671,6 +2676,8 @@ class Grid(object):
             # Cut endnode at forks
             endnodes[start[is_fork]] = 0
             endnodes[0] = 0
+            # Make sure while loop terminates
+            endnodes[endnodes == startnodes] = 0
             end = endnodes[start]
             no_pred = ~np.in1d(start, end)
             start = start[no_pred]
@@ -2704,8 +2711,7 @@ class Grid(object):
             fdir = fdir.astype(fdir_orig_type)
         return profiles, connections
 
-    def extract_river_network(self, fdir, acc, threshold=100,
-                              dirmap=None, nodata_in=None, routing='d8',
+    def extract_river_network(self, fdir, mask, dirmap=None, nodata_in=None, routing='d8',
                               apply_mask=True, ignore_metadata=False, **kwargs):
         """
         Generates river segments from accumulation and flow_direction arrays.
@@ -2716,13 +2722,8 @@ class Grid(object):
                Flow direction data.
                If str: name of the dataset to be viewed.
                If Raster: a Raster instance (see pysheds.view.Raster)
-        acc : str or Raster
-              Accumulation data.
-              If str: name of the dataset to be viewed.
-              If Raster: a Raster instance (see pysheds.view.Raster)
-        threshold : int or float
-                    Minimum allowed cell accumulation needed for inclusion in
-                    river network.
+        mask : np.ndarray or Raster
+               Boolean array indicating channelized regions
         dirmap : list or tuple (length 8)
                  List of integer values representing the following
                  cardinal and intercardinal directions (in order):
@@ -2743,131 +2744,25 @@ class Grid(object):
               A geojson feature collection of river segments. Each array contains the cell
               indices of junctions in the segment.
         """
-        if routing.lower() != 'd8':
-            raise NotImplementedError('Only implemented for D8 routing.')
-        # TODO: If two "forks" are directly connected, it can introduce a gap
-        nodata_in = self._check_nodata_in(fdir, nodata_in)
+        profiles, connections = self.extract_profiles(fdir, mask, dirmap=dirmap,
+                                                      nodata_in=nodata_in,
+                                                      routing=routing,
+                                                      apply_mask=apply_mask,
+                                                      ignore_metadata=ignore_metadata,
+                                                      **kwargs)
+        fdir_nodata_in = self._check_nodata_in(fdir, nodata_in)
         fdir_props = {}
-        acc_props = {}
-        fdir = self._input_handler(fdir, apply_mask=apply_mask, nodata_view=nodata_in,
+        fdir = self._input_handler(fdir, apply_mask=apply_mask, nodata_view=fdir_nodata_in,
                                    properties=fdir_props,
                                    ignore_metadata=ignore_metadata, **kwargs)
-        acc = self._input_handler(acc, apply_mask=apply_mask, nodata_view=nodata_in,
-                                  properties=acc_props,
-                                  ignore_metadata=ignore_metadata, **kwargs)
-        try:
-            assert(fdir.affine == acc.affine)
-            assert(fdir.shape == acc.shape)
-        except:
-            raise ValueError('Flow direction and accumulation grids not aligned.')
-        dirmap = self._set_dirmap(dirmap, fdir)
-        flat_idx = np.arange(fdir.size)
-        fdir_orig_type = fdir.dtype
-        def _get_spurious_indexes(branches):
-            branch_starts = np.asarray([branch[0] for branch in branches])
-            branch_ends = np.asarray([branch[-1] for branch in branches])
-            sc = pd.Series(branch_starts).value_counts()
-            ec = pd.Series(branch_ends).value_counts()
-            e_in_s = sc.reindex(ec.index.values).dropna().astype(int)
-            spurious_branch_ends = (e_in_s == 1) & (ec.reindex(e_in_s.index) == 1)
-            spurious_ixes = np.where(np.in1d(branch_ends,
-                                             spurious_branch_ends
-                                             .index.values[spurious_branch_ends.values]))[0]
-            return spurious_ixes, branch_starts, branch_ends
-        try:
-            mintype = np.min_scalar_type(fdir.size)
-            fdir = fdir.astype(mintype)
-            flat_idx = flat_idx.astype(mintype)
-            startnodes, endnodes = self._construct_matching(fdir, flat_idx,
-                                                            dirmap=dirmap)
-            start = startnodes[acc.flat[startnodes] > threshold]
-            end = fdir.flat[start]
-            # Find nodes with indegree > 1 and sever them
-            indegree = (np.bincount(end)).astype(np.uint8)
-            forks_end = np.where(indegree > 1)[0]
-            no_fork = ~np.in1d(end, forks_end)
-            # Find connected components with forks severed
-            A = scipy.sparse.lil_matrix((fdir.size, fdir.size))
-            for i,j in zip(start[no_fork], end[no_fork]):
-                A[i,j] = 1
-            n_components, labels = csgraph.connected_components(A)
-            u, inverse, c = np.unique(labels, return_inverse=True, return_counts=True)
-            idx_vals_repeated = np.where(c > 1)[0]
-            # Get shortest paths to sort nodes in each branch
-            C = scipy.sparse.lil_matrix((fdir.size, fdir.size))
-            for i,j in zip(start, end):
-                C[i,j] = 1
-            C = C.tocsr()
-            outlet = np.argmax(acc)
-            y, x = np.unravel_index(outlet, acc.shape)
-            xyindex = np.ravel_multi_index((y, x), fdir.shape)
-            dist = csgraph.shortest_path(C, indices=[xyindex], directed=False)
-            dist = dist.ravel()
-            noninf = np.where(np.isfinite(dist))[0]
-            sorted_dists = np.argsort(dist)
-            sorted_dists = sorted_dists[np.in1d(sorted_dists, noninf)][::-1]
-            # Construct branches
-            branches = []
-            for val in idx_vals_repeated:
-                branch = np.where(labels == val)[0]
-                # Ensure no self-loops
-                branch = branch[branch != val]
-                # Sort indices by distance to outlet
-                branch = branch[np.argsort(dist[branch])].tolist()
-                fork = fdir.flat[branch[0]]
-                branch = [fork] + branch
-                branches.append(branch)
-            # Handle case where two adjacent forks are connected
-            after_fork = fdir.flat[forks_end]
-            second_fork = np.unique(after_fork[np.in1d(after_fork, forks_end)])
-            second_fork_start = start[np.in1d(end, second_fork)]
-            second_fork_end = fdir.flat[second_fork_start]
-            for fork_start, fork_end in zip(second_fork_start, second_fork_end):
-                branches.append([fork_end, fork_start])
-            # TODO: Experimental
-            # Take care of spurious segments
-            spurious_ixes, branch_starts, branch_ends = _get_spurious_indexes(branches)
-            spurious_starts = np.asarray([branch_starts[ix] for ix in spurious_ixes])
-            spurious_ends = np.asarray([branch_ends[ix] for ix in spurious_ixes])
-            double_joints_ds = np.in1d(spurious_starts, spurious_ends)
-            if double_joints_ds.any():
-                double_joints_start = []
-                double_joints_end = []
-                for joint in spurious_starts[double_joints_ds]:
-                    double_joints_start.append(np.asscalar(np.where(spurious_starts == joint)[0]))
-                    double_joints_end.append(np.asscalar(np.where(spurious_ends == joint)[0]))
-                spurious_double_end = [spurious_ixes[ix] for ix in double_joints_start]
-                spurious_double_start = [spurious_ixes[ix] for ix in double_joints_end]
-                for starts, ends in zip(spurious_double_start, spurious_double_end):
-                    ds_seg = branches[ends][1:]
-                    branches[starts].extend(ds_seg)
-                for us_seg in sorted(spurious_double_end)[::-1]:
-                    del branches[us_seg]
-                spurious_ixes, branch_starts, branch_ends = _get_spurious_indexes(branches)
-            branch_starts_s = pd.Series(np.arange(len(branch_starts)), index=branch_starts)
-            branch_ends_s = pd.Series(np.arange(len(branch_ends)), index=branch_ends)
-            upstream_ixes = [branch_starts_s[branches[ix][-1]] for ix in spurious_ixes]
-            for ix in upstream_ixes:
-                branch = branches[ix]
-                upstream_joint = branch.pop(0)
-                downstream_ix = branch_ends_s[upstream_joint]
-                branches[downstream_ix].extend(branch)
-            for ix in np.sort(upstream_ixes)[::-1]:
-                del branches[ix]
-            # Get x, y coordinates for plotting
-            yx = np.vstack(np.dstack(
-                        np.meshgrid(*self.grid_indices(), indexing='ij')))
-            xy = yx[:, [1,0]]
-            featurelist = []
-            for index, branch in enumerate(branches):
-                line = geojson.LineString(xy[branch].tolist())
-                featurelist.append(geojson.Feature(geometry=line, id=index))
-            geo = geojson.FeatureCollection(featurelist)
-        except:
-            raise
-        finally:
-            self._unflatten_fdir(fdir, flat_idx, dirmap)
-            fdir = fdir.astype(fdir_orig_type)
+        featurelist = []
+        for index, profile in enumerate(profiles):
+            endpoint = profiles[connections[index]][0]
+            yi, xi = np.unravel_index(profile.tolist() + [endpoint], fdir.shape)
+            x, y = fdir.affine * (xi, yi)
+            line = geojson.LineString(np.column_stack([x, y]).tolist())
+            featurelist.append(geojson.Feature(geometry=line, id=index))
+        geo = geojson.FeatureCollection(featurelist)
         return geo
 
     def detect_pits(self, data, nodata_in=None, apply_mask=False, ignore_metadata=True,

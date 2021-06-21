@@ -259,3 +259,17 @@ Performance benchmarks on a 2015 MacBook Pro:
 
 - Flow Direction to Flow Accumulation: 36 million grid cells in 15 seconds.
 - Flow Direction to Catchment: 9.8 million grid cells in 4.55 seconds.
+
+# Citing
+
+If you have used this codebase in a publication and wish to cite it, consider citing the zenodo repository:
+
+```bibtex
+@misc{bartos_2020,
+    title  = {pysheds: simple and fast watershed delineation in python},
+    author = {Bartos, Matt},
+    url    = {https://github.com/mdbartos/pysheds},
+    year   = {2020},
+    doi    = {10.5281/zenodo.3822494}
+}
+```

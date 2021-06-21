@@ -237,7 +237,7 @@ def test_properties():
     assert(isinstance(extent, tuple))
 
 def test_extract_river_network():
-    rivers = grid.extract_river_network('catch', 'acc', threshold=20)
+    rivers = grid.extract_river_network('catch', grid.view('acc', nodata=0) > 20)
     assert(isinstance(rivers, dict))
     # TODO: Need more checks here. Check if endnodes equals next startnode
 

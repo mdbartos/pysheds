@@ -39,7 +39,8 @@ _pyproj_init = '+init=epsg:4326' if _OLD_PYPROJ else 'epsg:4326'
 
 from pysheds.view import Raster
 from pysheds.view import BaseViewFinder, RegularViewFinder, IrregularViewFinder
-from pysheds.view import RegularGridViewer, IrregularGridViewer
+from pysheds.view import IrregularGridViewer
+from pysheds.sview import sRegularGridViewer as RegularGridViewer
 
 class sGrid(Grid):
     """
@@ -101,6 +102,164 @@ class sGrid(Grid):
                  crs=pyproj.Proj(_pyproj_init),
                  mask=None):
         super().__init__(affine, shape, nodata, crs, mask)
+
+    def view(self, data, data_view=None, target_view=None, apply_mask=True,
+             nodata=None, interpolation='nearest', as_crs=None, return_coords=False,
+             kx=3, ky=3, s=0, tolerance=1e-3, dtype=None, metadata={}):
+        """
+        Return a copy of a gridded dataset clipped to the current "view". The view is determined by
+        an affine transformation which describes the bounding box and cellsize of the grid.
+        The view will also optionally mask grid cells according to the boolean array self.mask.
+ 
+        Parameters
+        ----------
+        data : str or Raster
+               If str: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        data_view : RegularViewFinder or IrregularViewFinder
+                    The view at which the data is defined (based on an affine
+                    transformation and shape). Defaults to the Raster dataset's
+                    viewfinder attribute.
+        target_view : RegularViewFinder or IrregularViewFinder
+                      The desired view (based on an affine transformation and shape)
+                      Defaults to a viewfinder based on self.affine and self.shape.
+        apply_mask : bool
+               If True, "mask" the view using self.mask.
+        nodata : int or float
+                 Value indicating no data in output array.
+                 Defaults to the `nodata` attribute of the input dataset.
+        interpolation: 'nearest', 'linear', 'cubic', 'spline'
+                       Interpolation method to be used. If both the input data
+                       view and output data view can be defined on a regular grid,
+                       all interpolation methods are available. If one
+                       of the datasets cannot be defined on a regular grid, or the
+                       datasets use a different CRS, only 'nearest', 'linear' and
+                       'cubic' are available.
+        as_crs: pyproj.Proj
+                Projection at which to view the data (overrides self.crs).
+        return_coords: bool
+                       If True, return the coordinates corresponding to each value
+                       in the output array.
+        kx, ky: int
+                Degrees of the bivariate spline, if 'spline' interpolation is desired.
+        s : float
+            Smoothing factor of the bivariate spline, if 'spline' interpolation is desired.
+        tolerance: float
+                   Maximum tolerance when matching coordinates. Data coordinates
+                   that cannot be matched to a target coordinate within this
+                   tolerance will be masked with the nodata value in the output array.
+        dtype: numpy datatype
+               Desired datatype of the output array.
+        """
+        # Check interpolation method
+        try:
+            interpolation = interpolation.lower()
+            assert(interpolation in ('nearest', 'linear', 'cubic', 'spline'))
+        except:
+            raise ValueError("Interpolation method must be one of: "
+                             "'nearest', 'linear', 'cubic', 'spline'")
+        # Parse data
+        if isinstance(data, str):
+            data = getattr(self, data)
+            if nodata is None:
+                nodata = data.nodata
+            if data_view is None:
+                data_view = data.viewfinder
+            metadata.update(data.metadata)
+        elif isinstance(data, Raster):
+            if nodata is None:
+                nodata = data.nodata
+            if data_view is None:
+                data_view = data.viewfinder
+            metadata.update(data.metadata)
+        else:
+            # If not using a named dataset, make sure the data and view are properly defined
+            try:
+                assert(isinstance(data, np.ndarray))
+            except:
+                raise
+            # TODO: Should convert array to dataset here
+            if nodata is None:
+                nodata = data_view.nodata
+        # If no target view provided, construct one based on grid parameters
+        if target_view is None:
+            target_view = RegularViewFinder(affine=self.affine, shape=self.shape,
+                                            mask=self.mask, crs=self.crs, nodata=nodata)
+        # If viewing at a different crs, convert coordinates
+        if as_crs is not None:
+            assert(isinstance(as_crs, pyproj.Proj))
+            target_coords = target_view.coords
+            new_coords = self._convert_grid_indices_crs(target_coords, target_view.crs, as_crs)
+            new_x, new_y = new_coords[:,1], new_coords[:,0]
+            # TODO: In general, crs conversion will yield irregular grid (though not necessarily)
+            target_view = IrregularViewFinder(coords=np.column_stack([new_y, new_x]),
+                                            shape=target_view.shape, crs=as_crs,
+                                            nodata=target_view.nodata)
+        # Specify mask
+        mask = target_view.mask
+        # Make sure views are ViewFinder instances
+        assert(issubclass(type(data_view), BaseViewFinder))
+        assert(issubclass(type(target_view), BaseViewFinder))
+        same_crs = target_view.crs.srs == data_view.crs.srs
+        # If crs does not match, convert coords of data array to target array
+        if not same_crs:
+            data_coords = data_view.coords
+            # TODO: x and y order might be different
+            new_coords = self._convert_grid_indices_crs(data_coords, data_view.crs, target_view.crs)
+            new_x, new_y = new_coords[:,1], new_coords[:,0]
+            # TODO: In general, crs conversion will yield irregular grid (though not necessarily)
+            data_view = IrregularViewFinder(coords=np.column_stack([new_y, new_x]),
+                                            shape=data_view.shape, crs=target_view.crs,
+                                            nodata=data_view.nodata)
+        # Check if data can be described by regular grid
+        data_is_grid = isinstance(data_view, RegularViewFinder)
+        view_is_grid = isinstance(target_view, RegularViewFinder)
+        # If data is on a grid, use the following speedup
+        if data_is_grid and view_is_grid:
+            # If doing nearest neighbor search, use fast sorted search
+            if interpolation == 'nearest':
+                array_view = RegularGridViewer._view_affine(data, data_view, target_view)
+            # If spline interpolation is needed, use RectBivariate
+            elif interpolation == 'spline':
+                # If latitude/longitude, use RectSphereBivariate
+                if getattr(_pyproj_crs(target_view.crs), _pyproj_crs_is_geographic):
+                    array_view = RegularGridViewer._view_rectspherebivariate(data, data_view,
+                                                                             target_view,
+                                                                             x_tolerance=tolerance,
+                                                                             y_tolerance=tolerance,
+                                                                             kx=kx, ky=ky, s=s)
+                # If not latitude/longitude, use RectBivariate
+                else:
+                    array_view = RegularGridViewer._view_rectbivariate(data, data_view,
+                                                                       target_view,
+                                                                       x_tolerance=tolerance,
+                                                                       y_tolerance=tolerance,
+                                                                       kx=kx, ky=ky, s=s)
+            # If some other interpolation method is needed, use griddata
+            else:
+                array_view = IrregularGridViewer._view_griddata(data, data_view, target_view,
+                                                                method=interpolation)
+        # If either view is irregular, use griddata
+        else:
+            array_view = IrregularGridViewer._view_griddata(data, data_view, target_view,
+                                                            method=interpolation)
+        # TODO: This could be dangerous if it returns an irregular view
+        array_view = Raster(array_view, target_view, metadata=metadata)
+        # Ensure masking is safe by checking datatype
+        if dtype is None:
+            dtype = max(np.min_scalar_type(nodata), data.dtype)
+            # For matplotlib imshow compatibility
+            if issubclass(dtype.type, np.floating):
+                dtype = max(dtype, np.dtype(np.float32))
+        array_view = array_view.astype(dtype)
+        # Apply mask
+        if apply_mask:
+            np.place(array_view, ~mask, nodata)
+        # Return output
+        if return_coords:
+            return array_view, target_view.coords
+        else:
+            return array_view
 
     def _d8_flowdir(self, dem=None, dem_mask=None, out_name='dir', nodata_in=None, nodata_out=0,
                     pits=-1, flats=-1, dirmap=(64, 128, 1, 2, 4, 8, 16, 32), inplace=True,
@@ -169,7 +328,6 @@ class sGrid(Grid):
         except:
             raise
         finally:
-            # reset recursion limit
             self._replace_rim(fdir, left, right, top, bottom)
         return self._output_handler(data=catch, out_name=out_name, properties=properties,
                                     inplace=inplace, metadata=metadata)
@@ -179,19 +337,18 @@ class sGrid(Grid):
                         inplace=True, apply_mask=False, ignore_metadata=False, properties={},
                         metadata={}, snap='corner', **kwargs):
         try:
+            if nodata_in is None:
+                nodata_cells = np.zeros_like(fdir).astype(bool)
+            else:
+                if np.isnan(nodata_in):
+                    nodata_cells = (np.isnan(fdir))
+                else:
+                    nodata_cells = (fdir == nodata_in)
             # Split dinf flowdir
-            fdir_0, fdir_1, prop_0, prop_1 = _angle_to_d8(fdir, dirmap)
-            # Find invalid cells
-            invalid_cells = ((fdir < 0) | (fdir > (np.pi * 2)))
+            fdir_0, fdir_1, prop_0, prop_1 = _angle_to_d8(fdir, dirmap, nodata_cells)
             # Pad the rim
             left_0, right_0, top_0, bottom_0 = self._pop_rim(fdir_0, nodata=nodata_in)
             left_1, right_1, top_1, bottom_1 = self._pop_rim(fdir_1, nodata=nodata_in)
-            # Ensure proportion of flow is never zero
-            fdir_0[prop_0 == 0] = fdir_1[prop_0 == 0]
-            fdir_1[prop_1 == 0] = fdir_0[prop_1 == 0]
-            # Set nodata cells to zero
-            fdir_0[invalid_cells] = 0
-            fdir_1[invalid_cells] = 0
             # TODO: This relies on the bbox of the grid instance, not the dataset
             # Valid if the dataset is a view.
             if xytype == 'label':
@@ -291,7 +448,6 @@ class sGrid(Grid):
         mintype = np.min_scalar_type(fdir.size)
         domain = np.arange(fdir.size, dtype=mintype)
         try:
-            invalid_cells = ((fdir < 0) | (fdir > (np.pi * 2)))
             if nodata_in is None:
                 nodata_cells = np.zeros_like(fdir).astype(bool)
             else:
@@ -300,13 +456,7 @@ class sGrid(Grid):
                 else:
                     nodata_cells = (fdir == nodata_in)
             # Split d-infinity grid
-            fdir_0, fdir_1, prop_0, prop_1 = _angle_to_d8(fdir, dirmap)
-            # Ensure consistent types
-            fdir_0 = fdir_0.astype(mintype)
-            fdir_1 = fdir_1.astype(mintype)
-            # Set nodata cells to zero
-            fdir_0[nodata_cells | invalid_cells] = 0
-            fdir_1[nodata_cells | invalid_cells] = 0
+            fdir_0, fdir_1, prop_0, prop_1 = _angle_to_d8(fdir, dirmap, nodata_cells)
             # Get matching of start and end nodes
             startnodes, endnodes_0 = self._construct_matching(fdir_0, domain, dirmap=dirmap)
             _, endnodes_1 = self._construct_matching(fdir_1, domain, dirmap=dirmap)
@@ -323,13 +473,6 @@ class sGrid(Grid):
                 eff = efficiency.flatten()
                 eff_max, eff_min = np.max(eff), np.min(eff)
                 assert((eff_max<=1) and (eff_min>=0))
-            # Ensure no flow directions with zero proportion
-            fdir_0[prop_0 == 0] = fdir_1[prop_0 == 0]
-            fdir_1[prop_1 == 0] = fdir_0[prop_1 == 0]
-            prop_0[prop_0 == 0] = 0.5
-            prop_1[prop_0 == 0] = 0.5
-            prop_0[prop_1 == 0] = 0.5
-            prop_1[prop_1 == 0] = 0.5
             # Initialize indegree
             indegree_0 = np.bincount(fdir_0.ravel(), minlength=fdir.size)
             indegree_1 = np.bincount(fdir_1.ravel(), minlength=fdir.size)
@@ -387,7 +530,6 @@ class sGrid(Grid):
                             xytype='index', apply_mask=True, ignore_metadata=False,
                             properties={}, metadata={}, snap='corner', **kwargs):
         try:
-            invalid_cells = ((fdir < 0) | (fdir > (np.pi * 2)))
             if nodata_in is None:
                 nodata_cells = np.zeros_like(fdir).astype(bool)
             else:
@@ -396,10 +538,7 @@ class sGrid(Grid):
                 else:
                     nodata_cells = (fdir == nodata_in)
             # Split d-infinity grid
-            fdir_0, fdir_1, prop_0, prop_1 = _angle_to_d8(fdir, dirmap)
-            # Set nodata cells to zero
-            fdir_0[nodata_cells | invalid_cells] = 0
-            fdir_1[nodata_cells | invalid_cells] = 0
+            fdir_0, fdir_1, prop_0, prop_1 = _angle_to_d8(fdir, dirmap, nodata_cells)
             if xytype == 'label':
                 x, y = self.nearest_cell(x, y, fdir.affine, snap)
             # TODO: Currently the size of weights is hard to understand
@@ -501,22 +640,21 @@ class sGrid(Grid):
         assert (np.asarray(dem.shape) == np.asarray(mask.shape)).all()
         if routing.lower() == 'dinf':
             try:
+                if nodata_in_fdir is None:
+                    nodata_cells = np.zeros_like(fdir).astype(bool)
+                else:
+                    if np.isnan(nodata_in_fdir):
+                        nodata_cells = (np.isnan(fdir))
+                    else:
+                        nodata_cells = (fdir == nodata_in_fdir)
                 # Split dinf flowdir
-                fdir_0, fdir_1, prop_0, prop_1 = _angle_to_d8(fdir, dirmap)
-                # Find invalid cells
-                invalid_cells = ((fdir < 0) | (fdir > (np.pi * 2)))
+                fdir_0, fdir_1, prop_0, prop_1 = _angle_to_d8(fdir, dirmap, nodata_cells)
                 # Pad the rim
                 dirleft_0, dirright_0, dirtop_0, dirbottom_0 = self._pop_rim(fdir_0,
                                                                             nodata=nodata_in_fdir)
                 dirleft_1, dirright_1, dirtop_1, dirbottom_1 = self._pop_rim(fdir_1,
                                                                             nodata=nodata_in_fdir)
                 maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=0)
-                # Ensure proportion of flow is never zero
-                fdir_0[prop_0 == 0] = fdir_1[prop_0 == 0]
-                fdir_1[prop_1 == 0] = fdir_0[prop_1 == 0]
-                # Set nodata cells to zero
-                fdir_0[invalid_cells] = 0
-                fdir_1[invalid_cells] = 0
                 hand = _dinf_hand_iter(dem, mask, fdir_0, fdir_1, dirmap)
                 if not return_index:
                     hand = _assign_hand_heights(hand, dem, nodata_out)
@@ -597,6 +735,150 @@ class sGrid(Grid):
         new_drainage_grad = (2 * grad_towards_lower + grad_from_higher)
         inflated_dem = dem + eps * new_drainage_grad
         return self._output_handler(data=inflated_dem, out_name=out_name, properties=grid_props,
+                                    inplace=inplace, metadata=metadata)
+
+    def extract_river_network(self, fdir, mask, dirmap=None, nodata_in=None, routing='d8',
+                              apply_mask=True, ignore_metadata=False, **kwargs):
+        """
+        Generates river segments from accumulation and flow_direction arrays.
+ 
+        Parameters
+        ----------
+        fdir : str or Raster
+               Flow direction data.
+               If str: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        mask : np.ndarray or Raster
+               Boolean array indicating channelized regions
+        dirmap : list or tuple (length 8)
+                 List of integer values representing the following
+                 cardinal and intercardinal directions (in order):
+                 [N, NE, E, SE, S, SW, W, NW]
+        nodata_in : int or float
+                     Value to indicate nodata in input array.
+        routing : str
+                  Routing algorithm to use:
+                  'd8'   : D8 flow directions
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and CRS.
+ 
+        Returns
+        -------
+        geo : geojson.FeatureCollection
+              A geojson feature collection of river segments. Each array contains the cell
+              indices of junctions in the segment.
+        """
+        if routing.lower() != 'd8':
+            raise NotImplementedError('Only implemented for D8 routing.')
+        fdir_nodata_in = self._check_nodata_in(fdir, nodata_in)
+        mask_nodata_in = self._check_nodata_in(mask, nodata_in)
+        fdir_props = {}
+        mask_props = {}
+        fdir = self._input_handler(fdir, apply_mask=apply_mask, nodata_view=fdir_nodata_in,
+                                   properties=fdir_props,
+                                   ignore_metadata=ignore_metadata, **kwargs)
+        mask = self._input_handler(mask, apply_mask=apply_mask, nodata_view=mask_nodata_in,
+                                   properties=mask_props,
+                                   ignore_metadata=ignore_metadata, **kwargs)
+        try:
+            assert(fdir.shape == mask.shape)
+            assert(fdir.affine == mask.affine)
+        except:
+            raise ValueError('Flow direction and accumulation grids not aligned.')
+        dirmap = self._set_dirmap(dirmap, fdir)
+        try:
+            maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=0)
+            masked_fdir = np.where(mask, fdir, 0).astype(np.int64)
+            startnodes, endnodes = _construct_matching(masked_fdir, dirmap)
+            indegree = np.bincount(endnodes).astype(np.uint8)
+            orig_indegree = np.copy(indegree)
+            startnodes = startnodes[(indegree == 0)]
+            profiles = _d8_stream_network(endnodes, indegree, orig_indegree, startnodes)
+        except:
+            raise
+        finally:
+            self._replace_rim(mask, maskleft, maskright, masktop, maskbottom)
+        featurelist = []
+        for index, profile in enumerate(profiles):
+            yi, xi = np.unravel_index(list(profile), fdir.shape)
+            x, y = self.affine * (xi, yi)
+            line = geojson.LineString(np.column_stack([x, y]).tolist())
+            featurelist.append(geojson.Feature(geometry=line, id=index))
+            geo = geojson.FeatureCollection(featurelist)
+        return geo
+
+    def stream_order(self, fdir, mask, out_name='stream_order', dirmap=None,
+                     nodata_in=None, nodata_out=0, routing='d8', inplace=True,
+                     apply_mask=False, ignore_metadata=False, metadata={},
+                     **kwargs):
+        """
+        Generates river segments from accumulation and flow_direction arrays.
+ 
+        Parameters
+        ----------
+        fdir : str or Raster
+               Flow direction data.
+               If str: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        mask : np.ndarray or Raster
+               Boolean array indicating channelized regions
+        dirmap : list or tuple (length 8)
+                 List of integer values representing the following
+                 cardinal and intercardinal directions (in order):
+                 [N, NE, E, SE, S, SW, W, NW]
+        nodata_in : int or float
+                     Value to indicate nodata in input array.
+        routing : str
+                  Routing algorithm to use:
+                  'd8'   : D8 flow directions
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and CRS.
+ 
+        Returns
+        -------
+        geo : geojson.FeatureCollection
+              A geojson feature collection of river segments. Each array contains the cell
+              indices of junctions in the segment.
+        """
+        if routing.lower() != 'd8':
+            raise NotImplementedError('Only implemented for D8 routing.')
+        fdir_nodata_in = self._check_nodata_in(fdir, nodata_in)
+        mask_nodata_in = self._check_nodata_in(mask, nodata_in)
+        fdir_props = {}
+        mask_props = {}
+        fdir = self._input_handler(fdir, apply_mask=apply_mask, nodata_view=fdir_nodata_in,
+                                   properties=fdir_props,
+                                   ignore_metadata=ignore_metadata, **kwargs)
+        mask = self._input_handler(mask, apply_mask=apply_mask, nodata_view=mask_nodata_in,
+                                   properties=mask_props,
+                                   ignore_metadata=ignore_metadata, **kwargs)
+        try:
+            assert(fdir.shape == mask.shape)
+            assert(fdir.affine == mask.affine)
+        except:
+            raise ValueError('Flow direction and accumulation grids not aligned.')
+        dirmap = self._set_dirmap(dirmap, fdir)
+        try:
+            maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=0)
+            masked_fdir = np.where(mask, fdir, 0).astype(np.int64)
+            startnodes, endnodes = _construct_matching(masked_fdir, dirmap)
+            indegree = np.bincount(endnodes).astype(np.uint8)
+            orig_indegree = np.copy(indegree)
+            startnodes = startnodes[(indegree == 0)]
+            min_order = np.full(fdir.size, np.iinfo(np.int64).max, dtype=np.int64)
+            max_order = np.ones(fdir.size, dtype=np.int64)
+            order = np.where(mask, 1, 0).astype(np.int64)
+            order = _d8_streamorder_numba(min_order, max_order, order, endnodes,
+                                          indegree, orig_indegree, startnodes)
+        except:
+            raise
+        finally:
+            self._replace_rim(mask, maskleft, maskright, masktop, maskbottom)
+        return self._output_handler(data=order, out_name=out_name, properties=fdir_props,
                                     inplace=inplace, metadata=metadata)
 
 
@@ -693,10 +975,12 @@ def _dinf_flowdir_par(dem, x_dist, y_dist, flat=-1, pit=-2):
                 angle[i, j] = (af[k_max] * r_max) + (ac[k_max] * np.pi / 2)
     return angle
 
-@njit
-def _angle_to_d8(angles, dirmap):
+@njit(parallel=True)
+def _angle_to_d8(angles, dirmap, nodata_cells):
     n = angles.size
-    mod = np.pi/4
+    min_angle = 0.
+    max_angle = 2 * np.pi
+    mod = np.pi / 4
     c0_order = np.array([2, 1, 0, 7, 6, 5, 4, 3])
     c1_order = np.array([1, 0, 7, 6, 5, 4, 3, 2])
     c0 = np.zeros(8, dtype=np.uint8)
@@ -709,9 +993,16 @@ def _angle_to_d8(angles, dirmap):
     for i in range(8):
         c0[i] = dirmap[c0_order[i]]
         c1[i] = dirmap[c1_order[i]]
-    for i in range(n):
+    for i in prange(n):
         angle = angles.flat[i]
-        if np.isnan(angle):
+        nodata = nodata_cells.flat[i]
+        if np.isnan(angle) or nodata:
+            zfloor = 8
+            prop_0 = 0
+            prop_1 = 0
+            fdir_0 = 0
+            fdir_1 = 0
+        elif (angle < min_angle) or (angle > max_angle):
             zfloor = 8
             prop_0 = 0
             prop_1 = 0
@@ -724,6 +1015,15 @@ def _angle_to_d8(angles, dirmap):
             prop_0 = 1 - prop_1
             fdir_0 = c0[zfloor]
             fdir_1 = c1[zfloor]
+        # Handle case where flow proportion is zero in either direction
+        if (prop_0 == 0):
+            fdir_0 = fdir_1
+            prop_0 = 0.5
+            prop_1 = 0.5
+        elif (prop_1 == 0):
+            fdir_1 = fdir_0
+            prop_0 = 0.5
+            prop_1 = 0.5
         fdirs_0.flat[i] = fdir_0
         fdirs_1.flat[i] = fdir_1
         props_0.flat[i] = prop_0
@@ -1199,6 +1499,85 @@ def _assign_hand_heights(hand_idx, dem, nodata_out=np.nan):
     return hand
 
 @njit
+def _d8_streamorder_numba(min_order, max_order, order, fdir,
+                          indegree, orig_indegree, startnodes):
+    n = startnodes.size
+    for k in range(n):
+        startnode = startnodes.flat[k]
+        endnode = fdir.flat[startnode]
+        _d8_streamorder_recursion(startnode, endnode, min_order, max_order, order,
+                                 fdir, indegree, orig_indegree)
+    return order
+
+@njit
+def _d8_streamorder_recursion(startnode, endnode, min_order, max_order,
+                              order, fdir, indegree, orig_indegree):
+    min_order.flat[endnode] = min(min_order.flat[endnode], order.flat[startnode])
+    max_order.flat[endnode] = max(max_order.flat[endnode], order.flat[startnode])
+    indegree.flat[endnode] -= 1
+    if indegree.flat[endnode] == 0:
+        if (min_order.flat[endnode] == max_order.flat[endnode]) and (orig_indegree.flat[endnode] > 1):
+            order.flat[endnode] = max_order.flat[endnode] + 1
+        else:
+            order.flat[endnode] = max_order.flat[endnode]
+        new_startnode = endnode
+        new_endnode = fdir.flat[new_startnode]
+        _d8_streamorder_recursion(new_startnode, new_endnode, min_order,
+                                  max_order, order, fdir, indegree, orig_indegree)
+
+@njit
+def _d8_stream_network(fdir, indegree, orig_indegree, startnodes):
+    n = startnodes.size
+    profiles = [[0]]
+    _ = profiles.pop()
+    for k in range(n):
+        startnode = startnodes.flat[k]
+        endnode = fdir.flat[startnode]
+        profile = [startnode]
+        _d8_stream_network_recursion(startnode, endnode, fdir, indegree,
+                                     orig_indegree, profiles, profile)
+    return profiles
+
+@njit
+def _d8_stream_network_recursion(startnode, endnode, fdir, indegree,
+                                 orig_indegree, profiles, profile):
+    profile.append(endnode)
+    if (orig_indegree[endnode] > 1):
+        profiles.append(profile)
+    indegree.flat[endnode] -= 1
+    if (indegree.flat[endnode] == 0):
+        if (orig_indegree[endnode] > 1):
+            profile = [endnode]
+        new_startnode = endnode
+        new_endnode = fdir.flat[new_startnode]
+        _d8_stream_network_recursion(new_startnode, new_endnode, fdir, indegree,
+                                     orig_indegree, profiles, profile)
+
+@njit(parallel=True)
+def _d8_cell_dh(startnodes, endnodes, dem):
+    n = startnodes.size
+    dh = np.zeros_like(dem)
+    for k in prange(n):
+        startnode = startnodes.flat[k]
+        endnode = endnodes.flat[k]
+        dh.flat[k] = dem.flat[startnode] - dem.flat[endnode]
+    return dh
+
+@njit(parallel=True)
+def _dinf_cell_dh(startnodes, endnodes_0, endnodes_1, props_0, props_1, dem):
+    n = startnodes.size
+    dh = np.zeros(dem.shape, dtype=np.float64)
+    for k in prange(n):
+        startnode = startnodes.flat[k]
+        endnode_0 = endnodes_0.flat[k]
+        endnode_1 = endnodes_1.flat[k]
+        prop_0 = props_0.flat[k]
+        prop_1 = props_1.flat[k]
+        dh.flat[k] = (prop_0 * (dem.flat[startnode] - dem.flat[endnode_0]) +
+                      prop_1 * (dem.flat[startnode] - dem.flat[endnode_1]))
+    return dh
+
+@njit
 def _grad_towards_lower(lec, flats, dem, max_iter=1000):
     offset = flats.shape[1]
     size = flats.size
@@ -1280,3 +1659,31 @@ def _dinf_fix_cycles_recursion(node, fdir_0, fdir_1, ancestor,
         _dinf_fix_cycles_recursion(right, fdir_0, fdir_1, ancestor,
                                    depth + 1, max_cycle_size, visited)
 
+@njit(parallel=True)
+def _flatten_fdir(fdir, dirmap):
+    shape = fdir.shape
+    n = fdir.size
+    flat_fdir = np.zeros(fdir.shape, dtype=np.int64)
+    offsets = ( 0 - shape[1],
+                1 - shape[1],
+                1 + 0,
+                1 + shape[1],
+                0 + shape[1],
+               -1 + shape[1],
+               -1 + 0,
+               -1 - shape[1]
+              )
+    offset_map = {0 : 0}
+    for i in range(8):
+        offset_map[dirmap[i]] = offsets[i]
+    for k in prange(n):
+        offset = offset_map[fdir.flat[k]]
+        flat_fdir.flat[k] = k + offset
+    return flat_fdir
+
+@njit
+def _construct_matching(fdir, dirmap):
+    n = fdir.size
+    startnodes = np.arange(n, dtype=np.int64)
+    endnodes = _flatten_fdir(fdir, dirmap).ravel()
+    return startnodes, endnodes

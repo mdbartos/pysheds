@@ -45,7 +45,7 @@ from pysheds.sview import sRegularGridViewer as RegularGridViewer
 class sGrid(Grid):
     """
     Container class for holding and manipulating gridded data.
- 
+
     Attributes
     ==========
     affine : Affine transformation matrix (uses affine module)
@@ -54,7 +54,7 @@ class sGrid(Grid):
            (xmin, ymin, xmax, ymax).
     mask : A boolean array used to mask certain grid cells in the bbox;
            may be used to indicate which cells lie inside a catchment.
- 
+
     Methods
     =======
         --------
@@ -110,7 +110,7 @@ class sGrid(Grid):
         Return a copy of a gridded dataset clipped to the current "view". The view is determined by
         an affine transformation which describes the bounding box and cellsize of the grid.
         The view will also optionally mask grid cells according to the boolean array self.mask.
- 
+
         Parameters
         ----------
         data : str or Raster
@@ -311,7 +311,6 @@ class sGrid(Grid):
                       nodata_in=None, nodata_out=0, xytype='index', recursionlimit=15000,
                       inplace=True, apply_mask=False, ignore_metadata=False, properties={},
                       metadata={}, snap='corner', **kwargs):
-
         try:
             # Pad the rim
             left, right, top, bottom = self._pop_rim(fdir, nodata=nodata_in)
@@ -415,7 +414,7 @@ class sGrid(Grid):
             if efficiency is None:
                 acc = _d8_accumulation_numba(acc, fdir, indegree, startnodes)
             else:
-                raise NotImplementedError()
+                acc = _d8_accumulation_eff_numba(acc, fdir, indegree, startnodes, eff)
             acc = np.reshape(acc, fdir.shape)
             if pad:
                 acc = acc[1:-1, 1:-1]
@@ -482,7 +481,8 @@ class sGrid(Grid):
                 acc = _dinf_accumulation_numba(acc, fdir_0, fdir_1, indegree,
                                                startnodes, prop_0, prop_1)
             else:
-                raise NotImplementedError()
+                acc = _dinf_accumulation_eff_numba(acc, fdir_0, fdir_1, indegree,
+                                                   startnodes, prop_0, prop_1, eff)
             # Reshape and offset accumulation
             acc = np.reshape(acc, fdir.shape)
             if pad:
@@ -576,7 +576,7 @@ class sGrid(Grid):
         """
         Computes the height above nearest drainage (HAND), based on a flow direction grid,
         a digital elevation grid, and a grid containing the locations of drainage channels.
- 
+
         Parameters
         ----------
         fdir : str or Raster
@@ -666,7 +666,6 @@ class sGrid(Grid):
                 self._replace_rim(mask, maskleft, maskright, masktop, maskbottom)
             return self._output_handler(data=hand, out_name=out_name, properties=properties,
                                         inplace=inplace, metadata=metadata)
-
         elif routing.lower() == 'd8':
             try:
                 dirleft, dirright, dirtop, dirbottom = self._pop_rim(fdir, nodata=nodata_in_fdir)
@@ -741,7 +740,7 @@ class sGrid(Grid):
                               apply_mask=True, ignore_metadata=False, **kwargs):
         """
         Generates river segments from accumulation and flow_direction arrays.
- 
+
         Parameters
         ----------
         fdir : str or Raster
@@ -763,7 +762,7 @@ class sGrid(Grid):
                If True, "mask" the output using self.mask.
         ignore_metadata : bool
                           If False, require a valid affine transform and CRS.
- 
+
         Returns
         -------
         geo : geojson.FeatureCollection
@@ -815,7 +814,7 @@ class sGrid(Grid):
                      **kwargs):
         """
         Generates river segments from accumulation and flow_direction arrays.
- 
+
         Parameters
         ----------
         fdir : str or Raster
@@ -837,7 +836,7 @@ class sGrid(Grid):
                If True, "mask" the output using self.mask.
         ignore_metadata : bool
                           If False, require a valid affine transform and CRS.
- 
+
         Returns
         -------
         geo : geojson.FeatureCollection
@@ -881,6 +880,77 @@ class sGrid(Grid):
         return self._output_handler(data=order, out_name=out_name, properties=fdir_props,
                                     inplace=inplace, metadata=metadata)
 
+    def reverse_distance(self, fdir, mask, out_name='reverse_distance',
+                         dirmap=None, nodata_in=None, nodata_out=0, routing='d8',
+                         inplace=True, apply_mask=False, ignore_metadata=False,
+                         metadata={}, **kwargs):
+        """
+        Generates river segments from accumulation and flow_direction arrays.
+
+        Parameters
+        ----------
+        fdir : str or Raster
+               Flow direction data.
+               If str: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        mask : np.ndarray or Raster
+               Boolean array indicating channelized regions
+        dirmap : list or tuple (length 8)
+                 List of integer values representing the following
+                 cardinal and intercardinal directions (in order):
+                 [N, NE, E, SE, S, SW, W, NW]
+        nodata_in : int or float
+                     Value to indicate nodata in input array.
+        routing : str
+                  Routing algorithm to use:
+                  'd8'   : D8 flow directions
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and CRS.
+
+        Returns
+        -------
+        geo : geojson.FeatureCollection
+              A geojson feature collection of river segments. Each array contains the cell
+              indices of junctions in the segment.
+        """
+        if routing.lower() != 'd8':
+            raise NotImplementedError('Only implemented for D8 routing.')
+        fdir_nodata_in = self._check_nodata_in(fdir, nodata_in)
+        mask_nodata_in = self._check_nodata_in(mask, nodata_in)
+        fdir_props = {}
+        mask_props = {}
+        fdir = self._input_handler(fdir, apply_mask=apply_mask, nodata_view=fdir_nodata_in,
+                                   properties=fdir_props,
+                                   ignore_metadata=ignore_metadata, **kwargs)
+        mask = self._input_handler(mask, apply_mask=apply_mask, nodata_view=mask_nodata_in,
+                                   properties=mask_props,
+                                   ignore_metadata=ignore_metadata, **kwargs)
+        try:
+            assert(fdir.shape == mask.shape)
+            assert(fdir.affine == mask.affine)
+        except:
+            raise ValueError('Flow direction and accumulation grids not aligned.')
+        dirmap = self._set_dirmap(dirmap, fdir)
+        try:
+            maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=0)
+            masked_fdir = np.where(mask, fdir, 0).astype(np.int64)
+            startnodes, endnodes = _construct_matching(masked_fdir, dirmap)
+            indegree = np.bincount(endnodes).astype(np.uint8)
+            orig_indegree = np.copy(indegree)
+            startnodes = startnodes[(indegree == 0)]
+            min_order = np.full(fdir.size, np.iinfo(np.int64).max, dtype=np.int64)
+            max_order = np.ones(fdir.size, dtype=np.int64)
+            rdist = np.zeros(fdir.shape, dtype=np.int64)
+            rdist = _d8_reverse_distance(min_order, max_order, rdist,
+                                         endnodes, indegree, startnodes)
+        except:
+            raise
+        finally:
+            self._replace_rim(mask, maskleft, maskright, masktop, maskbottom)
+        return self._output_handler(data=rdist, out_name=out_name, properties=fdir_props,
+                                    inplace=inplace, metadata=metadata)
 
 # Functions for 'flowdir'
 
@@ -1111,6 +1181,24 @@ def _d8_accumulation_recursion(startnode, endnode, acc, fdir, indegree):
         _d8_accumulation_recursion(new_startnode, new_endnode, acc, fdir, indegree)
 
 @njit
+def _d8_accumulation_eff_numba(acc, fdir, indegree, startnodes, eff):
+    n = startnodes.size
+    for k in range(n):
+        startnode = startnodes[k]
+        endnode = fdir.flat[startnode]
+        _d8_accumulation_eff_recursion(startnode, endnode, acc, fdir, indegree, eff)
+    return acc
+
+@njit
+def _d8_accumulation_eff_recursion(startnode, endnode, acc, fdir, indegree, eff):
+    acc.flat[endnode] += (acc.flat[startnode] * eff.flat[startnode])
+    indegree[endnode] -= 1
+    if (indegree[endnode] == 0):
+        new_startnode = endnode
+        new_endnode = fdir.flat[endnode]
+        _d8_accumulation_eff_recursion(new_startnode, new_endnode, acc, fdir, indegree, eff)
+
+@njit
 def _dinf_accumulation_numba(acc, fdir_0, fdir_1, indegree, startnodes,
                              props_0, props_1):
     n = startnodes.size
@@ -1145,6 +1233,42 @@ def _dinf_accumulation_recursion(startnode, endnode, acc, fdir_0, fdir_1,
                                      indegree, prop_0, visited, props_0, props_1)
         _dinf_accumulation_recursion(new_startnode, new_endnode_1, acc, fdir_0, fdir_1,
                                      indegree, prop_1, visited, props_0, props_1)
+
+@njit
+def _dinf_accumulation_eff_numba(acc, fdir_0, fdir_1, indegree, startnodes,
+                                 props_0, props_1, eff):
+    n = startnodes.size
+    visited = np.zeros(acc.shape, dtype=np.bool8)
+    for k in range(n):
+        startnode = startnodes.flat[k]
+        endnode_0 = fdir_0.flat[startnode]
+        endnode_1 = fdir_1.flat[startnode]
+        prop_0 = props_0.flat[startnode]
+        prop_1 = props_1.flat[startnode]
+        _dinf_accumulation_eff_recursion(startnode, endnode_0, acc, fdir_0, fdir_1,
+                                         indegree, prop_0, visited, props_0, props_1, eff)
+        _dinf_accumulation_eff_recursion(startnode, endnode_1, acc, fdir_0, fdir_1,
+                                         indegree, prop_1, visited, props_0, props_1, eff)
+        # TODO: Needed?
+        visited.flat[startnode] = True
+    return acc
+
+@njit
+def _dinf_accumulation_eff_recursion(startnode, endnode, acc, fdir_0, fdir_1,
+                                     indegree, prop, visited, props_0, props_1, eff):
+    acc.flat[endnode] += (prop * acc.flat[startnode] * eff.flat[startnode])
+    indegree.flat[endnode] -= 1
+    visited.flat[startnode] = True
+    if (indegree.flat[endnode] == 0):
+        new_startnode = endnode
+        new_endnode_0 = fdir_0.flat[new_startnode]
+        new_endnode_1 = fdir_1.flat[new_startnode]
+        prop_0 = props_0.flat[new_startnode]
+        prop_1 = props_1.flat[new_startnode]
+        _dinf_accumulation_eff_recursion(new_startnode, new_endnode_0, acc, fdir_0, fdir_1,
+                                         indegree, prop_0, visited, props_0, props_1, eff)
+        _dinf_accumulation_eff_recursion(new_startnode, new_endnode_1, acc, fdir_0, fdir_1,
+                                         indegree, prop_1, visited, props_0, props_1, eff)
 
 # Functions for 'flow_distance'
 
@@ -1220,6 +1344,29 @@ def _dinf_flow_distance_recursion(ix, fdir_0, fdir_1, visits, dist,
                 _dinf_flow_distance_recursion(neighbor, fdir_0, fdir_1, visits, dist,
                                               weights_0, weights_1, r_dirmap, next_inc,
                                               offsets)
+
+@njit
+def _d8_reverse_distance(min_order, max_order, rdist, fdir, indegree, startnodes):
+    n = startnodes.size
+    for k in range(n):
+        startnode = startnodes.flat[k]
+        endnode = fdir.flat[startnode]
+        _d8_reverse_distance_recursion(startnode, endnode, min_order, max_order,
+                                       rdist, fdir, indegree)
+    return rdist
+
+@njit
+def _d8_reverse_distance_recursion(startnode, endnode, min_order, max_order,
+                                   rdist, fdir, indegree):
+    min_order.flat[endnode] = min(min_order.flat[endnode], rdist.flat[startnode])
+    max_order.flat[endnode] = max(max_order.flat[endnode], rdist.flat[startnode])
+    indegree.flat[endnode] -= 1
+    if indegree.flat[endnode] == 0:
+        rdist.flat[endnode] = max_order.flat[endnode] + 1
+        new_startnode = endnode
+        new_endnode = fdir.flat[new_startnode]
+        _d8_reverse_distance_recursion(new_startnode, new_endnode, min_order,
+                                       max_order, rdist, fdir, indegree)
 
 # Functions for 'resolve_flats'
 

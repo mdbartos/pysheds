@@ -30,7 +30,7 @@ try:
     _HAS_RASTERIO = True
 except:
     _HAS_RASTERIO = False
-from pysheds.grid import Grid
+from pysheds.pgrid import Grid
 
 _OLD_PYPROJ = LooseVersion(pyproj.__version__) < LooseVersion('2.2')
 _pyproj_crs = lambda Proj: Proj.crs if not _OLD_PYPROJ else Proj
@@ -261,73 +261,217 @@ class sGrid(Grid):
         else:
             return array_view
 
-    def _d8_flowdir(self, dem=None, dem_mask=None, out_name='dir', nodata_in=None, nodata_out=0,
+    def flowdir(self, data, out_name='dir', nodata_in=None, nodata_out=None,
+                pits=-1, flats=-1, dirmap=(64, 128, 1, 2, 4, 8, 16, 32), routing='d8',
+                inplace=True, as_crs=None, apply_mask=False, ignore_metadata=False,
+                **kwargs):
+        """
+        Generates a flow direction grid from a DEM grid.
+
+        Parameters
+        ----------
+        data : str or Raster
+               DEM data.
+               If str: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        out_name : string
+                   Name of attribute containing new flow direction array.
+        nodata_in : int or float
+                     Value to indicate nodata in input array.
+        nodata_out : int or float
+                     Value to indicate nodata in output array.
+        pits : int
+               Value to indicate pits in output array.
+        flats : int
+                Value to indicate flat areas in output array.
+        dirmap : list or tuple (length 8)
+                 List of integer values representing the following
+                 cardinal and intercardinal directions (in order):
+                 [N, NE, E, SE, S, SW, W, NW]
+        routing : str
+                  Routing algorithm to use:
+                  'd8'   : D8 flow directions
+                  'dinf' : D-infinity flow directions
+        inplace : bool
+                  If True, write output array to self.<out_name>.
+                  Otherwise, return the output array.
+        as_crs : pyproj.Proj instance
+                 CRS projection to use when computing slopes.
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and crs.
+        """
+        dirmap = self._set_dirmap(dirmap, data)
+        nodata_in = self._check_nodata_in(data, nodata_in)
+        properties = {'nodata' : nodata_out}
+        metadata = {'dirmap' : dirmap}
+        dem = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
+                                  properties=properties, ignore_metadata=ignore_metadata,
+                                  **kwargs)
+        dem = dem.copy()
+        if nodata_in is None:
+            nodata_cells = np.zeros(dem.shape, dtype=np.bool8)
+        else:
+            if np.isnan(nodata_in):
+                nodata_cells = np.isnan(dem)
+            else:
+                nodata_cells = (dem == nodata_in)
+        if routing.lower() == 'd8':
+            if nodata_out is None:
+                nodata_out = 0
+            return self._d8_flowdir(dem=dem, nodata_cells=nodata_cells, out_name=out_name,
+                                    nodata_in=nodata_in, nodata_out=nodata_out, pits=pits,
+                                    flats=flats, dirmap=dirmap, inplace=inplace, as_crs=as_crs,
+                                    apply_mask=apply_mask, ignore_metdata=ignore_metadata,
+                                    properties=properties, metadata=metadata, **kwargs)
+        elif routing.lower() == 'dinf':
+            if nodata_out is None:
+                nodata_out = np.nan
+            return self._dinf_flowdir(dem=dem, nodata_cells=nodata_cells, out_name=out_name,
+                                      nodata_in=nodata_in, nodata_out=nodata_out, pits=pits,
+                                      flats=flats, dirmap=dirmap, inplace=inplace, as_crs=as_crs,
+                                      apply_mask=apply_mask, ignore_metdata=ignore_metadata,
+                                      properties=properties, metadata=metadata, **kwargs)
+
+
+    def _d8_flowdir(self, dem=None, nodata_cells=None, out_name='dir', nodata_in=None, nodata_out=0,
                     pits=-1, flats=-1, dirmap=(64, 128, 1, 2, 4, 8, 16, 32), inplace=True,
                     as_crs=None, apply_mask=False, ignore_metadata=False, properties={},
                     metadata={}, **kwargs):
-        try:
-            # Make sure nothing flows to the nodata cells
-            dem.flat[dem_mask] = dem.max() + 1
-            # Optionally, project DEM before computing slopes
-            if as_crs is not None:
-                # TODO: Not implemented
-                raise NotImplementedError()
-            else:
-                dx = abs(dem.affine.a)
-                dy = abs(dem.affine.e)
-            fdir = _d8_flowdir_par(dem, dx, dy, dirmap, flat=flats, pit=pits)
-        except:
-            raise
-        finally:
-            if nodata_in is not None:
-                dem.flat[dem_mask] = nodata_in
+        # Make sure nothing flows to the nodata cells
+        dem[nodata_cells] = dem.max() + 1
+        # Optionally, project DEM before computing slopes
+        if as_crs is not None:
+            # TODO: Not implemented
+            raise NotImplementedError()
+        else:
+            dx = abs(dem.affine.a)
+            dy = abs(dem.affine.e)
+        fdir = _d8_flowdir_numba(dem, dx, dy, dirmap, nodata_cells,
+                                nodata_out, flat=flats, pit=pits)
         return self._output_handler(data=fdir, out_name=out_name, properties=properties,
                                     inplace=inplace, metadata=metadata)
 
-    def _dinf_flowdir(self, dem=None, dem_mask=None, out_name='dir', nodata_in=None, nodata_out=0,
+    def _dinf_flowdir(self, dem=None, nodata_cells=None, out_name='dir', nodata_in=None, nodata_out=0,
                       pits=-1, flats=-1, dirmap=(64, 128, 1, 2, 4, 8, 16, 32), inplace=True,
                       as_crs=None, apply_mask=False, ignore_metadata=False, properties={},
                       metadata={}, **kwargs):
-        try:
-            # Make sure nothing flows to the nodata cells
-            dem.flat[dem_mask] = dem.max() + 1
-            if as_crs is not None:
-                # TODO: Not implemented
-                raise NotImplementedError()
-            else:
-                dx = abs(dem.affine.a)
-                dy = abs(dem.affine.e)
-            fdir = _dinf_flowdir_par(dem, dx, dy, flat=flats, pit=pits)
-            fdir = fdir % (2 * np.pi)
-        except:
-            raise
-        finally:
-            if nodata_in is not None:
-                dem.flat[dem_mask] = nodata_in
+        # Make sure nothing flows to the nodata cells
+        dem[nodata_cells] = dem.max() + 1
+        if as_crs is not None:
+            # TODO: Not implemented
+            raise NotImplementedError()
+        else:
+            dx = abs(dem.affine.a)
+            dy = abs(dem.affine.e)
+        fdir = _dinf_flowdir_numba(dem, dx, dy, nodata_out, flat=flats, pit=pits)
         return self._output_handler(data=fdir, out_name=out_name, properties=properties,
                                     inplace=inplace, metadata=metadata)
+
+    def catchment(self, x, y, data, pour_value=None, out_name='catch', dirmap=None,
+                  nodata_in=None, nodata_out=0, xytype='index', routing='d8',
+                  recursionlimit=15000, inplace=True, apply_mask=False, ignore_metadata=False,
+                  snap='corner', **kwargs):
+        """
+        Delineates a watershed from a given pour point (x, y).
+ 
+        Parameters
+        ----------
+        x : int or float
+            x coordinate of pour point
+        y : int or float
+            y coordinate of pour point
+        data : str or Raster
+               Flow direction data.
+               If str: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        pour_value : int or None
+                     If not None, value to represent pour point in catchment
+                     grid (required by some programs).
+        out_name : string
+                   Name of attribute containing new catchment array.
+        dirmap : list or tuple (length 8)
+                 List of integer values representing the following
+                 cardinal and intercardinal directions (in order):
+                 [N, NE, E, SE, S, SW, W, NW]
+        nodata_in : int or float
+                    Value to indicate nodata in input array.
+        nodata_out : int or float
+                     Value to indicate nodata in output array.
+        xytype : 'index' or 'label'
+                 How to interpret parameters 'x' and 'y'.
+                     'index' : x and y represent the column and row
+                               indices of the pour point.
+                     'label' : x and y represent geographic coordinates
+                               (will be passed to self.nearest_cell).
+        routing : str
+                  Routing algorithm to use:
+                  'd8'   : D8 flow directions
+                  'dinf' : D-infinity flow directions
+        recursionlimit : int
+                         Recursion limit--may need to be raised if
+                         recursion limit is reached.
+        inplace : bool
+                  If True, write output array to self.<out_name>.
+                  Otherwise, return the output array.
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and crs.
+        snap : str
+               Function to use on array for indexing:
+               'corner' : numpy.around()
+               'center' : numpy.floor()
+        """
+        # TODO: Why does this use set_dirmap but flowdir doesn't?
+        dirmap = self._set_dirmap(dirmap, data)
+        nodata_in = self._check_nodata_in(data, nodata_in)
+        properties = {'nodata' : nodata_out}
+        # TODO: This will overwrite metadata if provided
+        metadata = {'dirmap' : dirmap}
+        # initialize array to collect catchment cells
+        fdir = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
+                                   properties=properties, ignore_metadata=ignore_metadata,
+                                   **kwargs)
+        fdir = fdir.copy()
+        xmin, ymin, xmax, ymax = fdir.bbox
+        if xytype in ('label', 'coordinate'):
+            if (x < xmin) or (x > xmax) or (y < ymin) or (y > ymax):
+                raise ValueError('Pour point ({}, {}) is out of bounds for dataset with bbox {}.'
+                                .format(x, y, (xmin, ymin, xmax, ymax)))
+        elif xytype == 'index':
+            if (x < 0) or (y < 0) or (x >= fdir.shape[1]) or (y >= fdir.shape[0]):
+                raise ValueError('Pour point ({}, {}) is out of bounds for dataset with shape {}.'
+                                .format(x, y, fdir.shape))
+        if routing.lower() == 'd8':
+            return self._d8_catchment(x, y, fdir=fdir, pour_value=pour_value, out_name=out_name,
+                                      dirmap=dirmap, nodata_in=nodata_in, nodata_out=nodata_out,
+                                      xytype=xytype, recursionlimit=recursionlimit, inplace=inplace,
+                                      apply_mask=apply_mask, ignore_metadata=ignore_metadata,
+                                      properties=properties, metadata=metadata, snap=snap, **kwargs)
+        elif routing.lower() == 'dinf':
+            return self._dinf_catchment(x, y, fdir=fdir, pour_value=pour_value, out_name=out_name,
+                                      dirmap=dirmap, nodata_in=nodata_in, nodata_out=nodata_out,
+                                      xytype=xytype, recursionlimit=recursionlimit, inplace=inplace,
+                                      apply_mask=apply_mask, ignore_metadata=ignore_metadata,
+                                      properties=properties, metadata=metadata, **kwargs)
 
     def _d8_catchment(self, x, y, fdir=None, pour_value=None, out_name='catch', dirmap=None,
                       nodata_in=None, nodata_out=0, xytype='index', recursionlimit=15000,
                       inplace=True, apply_mask=False, ignore_metadata=False, properties={},
                       metadata={}, snap='corner', **kwargs):
-        try:
-            # Pad the rim
-            left, right, top, bottom = self._pop_rim(fdir, nodata=nodata_in)
-            # get shape of padded flow direction array, then flatten
-            # if xytype is 'label', delineate catchment based on cell nearest
-            # to given geographic coordinate
-            # Valid if the dataset is a view.
-            if xytype == 'label':
-                x, y = self.nearest_cell(x, y, fdir.affine, snap)
-            # get the flattened index of the pour point
-            catch = _d8_catchment_numba(fdir, (y, x), dirmap)
-            if pour_value is not None:
-                catch[y, x] = pour_value
-        except:
-            raise
-        finally:
-            self._replace_rim(fdir, left, right, top, bottom)
+        # Pad the rim
+        left, right, top, bottom = self._pop_rim(fdir, nodata=nodata_in)
+        # If xytype is 'label', delineate catchment based on cell nearest
+        # to given geographic coordinate
+        # TODO: Valid only if the dataset is a view.
+        if xytype == 'label':
+            x, y = self.nearest_cell(x, y, fdir.affine, snap)
+        # get the flattened index of the pour point
+        catch = _d8_catchment_numba(fdir, (y, x), dirmap)
+        if pour_value is not None:
+            catch[y, x] = pour_value
         return self._output_handler(data=catch, out_name=out_name, properties=properties,
                                     inplace=inplace, metadata=metadata)
 
@@ -335,102 +479,148 @@ class sGrid(Grid):
                         nodata_in=None, nodata_out=0, xytype='index', recursionlimit=15000,
                         inplace=True, apply_mask=False, ignore_metadata=False, properties={},
                         metadata={}, snap='corner', **kwargs):
-        try:
-            if nodata_in is None:
-                nodata_cells = np.zeros_like(fdir).astype(bool)
+        if nodata_in is None:
+            nodata_cells = np.zeros_like(fdir).astype(bool)
+        else:
+            if np.isnan(nodata_in):
+                nodata_cells = (np.isnan(fdir))
             else:
-                if np.isnan(nodata_in):
-                    nodata_cells = (np.isnan(fdir))
-                else:
-                    nodata_cells = (fdir == nodata_in)
-            # Split dinf flowdir
-            fdir_0, fdir_1, prop_0, prop_1 = _angle_to_d8(fdir, dirmap, nodata_cells)
-            # Pad the rim
-            left_0, right_0, top_0, bottom_0 = self._pop_rim(fdir_0, nodata=nodata_in)
-            left_1, right_1, top_1, bottom_1 = self._pop_rim(fdir_1, nodata=nodata_in)
-            # TODO: This relies on the bbox of the grid instance, not the dataset
-            # Valid if the dataset is a view.
-            if xytype == 'label':
-                x, y = self.nearest_cell(x, y, fdir.affine, snap)
-            catch = _dinf_catchment_numba(fdir_0, fdir_1, (y, x), dirmap)
-            # if pour point needs to be a special value, set it
-            if pour_value is not None:
-                catch[y, x] = pour_value
-        except:
-            raise
+                nodata_cells = (fdir == nodata_in)
+        # Split dinf flowdir
+        fdir_0, fdir_1, prop_0, prop_1 = _angle_to_d8(fdir, dirmap, nodata_cells)
+        # Pad the rim
+        left_0, right_0, top_0, bottom_0 = self._pop_rim(fdir_0, nodata=nodata_in)
+        left_1, right_1, top_1, bottom_1 = self._pop_rim(fdir_1, nodata=nodata_in)
+        # TODO: This relies on the bbox of the grid instance, not the dataset
+        # Valid if the dataset is a view.
+        if xytype == 'label':
+            x, y = self.nearest_cell(x, y, fdir.affine, snap)
+        catch = _dinf_catchment_numba(fdir_0, fdir_1, (y, x), dirmap)
+        # if pour point needs to be a special value, set it
+        if pour_value is not None:
+            catch[y, x] = pour_value
         return self._output_handler(data=catch, out_name=out_name, properties=properties,
                                     inplace=inplace, metadata=metadata)
+
+    def accumulation(self, data, weights=None, dirmap=None, nodata_in=None, nodata_out=0,
+                     efficiency=None, out_name='acc', routing='d8', inplace=True, pad=False,
+                     apply_mask=False, ignore_metadata=False, cycle_size=1, **kwargs):
+        """
+        Generates an array of flow accumulation, where cell values represent
+        the number of upstream cells.
+ 
+        Parameters
+        ----------
+        data : str or Raster
+               Flow direction data.
+               If str: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        weights: numpy ndarray
+-                 Array of weights to be applied to each accumulation cell. Must
+-                 be same size as data.
+        dirmap : list or tuple (length 8)
+                 List of integer values representing the following
+                 cardinal and intercardinal directions (in order):
+                 [N, NE, E, SE, S, SW, W, NW]
+        efficiency: numpy ndarray
+                 transport efficiency, relative correction factor applied to the
+                 outflow of each cell
+                 nodata will be set to 1, i.e. no correction
+                 Must be same size as data.
+        nodata_in : int or float
+                    Value to indicate nodata in input array. If using a named dataset, will
+                    default to the 'nodata' value of the named dataset. If using an ndarray,
+                    will default to 0.
+        nodata_out : int or float
+                     Value to indicate nodata in output array.
+        out_name : string
+                   Name of attribute containing new accumulation array.
+        routing : str
+                  Routing algorithm to use:
+                  'd8'   : D8 flow directions
+                  'dinf' : D-infinity flow directions
+        inplace : bool
+                  If True, write output array to self.<out_name>.
+                  Otherwise, return the output array.
+        pad : bool
+              If True, pad the rim of the input array with zeros. Else, ignore
+              the outer rim of cells in the computation.
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and crs.
+        """
+        dirmap = self._set_dirmap(dirmap, data)
+        nodata_in = self._check_nodata_in(data, nodata_in)
+        properties = {'nodata' : nodata_out}
+        # TODO: This will overwrite any provided metadata
+        metadata = {}
+        fdir = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
+                                   properties=properties,
+                                   ignore_metadata=ignore_metadata, **kwargs)
+        fdir = fdir.copy()
+        if routing.lower() == 'd8':
+            return self._d8_accumulation(fdir=fdir, weights=weights,
+                                         dirmap=dirmap, efficiency=efficiency,
+                                         nodata_in=nodata_in,
+                                         nodata_out=nodata_out,
+                                         out_name=out_name, inplace=inplace,
+                                         pad=pad, apply_mask=apply_mask,
+                                         ignore_metadata=ignore_metadata,
+                                         properties=properties,
+                                         metadata=metadata, **kwargs)
+        elif routing.lower() == 'dinf':
+            return self._dinf_accumulation(fdir=fdir, weights=weights,
+                                           dirmap=dirmap,efficiency=efficiency,
+                                           nodata_in=nodata_in,
+                                           nodata_out=nodata_out,
+                                           out_name=out_name, inplace=inplace,
+                                           pad=pad, apply_mask=apply_mask,
+                                           ignore_metadata=ignore_metadata,
+                                           properties=properties,
+                                           metadata=metadata, cycle_size=cycle_size, **kwargs)
+
 
     def _d8_accumulation(self, fdir=None, weights=None, dirmap=None, nodata_in=None,
                          nodata_out=0, efficiency=None, out_name='acc', inplace=True,
                          pad=False, apply_mask=False, ignore_metadata=False, properties={},
                          metadata={}, **kwargs):
-        # Pad the rim
-        if pad:
-            fdir = np.pad(fdir, (1,1), mode='constant', constant_values=0)
-        else:
-            left, right, top, bottom = self._pop_rim(fdir, nodata=0)
-        mintype = np.min_scalar_type(fdir.size)
-        fdir_orig_type = fdir.dtype
+        # TODO: Instead of popping rim, handle edge cells in construct matching
+        # left, right, top, bottom = self._pop_rim(fdir, nodata=0)
         # Construct flat index onto flow direction array
-        domain = np.arange(fdir.size, dtype=mintype)
-        try:
-            if nodata_in is None:
-                nodata_cells = np.zeros_like(fdir).astype(bool)
+        if nodata_in is None:
+            nodata_cells = np.zeros_like(fdir).astype(bool)
+        else:
+            if np.isnan(nodata_in):
+                nodata_cells = (np.isnan(fdir))
             else:
-                if np.isnan(nodata_in):
-                    nodata_cells = (np.isnan(fdir))
-                else:
-                    nodata_cells = (fdir == nodata_in)
-            invalid_cells = ~np.in1d(fdir.ravel(), dirmap)
-            invalid_entries = fdir.flat[invalid_cells]
-            fdir.flat[invalid_cells] = 0
-            # Ensure consistent types
-            fdir = fdir.astype(mintype)
-            # Set nodata cells to zero
-            fdir[nodata_cells] = 0
-            # Get matching of start and end nodes
-            startnodes, endnodes = self._construct_matching(fdir, domain,
-                                                            dirmap=dirmap)
-            if weights is not None:
-                assert(weights.size == fdir.size)
-                # TODO: Why flatten? Does this prevent weights from being modified?
-                acc = weights.flatten()
-            else:
-                acc = (~nodata_cells).ravel().astype(int)
-
-            if efficiency is not None:
-                assert(efficiency.size == fdir.size)
-                eff = efficiency.flatten() # must be flattened to avoid IndexError below
-                acc = acc.astype(float)
-                eff_max, eff_min = np.max(eff), np.min(eff)
-                assert((eff_max<=1) and (eff_min>=0))
-
-            indegree = np.bincount(endnodes)
-            indegree = indegree.reshape(acc.shape).astype(np.uint8)
-            startnodes = startnodes[(indegree == 0)]
-            # separate for loop to avoid performance hit when
-            # efficiency is None
-            if efficiency is None:
-                acc = _d8_accumulation_numba(acc, fdir, indegree, startnodes)
-            else:
-                acc = _d8_accumulation_eff_numba(acc, fdir, indegree, startnodes, eff)
-            acc = np.reshape(acc, fdir.shape)
-            if pad:
-                acc = acc[1:-1, 1:-1]
-        except:
-            raise
-        finally:
-        # Clean up
-            self._unflatten_fdir(fdir, domain, dirmap)
-            fdir = fdir.astype(fdir_orig_type)
-            fdir.flat[invalid_cells] = invalid_entries
-            if nodata_in is not None:
-                fdir[nodata_cells] = nodata_in
-            if pad:
-                fdir = fdir[1:-1, 1:-1]
-            else:
-                self._replace_rim(fdir, left, right, top, bottom)
+                nodata_cells = (fdir == nodata_in)
+        invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
+        # Set nodata cells to zero
+        fdir[nodata_cells] = 0
+        fdir[invalid_cells] = 0
+        # Get matching of start and end nodes
+        startnodes = np.arange(fdir.size, dtype=np.int64)
+        endnodes = _flatten_fdir(fdir, dirmap)
+        if weights is not None:
+            assert(weights.size == fdir.size)
+            acc = weights.flatten()
+        else:
+            acc = (~nodata_cells).ravel().astype(int)
+        if efficiency is not None:
+            assert(efficiency.size == fdir.size)
+            eff = efficiency.flatten()
+            acc = acc.astype(float)
+            eff_max, eff_min = np.max(eff), np.min(eff)
+            assert((eff_max<=1) and (eff_min>=0))
+        indegree = np.bincount(endnodes, minlength=fdir.size)
+        indegree = indegree.reshape(acc.shape).astype(np.uint8)
+        startnodes = startnodes[(indegree == 0)]
+        if efficiency is None:
+            acc = _d8_accumulation_numba(acc, endnodes, indegree, startnodes)
+        else:
+            acc = _d8_accumulation_eff_numba(acc, endnodes, indegree, startnodes, eff)
+        acc = np.reshape(acc, fdir.shape)
         return self._output_handler(data=acc, out_name=out_name, properties=properties,
                                     inplace=inplace, metadata=metadata)
 
@@ -438,65 +628,45 @@ class sGrid(Grid):
                            nodata_out=0, efficiency=None, out_name='acc', inplace=True,
                            pad=False, apply_mask=False, ignore_metadata=False,
                            properties={}, metadata={}, cycle_size=1, **kwargs):
-        # Pad the rim
-        if pad:
-            fdir = np.pad(fdir, (1,1), mode='constant', constant_values=nodata_in)
+        if nodata_in is None:
+            nodata_cells = np.zeros_like(fdir).astype(bool)
         else:
-            left, right, top, bottom = self._pop_rim(fdir, nodata=nodata_in)
-        # Construct flat index onto flow direction array
-        mintype = np.min_scalar_type(fdir.size)
-        domain = np.arange(fdir.size, dtype=mintype)
-        try:
-            if nodata_in is None:
-                nodata_cells = np.zeros_like(fdir).astype(bool)
+            if np.isnan(nodata_in):
+                nodata_cells = (np.isnan(fdir))
             else:
-                if np.isnan(nodata_in):
-                    nodata_cells = (np.isnan(fdir))
-                else:
-                    nodata_cells = (fdir == nodata_in)
-            # Split d-infinity grid
-            fdir_0, fdir_1, prop_0, prop_1 = _angle_to_d8(fdir, dirmap, nodata_cells)
-            # Get matching of start and end nodes
-            startnodes, endnodes_0 = self._construct_matching(fdir_0, domain, dirmap=dirmap)
-            _, endnodes_1 = self._construct_matching(fdir_1, domain, dirmap=dirmap)
-            # Remove cycles
-            _dinf_fix_cycles(fdir_0, fdir_1, cycle_size)
-            # Initialize accumulation array
-            if weights is not None:
-                assert(weights.size == fdir.size)
-                acc = weights.flatten().astype(float)
-            else:
-                acc = (~nodata_cells).ravel().astype(float)
-            if efficiency is not None:
-                assert(efficiency.size == fdir.size)
-                eff = efficiency.flatten()
-                eff_max, eff_min = np.max(eff), np.min(eff)
-                assert((eff_max<=1) and (eff_min>=0))
-            # Initialize indegree
-            indegree_0 = np.bincount(fdir_0.ravel(), minlength=fdir.size)
-            indegree_1 = np.bincount(fdir_1.ravel(), minlength=fdir.size)
-            indegree = (indegree_0 + indegree_1).astype(np.uint8)
-            startnodes = startnodes[(indegree == 0)]
-            if efficiency is None:
-                acc = _dinf_accumulation_numba(acc, fdir_0, fdir_1, indegree,
-                                               startnodes, prop_0, prop_1)
-            else:
-                acc = _dinf_accumulation_eff_numba(acc, fdir_0, fdir_1, indegree,
-                                                   startnodes, prop_0, prop_1, eff)
-            # Reshape and offset accumulation
-            acc = np.reshape(acc, fdir.shape)
-            if pad:
-                acc = acc[1:-1, 1:-1]
-        except:
-            raise
-        finally:
-            # Clean up
-            if nodata_in is not None:
-                fdir[nodata_cells] = nodata_in
-            if pad:
-                fdir = fdir[1:-1, 1:-1]
-            else:
-                self._replace_rim(fdir, left, right, top, bottom)
+                nodata_cells = (fdir == nodata_in)
+        # Split d-infinity grid
+        fdir_0, fdir_1, prop_0, prop_1 = _angle_to_d8(fdir, dirmap, nodata_cells)
+        # Get matching of start and end nodes
+        startnodes = np.arange(fdir.size, dtype=np.int64)
+        endnodes_0 = _flatten_fdir(fdir_0, dirmap)
+        endnodes_1 = _flatten_fdir(fdir_1, dirmap)
+        # Remove cycles
+        _dinf_fix_cycles(endnodes_0, endnodes_1, cycle_size)
+        # Initialize accumulation array
+        if weights is not None:
+            assert(weights.size == fdir.size)
+            acc = weights.flatten().astype(float)
+        else:
+            acc = (~nodata_cells).ravel().astype(float)
+        if efficiency is not None:
+            assert(efficiency.size == fdir.size)
+            eff = efficiency.flatten()
+            eff_max, eff_min = np.max(eff), np.min(eff)
+            assert((eff_max<=1) and (eff_min>=0))
+        # Initialize indegree
+        indegree_0 = np.bincount(endnodes_0.ravel(), minlength=fdir.size)
+        indegree_1 = np.bincount(endnodes_1.ravel(), minlength=fdir.size)
+        indegree = (indegree_0 + indegree_1).astype(np.uint8)
+        startnodes = startnodes[(indegree == 0)]
+        if efficiency is None:
+            acc = _dinf_accumulation_numba(acc, endnodes_0, endnodes_1, indegree,
+                                            startnodes, prop_0, prop_1)
+        else:
+            acc = _dinf_accumulation_eff_numba(acc, endnodes_0, endnodes_1, indegree,
+                                                startnodes, prop_0, prop_1, eff)
+        # Reshape and offset accumulation
+        acc = np.reshape(acc, fdir.shape)
         return self._output_handler(data=acc, out_name=out_name, properties=properties,
                                     inplace=inplace, metadata=metadata)
 
@@ -548,10 +718,10 @@ class sGrid(Grid):
                     weights_0 = weights[0].ravel()
                     assert(isinstance(weights[1], np.ndarray))
                     weights_1 = weights[1].ravel()
-                    assert(weights_0.size == startnodes.size)
-                    assert(weights_1.size == startnodes.size)
+                    assert(weights_0.size == fdir.size)
+                    assert(weights_1.size == fdir.size)
                 elif isinstance(weights, np.ndarray):
-                    assert(weights.shape[0] == startnodes.size)
+                    assert(weights.shape[0] == fdir.size)
                     assert(weights.shape[1] == 2)
                     weights_0 = weights[:,0]
                     weights_1 = weights[:,1]
@@ -685,7 +855,7 @@ class sGrid(Grid):
                       inplace=True, apply_mask=False, ignore_metadata=False, eps=1e-5,
                       max_iter=1000, **kwargs):
         """
-        Resolve flats in a DEM using the modified method of Garbrecht and Martz (1997).
+        Resolve flats in a DEM using the modified method of Barnes et al. (2015).
         See: https://arxiv.org/abs/1511.04433
 
         Parameters
@@ -791,7 +961,8 @@ class sGrid(Grid):
             maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=0)
             masked_fdir = np.where(mask, fdir, 0).astype(np.int64)
             startnodes, endnodes = _construct_matching(masked_fdir, dirmap)
-            indegree = np.bincount(endnodes).astype(np.uint8)
+            # TODO: Want to have minlength here
+            indegree = np.bincount(endnodes, minlength=fdir.size).astype(np.uint8)
             orig_indegree = np.copy(indegree)
             startnodes = startnodes[(indegree == 0)]
             profiles = _d8_stream_network(endnodes, indegree, orig_indegree, startnodes)
@@ -952,10 +1123,67 @@ class sGrid(Grid):
         return self._output_handler(data=rdist, out_name=out_name, properties=fdir_props,
                                     inplace=inplace, metadata=metadata)
 
+    def fill_pits(self, data, out_name='filled_dem', nodata_in=None, nodata_out=0,
+                  inplace=True, apply_mask=False, ignore_metadata=False, **kwargs):
+        """
+        Fill pits in a DEM. Raises pits to same elevation as lowest neighbor.
+
+        Parameters
+        ----------
+        data : str or Raster
+               DEM data.
+               If str: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        out_name : string
+                   Name of attribute containing new filled pit array.
+        nodata_in : int or float
+                     Value to indicate nodata in input array.
+        nodata_out : int or float
+                     Value indicating no data in output array.
+        inplace : bool
+                  If True, write output array to self.<out_name>.
+                  Otherwise, return the output array.
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and CRS.
+        """
+        nodata_in = self._check_nodata_in(data, nodata_in)
+        grid_props = {'nodata' : nodata_out}
+        metadata = {}
+        dem = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
+                                  properties=grid_props, ignore_metadata=ignore_metadata,
+                                  **kwargs)
+
+        if nodata_in is None:
+            nodata_cells = np.zeros(dem.shape, dtype=np.bool8)
+        else:
+            if np.isnan(nodata_in):
+                nodata_cells = np.isnan(dem)
+            else:
+                nodata_cells = (dem == nodata_in)
+        try:
+            # Make sure nothing flows to the nodata cells
+            dem[nodata_cells] = dem.max() + 1
+            inside = np.arange(dem.size, dtype=np.int64).reshape(dem.shape)[1:-1, 1:-1].ravel()
+            pits = _find_pits_numba(dem, inside)
+            pit_indices = np.flatnonzero(pits)
+            pit_filled_dem = dem.copy()
+            _fill_pits_numba(pit_filled_dem, pit_indices)
+            pit_filled_dem[nodata_cells] = nodata_out
+        except:
+            raise
+        finally:
+            if nodata_in is not None:
+                dem[nodata_cells] = nodata_in
+        return self._output_handler(data=pit_filled_dem, out_name=out_name, properties=grid_props,
+                                    inplace=inplace, metadata=metadata)
+
+
 # Functions for 'flowdir'
 
 @njit(parallel=True)
-def _d8_flowdir_par(dem, dx, dy, dirmap, flat=-1, pit=-2):
+def _d8_flowdir_numba(dem, dx, dy, dirmap, nodata_cells, nodata_out, flat=-1, pit=-2):
     fdir = np.zeros(dem.shape, dtype=np.int64)
     m, n = dem.shape
     dd = np.sqrt(dx**2 + dy**2)
@@ -964,20 +1192,23 @@ def _d8_flowdir_par(dem, dx, dy, dirmap, flat=-1, pit=-2):
     distances = np.array([dy, dd, dx, dd, dy, dd, dx, dd])
     for i in prange(1, m - 1):
         for j in prange(1, n - 1):
-            elev = dem[i, j]
-            max_slope = -np.inf
-            for k in range(8):
-                row_offset = row_offsets[k]
-                col_offset = col_offsets[k]
-                distance = distances[k]
-                slope = (elev - dem[i + row_offset, j + col_offset]) / distance
-                if slope > max_slope:
-                    fdir[i, j] = dirmap[k]
-                    max_slope = slope
-            if max_slope == 0:
-                fdir[i, j] = flat
-            elif max_slope < 0:
-                fdir[i, j] = pit
+            if nodata_cells[i, j]:
+                fdir[i, j] = nodata_out
+            else:
+                elev = dem[i, j]
+                max_slope = -np.inf
+                for k in range(8):
+                    row_offset = row_offsets[k]
+                    col_offset = col_offsets[k]
+                    distance = distances[k]
+                    slope = (elev - dem[i + row_offset, j + col_offset]) / distance
+                    if slope > max_slope:
+                        fdir[i, j] = dirmap[k]
+                        max_slope = slope
+                if max_slope == 0:
+                    fdir[i, j] = flat
+                elif max_slope < 0:
+                    fdir[i, j] = pit
     return fdir
 
 @njit
@@ -999,7 +1230,7 @@ def _facet_flow(e0, e1, e2, d1=1, d2=1):
     return r, s
 
 @njit(parallel=True)
-def _dinf_flowdir_par(dem, x_dist, y_dist, flat=-1, pit=-2):
+def _dinf_flowdir_numba(dem, x_dist, y_dist, nodata, flat=-1, pit=-2):
     m, n = dem.shape
     e1s = np.array([0, 2, 2, 4, 4, 6, 6, 0])
     e2s = np.array([1, 1, 3, 3, 5, 5, 7, 7])
@@ -1007,7 +1238,7 @@ def _dinf_flowdir_par(dem, x_dist, y_dist, flat=-1, pit=-2):
     d2s = np.array([2, 0, 4, 2, 6, 4, 0, 6])
     ac = np.array([0, 1, 1, 2, 2, 3, 3, 4])
     af = np.array([1, -1, 1, -1, 1, -1, 1, -1])
-    angle = np.zeros(dem.shape, dtype=np.float64)
+    angle = np.full(dem.shape, nodata, dtype=np.float64)
     diag_dist = np.sqrt(x_dist**2 + y_dist**2)
     cell_dists = np.array([x_dist, diag_dist, y_dist, diag_dist,
                            x_dist, diag_dist, y_dist, diag_dist])
@@ -1042,7 +1273,9 @@ def _dinf_flowdir_par(dem, x_dist, y_dist, flat=-1, pit=-2):
             elif s_max == 0:
                 angle[i, j] = flat
             else:
-                angle[i, j] = (af[k_max] * r_max) + (ac[k_max] * np.pi / 2)
+                flow_angle = (af[k_max] * r_max) + (ac[k_max] * np.pi / 2)
+                flow_angle = flow_angle % (2 * np.pi)
+                angle[i, j] = flow_angle
     return angle
 
 @njit(parallel=True)
@@ -1806,25 +2039,94 @@ def _dinf_fix_cycles_recursion(node, fdir_0, fdir_1, ancestor,
         _dinf_fix_cycles_recursion(right, fdir_0, fdir_1, ancestor,
                                    depth + 1, max_cycle_size, visited)
 
+# TODO: Assumes pits and flats are removed
 @njit(parallel=True)
 def _flatten_fdir(fdir, dirmap):
-    shape = fdir.shape
+    r, c = fdir.shape
     n = fdir.size
-    flat_fdir = np.zeros(fdir.shape, dtype=np.int64)
-    offsets = ( 0 - shape[1],
-                1 - shape[1],
+    flat_fdir = np.zeros(n, dtype=np.int64)
+    offsets = ( 0 - c,
+                1 - c,
                 1 + 0,
-                1 + shape[1],
-                0 + shape[1],
-               -1 + shape[1],
+                1 + c,
+                0 + c,
+               -1 + c,
                -1 + 0,
-               -1 - shape[1]
+               -1 - c
               )
     offset_map = {0 : 0}
+    left_map = {0 : 0}
+    right_map = {0 : 0}
+    top_map = {0 : 0}
+    bottom_map = {0 : 0}
+
+    for i in range(8):
+        # Inside cells
+        offset_map[dirmap[i]] = offsets[i]
+        # Left boundary
+        if i in {5, 6, 7}:
+            left_map[dirmap[i]] = 0
+        else:
+            left_map[dirmap[i]] = offsets[i]
+        # Right boundary
+        if i in {1, 2, 3}:
+            right_map[dirmap[i]] = 0
+        else:
+            right_map[dirmap[i]] = offsets[i]
+        # Top boundary
+        if i in {7, 0, 1}:
+            top_map[dirmap[i]] = 0
+        else:
+            top_map[dirmap[i]] = offsets[i]
+        # Bottom boundary
+        if i in {3, 4, 5}:
+            bottom_map[dirmap[i]] = 0
+        else:
+            bottom_map[dirmap[i]] = offsets[i]
+
+    for k in prange(n):
+        cell_dir = fdir.flat[k]
+        on_left = ((k % c) == 0)
+        on_right = (((k + 1) % c) == 0)
+        on_top = (k < c)
+        on_bottom = (k > (n - c - 1))
+        on_boundary = (on_left | on_right | on_top | on_bottom)
+        if on_boundary:
+            if on_left:
+                offset = left_map[cell_dir]
+            if on_right:
+                offset = right_map[cell_dir]
+            if on_top:
+                offset = top_map[cell_dir]
+            if on_bottom:
+                offset = bottom_map[cell_dir]
+        else:
+            offset = offset_map[cell_dir]
+        flat_fdir.flat[k] = k + offset
+    return flat_fdir
+
+@njit(parallel=True)
+def _flatten_fdir_no_boundary(fdir, dirmap):
+    r, c = fdir.shape
+    n = fdir.size
+    flat_fdir = np.zeros((r, c), dtype=np.int64)
+    offsets = ( 0 - c,
+                1 - c,
+                1 + 0,
+                1 + c,
+                0 + c,
+               -1 + c,
+               -1 + 0,
+               -1 - c
+              )
+    offset_map = {0 : 0}
+
     for i in range(8):
         offset_map[dirmap[i]] = offsets[i]
+
     for k in prange(n):
-        offset = offset_map[fdir.flat[k]]
+        cell_dir = fdir.flat[k]
+        offset = offset_map[cell_dir]
         flat_fdir.flat[k] = k + offset
     return flat_fdir
 
@@ -1834,3 +2136,46 @@ def _construct_matching(fdir, dirmap):
     startnodes = np.arange(n, dtype=np.int64)
     endnodes = _flatten_fdir(fdir, dirmap).ravel()
     return startnodes, endnodes
+
+@njit(parallel=True)
+def _find_pits_numba(dem, inside):
+    n = inside.size
+    offset = dem.shape[1]
+    pits = np.zeros(dem.shape, dtype=np.bool8)
+    offsets = np.array([-offset, 1 - offset, 1,
+                        1 + offset, offset, - 1 + offset,
+                        - 1, - 1 - offset])
+
+    for i in prange(n):
+        k = inside[i]
+        inner_neighbors = (k + offsets)
+        is_pit = True
+        for j in prange(8):
+            neighbor = inner_neighbors[j]
+            diff = dem.flat[k] - dem.flat[neighbor]
+            is_pit &= (diff < 0)
+        pits.flat[k] = is_pit
+
+    return pits
+
+@njit(parallel=True)
+def _fill_pits_numba(dem, pit_indices):
+    n = pit_indices.size
+    offset = dem.shape[1]
+    pits_filled = np.copy(dem)
+    max_diff = dem.max() - dem.min()
+    offsets = np.array([-offset, 1 - offset, 1,
+                        1 + offset, offset, - 1 + offset,
+                        - 1, - 1 - offset])
+
+    for i in prange(n):
+        k = pit_indices[i]
+        inner_neighbors = (k + offsets)
+        adjustment = max_diff
+        for j in prange(8):
+            neighbor = inner_neighbors[j]
+            diff = dem.flat[neighbor] - dem.flat[k]
+            adjustment = min(diff, adjustment)
+        pits_filled.flat[k] += (adjustment)
+
+    return pits_filled

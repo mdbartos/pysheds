@@ -98,10 +98,8 @@ class sGrid(Grid):
                   null gridcells for a provided dataset.
     """
 
-    def __init__(self, affine=Affine(0,0,0,0,0,0), shape=(1,1), nodata=0,
-                 crs=pyproj.Proj(_pyproj_init),
-                 mask=None):
-        super().__init__(affine, shape, nodata, crs, mask)
+    def __init__(self, viewfinder=None):
+        super().__init__(viewfinder)
 
     def view(self, data, data_view=None, target_view=None, apply_mask=True,
              nodata=None, interpolation='nearest', as_crs=None, return_coords=False,
@@ -262,9 +260,8 @@ class sGrid(Grid):
             return array_view
 
     def flowdir(self, data, out_name='dir', nodata_in=None, nodata_out=None,
-                pits=-1, flats=-1, dirmap=(64, 128, 1, 2, 4, 8, 16, 32), routing='d8',
-                inplace=True, as_crs=None, apply_mask=False, ignore_metadata=False,
-                **kwargs):
+                flats=-1, pits=-2, dirmap=(64, 128, 1, 2, 4, 8, 16, 32), routing='d8',
+                inplace=True, as_crs=None, apply_mask=False, ignore_metadata=False, **kwargs):
         """
         Generates a flow direction grid from a DEM grid.
 
@@ -342,14 +339,18 @@ class sGrid(Grid):
         # Make sure nothing flows to the nodata cells
         dem[nodata_cells] = dem.max() + 1
         # Optionally, project DEM before computing slopes
-        if as_crs is not None:
-            # TODO: Not implemented
-            raise NotImplementedError()
-        else:
+        if isinstance(dem.viewfinder, IrregularViewFinder):
+            y_arr = dem._coords[:,0].reshape(dem.shape)
+            x_arr = dem._coords[:,1].reshape(dem.shape)
+            fdir = _d8_flowdir_irregular_numba(dem, x_arr, y_arr, dirmap, nodata_cells,
+                                               nodata_out, flat=-1, pit=-2)
+        elif isinstance(dem.viewfinder, RegularViewFinder):
             dx = abs(dem.affine.a)
             dy = abs(dem.affine.e)
-        fdir = _d8_flowdir_numba(dem, dx, dy, dirmap, nodata_cells,
-                                nodata_out, flat=flats, pit=pits)
+            fdir = _d8_flowdir_numba(dem, dx, dy, dirmap, nodata_cells,
+                                    nodata_out, flat=flats, pit=pits)
+        else:
+            raise NotImplementedError('Input must be a Raster.')
         return self._output_handler(data=fdir, out_name=out_name, properties=properties,
                                     inplace=inplace, metadata=metadata)
 
@@ -359,13 +360,16 @@ class sGrid(Grid):
                       metadata={}, **kwargs):
         # Make sure nothing flows to the nodata cells
         dem[nodata_cells] = dem.max() + 1
-        if as_crs is not None:
-            # TODO: Not implemented
-            raise NotImplementedError()
-        else:
+        if isinstance(dem.viewfinder, IrregularViewFinder):
+            y_arr = dem._coords[:,0].reshape(dem.shape)
+            x_arr = dem._coords[:,1].reshape(dem.shape)
+            fdir = _dinf_flowdir_irregular_numba(dem, x_arr, y_arr, nodata, flat=-1, pit=-2)
+        elif isinstance(dem.viewfinder, RegularViewFinder):
             dx = abs(dem.affine.a)
             dy = abs(dem.affine.e)
-        fdir = _dinf_flowdir_numba(dem, dx, dy, nodata_out, flat=flats, pit=pits)
+            fdir = _dinf_flowdir_numba(dem, dx, dy, nodata_out, flat=flats, pit=pits)
+        else:
+            raise NotImplementedError('Input must be a Raster.')
         return self._output_handler(data=fdir, out_name=out_name, properties=properties,
                                     inplace=inplace, metadata=metadata)
 
@@ -1154,7 +1158,6 @@ class sGrid(Grid):
         dem = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
                                   properties=grid_props, ignore_metadata=ignore_metadata,
                                   **kwargs)
-
         if nodata_in is None:
             nodata_cells = np.zeros(dem.shape, dtype=np.bool8)
         else:
@@ -1177,6 +1180,113 @@ class sGrid(Grid):
             if nodata_in is not None:
                 dem[nodata_cells] = nodata_in
         return self._output_handler(data=pit_filled_dem, out_name=out_name, properties=grid_props,
+                                    inplace=inplace, metadata=metadata)
+
+    def detect_pits(self, data, out_name='pits', nodata_in=None, nodata_out=0,
+                    inplace=True, apply_mask=False, ignore_metadata=False, **kwargs):
+        """
+        Detect pits in a DEM.
+
+        Parameters
+        ----------
+        data : str or Raster
+               DEM data.
+               If str: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        out_name : string
+                   Name of attribute containing new filled pit array.
+        nodata_in : int or float
+                     Value to indicate nodata in input array.
+        nodata_out : int or float
+                     Value indicating no data in output array.
+        inplace : bool
+                  If True, write output array to self.<out_name>.
+                  Otherwise, return the output array.
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and CRS.
+
+        Returns
+        -------
+        pits : numpy ndarray
+               Boolean array indicating locations of pits.
+        """
+        nodata_in = self._check_nodata_in(data, nodata_in)
+        grid_props = {'nodata' : nodata_out}
+        metadata = {}
+        dem = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
+                                  properties=grid_props, ignore_metadata=ignore_metadata,
+                                  **kwargs)
+        if nodata_in is None:
+            nodata_cells = np.zeros(dem.shape, dtype=np.bool8)
+        else:
+            if np.isnan(nodata_in):
+                nodata_cells = np.isnan(dem)
+            else:
+                nodata_cells = (dem == nodata_in)
+        try:
+            # Make sure nothing flows to the nodata cells
+            dem[nodata_cells] = dem.max() + 1
+            inside = np.arange(dem.size, dtype=np.int64).reshape(dem.shape)[1:-1, 1:-1].ravel()
+            pits = _find_pits_numba(dem, inside)
+        except:
+            raise
+        finally:
+            if nodata_in is not None:
+                dem[nodata_cells] = nodata_in
+        return self._output_handler(data=pits, out_name=out_name, properties=grid_props,
+                                    inplace=inplace, metadata=metadata)
+
+    def detect_flats(self, data=None, out_name='inflated_dem', nodata_in=None, nodata_out=None,
+                     inplace=True, apply_mask=False, ignore_metadata=False, eps=1e-5,
+                     max_iter=1000, **kwargs):
+        """
+        Detect flats in a DEM.
+
+        Parameters
+        ----------
+        data : str or Raster
+               DEM data.
+               If str: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        out_name : string
+                   Name of attribute containing new flow direction array.
+        nodata_in : int or float
+                     Value to indicate nodata in input array.
+        nodata_out : int or float
+                     Value to indicate nodata in output array.
+        inplace : bool
+                  If True, write output array to self.<out_name>.
+                  Otherwise, return the output array.
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and CRS.
+
+        Returns
+        -------
+        flats : numpy ndarray
+                Boolean array indicating locations of flats.
+        """
+        # handle nodata values in dem
+        nodata_in = self._check_nodata_in(data, nodata_in)
+        if nodata_out is None:
+            nodata_out = nodata_in
+        grid_props = {'nodata' : nodata_out}
+        metadata = {}
+        dem = self._input_handler(data, apply_mask=apply_mask, properties=grid_props,
+                                  ignore_metadata=ignore_metadata, metadata=metadata, **kwargs)
+        if nodata_in is None:
+            dem_mask = np.array([]).astype(int)
+        else:
+            if np.isnan(nodata_in):
+                dem_mask = np.where(np.isnan(dem.ravel()))[0]
+            else:
+                dem_mask = np.where(dem.ravel() == nodata_in)[0]
+        inside = np.arange(dem.size, dtype=np.int64).reshape(dem.shape)[1:-1, 1:-1].ravel()
+        _, flats, _ = _par_get_candidates(dem, inside)
+        return self._output_handler(data=flats, out_name=out_name, properties=grid_props,
                                     inplace=inplace, metadata=metadata)
 
 
@@ -1202,6 +1312,40 @@ def _d8_flowdir_numba(dem, dx, dy, dirmap, nodata_cells, nodata_out, flat=-1, pi
                     col_offset = col_offsets[k]
                     distance = distances[k]
                     slope = (elev - dem[i + row_offset, j + col_offset]) / distance
+                    if slope > max_slope:
+                        fdir[i, j] = dirmap[k]
+                        max_slope = slope
+                if max_slope == 0:
+                    fdir[i, j] = flat
+                elif max_slope < 0:
+                    fdir[i, j] = pit
+    return fdir
+
+@njit(parallel=True)
+def _d8_flowdir_irregular_numba(dem, x_arr, y_arr, dirmap, nodata_cells,
+                                nodata_out, flat=-1, pit=-2):
+    fdir = np.zeros(dem.shape, dtype=np.int64)
+    m, n = dem.shape
+    dd = np.sqrt(dx**2 + dy**2)
+    row_offsets = np.array([-1, -1, 0, 1, 1, 1, 0, -1])
+    col_offsets = np.array([0, 1, 1, 1, 0, -1, -1, -1])
+    for i in prange(1, m - 1):
+        for j in prange(1, n - 1):
+            if nodata_cells[i, j]:
+                fdir[i, j] = nodata_out
+            else:
+                elev = dem[i, j]
+                x_center = x_arr[i, j]
+                y_center = y_arr[i, j]
+                max_slope = -np.inf
+                for k in range(8):
+                    row_offset = row_offsets[k]
+                    col_offset = col_offsets[k]
+                    dh = elev - dem[i + row_offset, j + col_offset]
+                    dx = np.abs(x_center - x_arr[i + row_offset, j + col_offset])
+                    dy = np.abs(y_center - y_arr[i + row_offset, j + col_offset])
+                    distance = np.sqrt(dx**2 + dy**2)
+                    slope = dh / distance
                     if slope > max_slope:
                         fdir[i, j] = dirmap[k]
                         max_slope = slope
@@ -1263,6 +1407,59 @@ def _dinf_flowdir_numba(dem, x_dist, y_dist, nodata, flat=-1, pit=-2):
                 distance_2 = d2s[k]
                 d1 = cell_dists[distance_1]
                 d2 = cell_dists[distance_2]
+                r, s = _facet_flow(e0, e1, e2, d1, d2)
+                if s > s_max:
+                    s_max = s
+                    k_max = k
+                    r_max = r
+            if s_max < 0:
+                angle[i, j] = pit
+            elif s_max == 0:
+                angle[i, j] = flat
+            else:
+                flow_angle = (af[k_max] * r_max) + (ac[k_max] * np.pi / 2)
+                flow_angle = flow_angle % (2 * np.pi)
+                angle[i, j] = flow_angle
+    return angle
+
+@njit(parallel=True)
+def _dinf_flowdir_irregular_numba(dem, x_arr, y_arr, nodata, flat=-1, pit=-2):
+    m, n = dem.shape
+    e1s = np.array([0, 2, 2, 4, 4, 6, 6, 0])
+    e2s = np.array([1, 1, 3, 3, 5, 5, 7, 7])
+    d1s = np.array([0, 2, 2, 4, 4, 6, 6, 0])
+    d2s = np.array([2, 0, 4, 2, 6, 4, 0, 6])
+    ac = np.array([0, 1, 1, 2, 2, 3, 3, 4])
+    af = np.array([1, -1, 1, -1, 1, -1, 1, -1])
+    angle = np.full(dem.shape, nodata, dtype=np.float64)
+    diag_dist = np.sqrt(x_dist**2 + y_dist**2)
+    cell_dists = np.array([x_dist, diag_dist, y_dist, diag_dist,
+                           x_dist, diag_dist, y_dist, diag_dist])
+    row_offsets = np.array([0, -1, -1, -1, 0, 1, 1, 1])
+    col_offsets = np.array([1, 1, 0, -1, -1, -1, 0, 1])
+    for i in prange(1, m - 1):
+        for j in prange(1, n - 1):
+            e0 = dem[i, j]
+            x0 = x_arr[i, j]
+            y0 = y_arr[i, j]
+            s_max = -np.inf
+            k_max = 8
+            r_max = 0.
+            for k in prange(8):
+                edge_1 = e1s[k]
+                edge_2 = e2s[k]
+                row_offset_1 = row_offsets[edge_1]
+                row_offset_2 = row_offsets[edge_2]
+                col_offset_1 = col_offsets[edge_1]
+                col_offset_2 = col_offsets[edge_2]
+                e1 = dem[i + row_offset_1, j + col_offset_1]
+                e2 = dem[i + row_offset_2, j + col_offset_2]
+                x1 = x_arr[i + row_offset_1, j + col_offset_1]
+                x2 = x_arr[i + row_offset_2, j + col_offset_2]
+                y1 = y_arr[i + row_offset_1, j + col_offset_1]
+                y2 = y_arr[i + row_offset_2, j + col_offset_2]
+                d1 = np.sqrt(x1**2 + y1**2)
+                d2 = np.sqrt(x2**2 + y2**2)
                 r, s = _facet_flow(e0, e1, e2, d1, d2)
                 if s > s_max:
                     s_max = s
@@ -2145,7 +2342,6 @@ def _find_pits_numba(dem, inside):
     offsets = np.array([-offset, 1 - offset, 1,
                         1 + offset, offset, - 1 + offset,
                         - 1, - 1 - offset])
-
     for i in prange(n):
         k = inside[i]
         inner_neighbors = (k + offsets)
@@ -2155,7 +2351,6 @@ def _find_pits_numba(dem, inside):
             diff = dem.flat[k] - dem.flat[neighbor]
             is_pit &= (diff < 0)
         pits.flat[k] = is_pit
-
     return pits
 
 @njit(parallel=True)

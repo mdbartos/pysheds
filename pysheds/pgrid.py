@@ -95,22 +95,21 @@ class Grid(object):
                   null gridcells for a provided dataset.
     """
 
-    def __init__(self, affine=Affine(0,0,0,0,0,0), shape=(1,1), nodata=0,
-                 crs=pyproj.Proj(_pyproj_init),
-                 mask=None):
-        self.affine = affine
-        self.shape = shape
-        self.nodata = nodata
-        self.crs = crs
-        # TODO: Mask should be a raster, not an array
-        if mask is None:
-            self.mask = np.ones(shape)
+    def __init__(self, viewfinder=None):
+        if viewfinder is not None:
+            try:
+                assert issubclass(viewfinder, BaseViewFinder)
+            except:
+                raise TypeError('viewfinder must be an instance of RegularViewFinder or IrregularViewFinder.')
+            self.viewfinder = viewfinder
+        else:
+            self.viewfinder = RegularViewFinder(**self.defaults)
         self.grids = []
 
     @property
     def defaults(self):
         props = {
-            'affine' : Affine(0,0,0,0,0,0),
+            'affine' : Affine(1.,0.,0.,0.,-1.,0.),
             'shape' : (1,1),
             'nodata' : 0,
             'crs' : pyproj.Proj(_pyproj_init),
@@ -2389,40 +2388,58 @@ class Grid(object):
             return data[yi_min:yi_max+1, xi_min:xi_max+1]
 
     @property
+    def affine(self):
+        return self.viewfinder.affine
+
+    @property
+    def shape(self):
+        return self.viewfinder.shape
+
+    @property
+    def nodata(self):
+        return self.viewfinder.nodata
+
+    @property
+    def crs(self):
+        return self.viewfinder.crs
+
+    @property
+    def mask(self):
+        return self.viewfinder.mask
+
+    @affine.setter
+    def affine(self, new_affine):
+        self.viewfinder.affine = new_affine
+
+    @shape.setter
+    def shape(self, new_shape):
+        self.viewfinder.shape = new_shape
+
+    @nodata.setter
+    def nodata(self, new_nodata):
+        self.viewfinder.nodata = new_nodata
+
+    @crs.setter
+    def crs(self, new_crs):
+        self.viewfinder.crs = new_crs
+
+    @mask.setter
+    def mask(self, new_mask):
+        self.viewfinder.mask = new_mask
+
+    @property
     def bbox(self):
-        shape = self.shape
-        xmin, ymax = self.affine * (0,0)
-        xmax, ymin = self.affine * (shape[1] + 1, shape[0] + 1)
-        _bbox = (xmin, ymin, xmax, ymax)
-        return _bbox
+        return self.viewfinder.bbox
 
     @property
     def size(self):
-        return np.prod(self.shape)
+        return self.viewfinder.size
 
     @property
     def extent(self):
         bbox = self.bbox
         extent = (self.bbox[0], self.bbox[2], self.bbox[1], self.bbox[3])
         return extent
-
-    @property
-    def crs(self):
-        return self._crs
-
-    @crs.setter
-    def crs(self, new_crs):
-        assert isinstance(new_crs, pyproj.Proj)
-        self._crs = new_crs
-
-    @property
-    def affine(self):
-        return self._affine
-
-    @affine.setter
-    def affine(self, new_affine):
-        assert isinstance(new_affine, Affine)
-        self._affine = new_affine
 
     @property
     def cellsize(self):

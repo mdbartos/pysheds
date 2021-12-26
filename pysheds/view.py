@@ -106,6 +106,7 @@ class BaseViewFinder():
         return self._mask
     @mask.setter
     def mask(self, new_mask):
+        assert (new_mask.shape == self.shape)
         self._mask = new_mask
     @property
     def nodata(self):
@@ -138,31 +139,40 @@ class RegularViewFinder(BaseViewFinder):
     def bbox(self):
         shape = self.shape
         xmin, ymax = self.affine * (0,0)
-        xmax, ymin = self.affine * (shape[1] + 1, shape[0] + 1)
+        # TODO: I think this is wrong; +1 not needed
+        xmax, ymin = self.affine * (shape[1], shape[0])
         _bbox = (xmin, ymin, xmax, ymax)
         return _bbox
+
     @property
     def extent(self):
         bbox = self.bbox
         extent = (bbox[0], bbox[2], bbox[1], bbox[3])
         return extent
+
     @property
     def affine(self):
         return self._affine
+
     @affine.setter
     def affine(self, new_affine):
         assert(isinstance(new_affine, Affine))
         self._affine = new_affine
+
     @property
     def coords(self):
         coordinates = np.meshgrid(*self.grid_indices(), indexing='ij')
         return np.vstack(np.dstack(coordinates))
+
     @coords.setter
-    def coords(self, new_coords):
+    def coords(self):
         pass
+
     @property
     def dy_dx(self):
         return (-self.affine.e, self.affine.a)
+
+    # TODO: Should this contain mask?
     @property
     def properties(self):
         property_dict = {
@@ -260,39 +270,6 @@ class RegularGridViewer():
         pass
 
     @classmethod
-    def _view_df(cls, data, data_view, target_view, x_tolerance=1e-3, y_tolerance=1e-3):
-        nodata = target_view.nodata
-        viewrows, viewcols = target_view.grid_indices()
-        rows, cols = data_view.grid_indices()
-        view = (pd.DataFrame(data, index=rows, columns=cols)
-                .reindex(selfrows, tolerance=y_tolerance, method='nearest')
-                .reindex(selfcols, axis=1, tolerance=x_tolerance,
-                         method='nearest')
-                .fillna(nodata).values)
-        return view
-
-    @classmethod
-    def _view_kd(cls, data, data_view, target_view, x_tolerance=1e-3, y_tolerance=1e-3):
-        """
-        Appropriate if:
-            - Grid is regular
-            - Data is regular
-            - Grid and data have same cellsize OR no interpolation is needed
-        """
-        nodata = target_view.nodata
-        view = np.full(target_view.shape, nodata)
-        viewrows, viewcols = target_view.grid_indices()
-        rows, cols = data_view.grid_indices()
-        ytree = spatial.cKDTree(rows[:, None])
-        xtree = spatial.cKDTree(cols[:, None])
-        ydist, y_ix = ytree.query(viewrows[:, None])
-        xdist, x_ix = xtree.query(viewcols[:, None])
-        y_passed = ydist < y_tolerance
-        x_passed = xdist < x_tolerance
-        view[np.ix_(y_passed, x_passed)] = data[y_ix[y_passed]][:, x_ix[x_passed]]
-        return view
-
-    @classmethod
     def _view_affine(cls, data, data_view, target_view, x_tolerance=1e-3, y_tolerance=1e-3):
         nodata = target_view.nodata
         view = np.full(target_view.shape, nodata, dtype=data.dtype)
@@ -306,52 +283,6 @@ class RegularGridViewer():
         x_passed = ((np.abs(x_ix - target_col_ix) < x_tolerance)
                     & (x_ix < data_view.shape[1]) & (x_ix >= 0))
         view[np.ix_(y_passed, x_passed)] = data[y_ix[y_passed]][:, x_ix[x_passed]]
-        return view
-
-    # @classmethod
-    # def _view_searchsorted(cls, data, data_view, target_view, x_tolerance=1e-3,
-    #                        y_tolerance=1e-3):
-    #     """
-    #     Appropriate if:
-    #         - Grid is regular
-    #         - Data is regular
-    #         - Grid and data have same cellsize OR no interpolation is needed
-    #     """
-    #     # TODO: This method no longer yields accurate results!
-    #     nodata = target_view.nodata
-    #     view = np.full(target_view.shape, nodata)
-    #     viewrows, viewcols = target_view.grid_indices(col_ascending=True,
-    #                                                   row_ascending=True)
-    #     rows, cols = data_view.grid_indices(col_ascending=True,
-    #                                         row_ascending=True)
-    #     y_ix = np.searchsorted(rows, viewrows, side='right')
-    #     x_ix = np.searchsorted(cols, viewcols, side='left')
-    #     y_ix[y_ix > rows.size] = rows.size
-    #     x_ix[x_ix >= cols.size] = cols.size - 1
-    #     y_passed = np.abs(rows[y_ix - 1] - viewrows) < y_tolerance
-    #     x_passed = np.abs(cols[x_ix] - viewcols) < x_tolerance
-    #     y_ix = rows.size - y_ix[y_passed][::-1]
-    #     x_ix = x_ix[x_passed]
-    #     view[np.ix_(y_passed[::-1], x_passed)] = data[y_ix][:, x_ix]
-    #     return view
-
-    @classmethod
-    def _view_kd_2d(cls, data, data_view, target_view, x_tolerance=1e-3, y_tolerance=1e-3):
-        t_xmin, t_ymin, t_xmax, t_ymax = target_view.bbox
-        d_xmin, d_ymin, d_xmax, d_ymax = data_view.bbox
-        nodata = target_view.nodata
-        view = np.full(target_view.shape, nodata)
-        yx_tolerance = np.sqrt(x_tolerance**2 + y_tolerance**2)
-        viewrows, viewcols = target_view.grid_indices()
-        rows, cols = data_view.grid_indices()
-        row_bool = (rows <= t_ymax + y_tolerance) & (rows >= t_ymin - y_tolerance)
-        col_bool = (cols <= t_xmax + x_tolerance) & (cols >= t_xmin - x_tolerance)
-        yx_tree = np.vstack(np.dstack(np.meshgrid(rows[row_bool], cols[col_bool], indexing='ij')))
-        yx_query = np.vstack(np.dstack(np.meshgrid(viewrows, viewcols, indexing='ij')))
-        tree = spatial.cKDTree(yx_tree)
-        yx_dist, yx_ix = tree.query(yx_query)
-        yx_passed = yx_dist < yx_tolerance
-        view.flat[yx_passed] = data[np.ix_(row_bool, col_bool)].flat[yx_ix[yx_passed]]
         return view
 
     @classmethod

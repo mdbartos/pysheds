@@ -642,7 +642,7 @@ class sGrid(Grid):
         endnodes_0 = _flatten_fdir(fdir_0, dirmap).reshape(fdir.shape)
         endnodes_1 = _flatten_fdir(fdir_1, dirmap).reshape(fdir.shape)
         # Remove cycles
-        _dinf_fix_cycles(endnodes_0, endnodes_1, cycle_size)
+        _dinf_fix_cycles_numba(endnodes_0, endnodes_1, cycle_size)
         # Initialize accumulation array
         if weights is not None:
             acc = weights.reshape(fdir.shape).astype(np.float64)
@@ -821,9 +821,9 @@ class sGrid(Grid):
                 dirleft_1, dirright_1, dirtop_1, dirbottom_1 = self._pop_rim(fdir_1,
                                                                             nodata=nodata_in_fdir)
                 maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=0)
-                hand = _dinf_hand_iter(dem, mask, fdir_0, fdir_1, dirmap)
+                hand = _dinf_hand_iter_numba(dem, mask, fdir_0, fdir_1, dirmap)
                 if not return_index:
-                    hand = _assign_hand_heights(hand, dem, nodata_out)
+                    hand = _assign_hand_heights_numba(hand, dem, nodata_out)
             except:
                 raise
             finally:
@@ -836,9 +836,9 @@ class sGrid(Grid):
             try:
                 dirleft, dirright, dirtop, dirbottom = self._pop_rim(fdir, nodata=nodata_in_fdir)
                 maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=0)
-                hand = _d8_hand_iter(dem, mask, fdir, dirmap)
+                hand = _d8_hand_iter_numba(dem, mask, fdir, dirmap)
                 if not return_index:
-                    hand = _assign_hand_heights(hand, dem, nodata_out)
+                    hand = _assign_hand_heights_numba(hand, dem, nodata_out)
             except:
                 raise
             finally:
@@ -962,7 +962,7 @@ class sGrid(Grid):
             indegree = np.bincount(endnodes.ravel(), minlength=fdir.size).astype(np.uint8)
             orig_indegree = np.copy(indegree)
             startnodes = startnodes[(indegree == 0)]
-            profiles = _d8_stream_network(endnodes, indegree, orig_indegree, startnodes)
+            profiles = _d8_stream_network_numba(endnodes, indegree, orig_indegree, startnodes)
         except:
             raise
         finally:
@@ -1114,8 +1114,8 @@ class sGrid(Grid):
             max_order = np.ones(fdir.shape, dtype=np.int64)
             # TODO: Weights not implemented
             rdist = np.zeros(fdir.shape, dtype=np.float64)
-            rdist = _d8_reverse_distance(min_order, max_order, rdist,
-                                         endnodes, indegree, startnodes)
+            rdist = _d8_reverse_distance_numba(min_order, max_order, rdist,
+                                               endnodes, indegree, startnodes)
         except:
             raise
         finally:
@@ -1292,7 +1292,8 @@ class sGrid(Grid):
 
 @njit(int64[:,:](float64[:,:], float64, float64, UniTuple(int64, 8), boolean[:,:],
                  int64, int64, int64),
-      parallel=True)
+      parallel=True,
+      cache=True)
 def _d8_flowdir_numba(dem, dx, dy, dirmap, nodata_cells, nodata_out, flat=-1, pit=-2):
     fdir = np.zeros(dem.shape, dtype=np.int64)
     m, n = dem.shape
@@ -1323,7 +1324,8 @@ def _d8_flowdir_numba(dem, dx, dy, dirmap, nodata_cells, nodata_out, flat=-1, pi
 
 @njit(int64[:,:](float64[:,:], float64[:,:], float64[:,:], UniTuple(int64, 8), boolean[:,:],
                  int64, int64, int64),
-      parallel=True)
+      parallel=True,
+      cache=True)
 def _d8_flowdir_irregular_numba(dem, x_arr, y_arr, dirmap, nodata_cells,
                                 nodata_out, flat=-1, pit=-2):
     fdir = np.zeros(dem.shape, dtype=np.int64)
@@ -1356,7 +1358,8 @@ def _d8_flowdir_irregular_numba(dem, x_arr, y_arr, dirmap, nodata_cells,
                     fdir[i, j] = pit
     return fdir
 
-@njit(UniTuple(float64, 2)(float64, float64, float64, float64, float64))
+@njit(UniTuple(float64, 2)(float64, float64, float64, float64, float64),
+      cache=True)
 def _facet_flow(e0, e1, e2, d1=1., d2=1.):
     s1 = (e0 - e1) / d1
     s2 = (e1 - e2) / d2
@@ -1375,7 +1378,8 @@ def _facet_flow(e0, e1, e2, d1=1., d2=1.):
     return r, s
 
 @njit(float64[:,:](float64[:,:], float64, float64, float64, float64, float64),
-      parallel=True)
+      parallel=True,
+      cache=True)
 def _dinf_flowdir_numba(dem, x_dist, y_dist, nodata, flat=-1., pit=-2.):
     m, n = dem.shape
     e1s = np.array([0, 2, 2, 4, 4, 6, 6, 0])
@@ -1425,7 +1429,8 @@ def _dinf_flowdir_numba(dem, x_dist, y_dist, nodata, flat=-1., pit=-2.):
     return angle
 
 @njit(float64[:,:](float64[:,:], float64[:,:], float64[:,:], float64, float64, float64),
-      parallel=True)
+      parallel=True,
+      cache=True)
 def _dinf_flowdir_irregular_numba(dem, x_arr, y_arr, nodata, flat=-1., pit=-2.):
     m, n = dem.shape
     e1s = np.array([0, 2, 2, 4, 4, 6, 6, 0])
@@ -1477,7 +1482,8 @@ def _dinf_flowdir_irregular_numba(dem, x_arr, y_arr, nodata, flat=-1., pit=-2.):
 
 @njit(Tuple((int64[:,:], int64[:,:], float64[:,:], float64[:,:]))
       (float64[:,:], UniTuple(int64, 8), boolean[:,:]),
-      parallel=True)
+      parallel=True,
+      cache=True)
 def _angle_to_d8(angles, dirmap, nodata_cells):
     n = angles.size
     min_angle = 0.
@@ -1534,7 +1540,8 @@ def _angle_to_d8(angles, dirmap, nodata_cells):
 
 # Functions for 'catchment'
 
-@njit(void(int64, boolean[:,:], int64[:,:], int64[:], int64[:]))
+@njit(void(int64, boolean[:,:], int64[:,:], int64[:], int64[:]),
+      cache=True)
 def _d8_catchment_recursion(ix, catch, fdir, offsets, r_dirmap):
     visited = catch.flat[ix]
     if not visited:
@@ -1546,7 +1553,8 @@ def _d8_catchment_recursion(ix, catch, fdir, offsets, r_dirmap):
             if points_to:
                 _d8_catchment_recursion(neighbor, catch, fdir, offsets, r_dirmap)
 
-@njit(boolean[:,:](int64[:,:], UniTuple(int64, 2), UniTuple(int64, 8)))
+@njit(boolean[:,:](int64[:,:], UniTuple(int64, 2), UniTuple(int64, 8)),
+      cache=True)
 def _d8_catchment_numba(fdir, pour_point, dirmap):
     catch = np.zeros(fdir.shape, dtype=np.bool8)
     offset = fdir.shape[1]
@@ -1560,7 +1568,8 @@ def _d8_catchment_numba(fdir, pour_point, dirmap):
     _d8_catchment_recursion(ix, catch, fdir, offsets, r_dirmap)
     return catch
 
-@njit(void(int64, boolean[:,:], int64[:,:], int64[:,:], int64[:], int64[:]))
+@njit(void(int64, boolean[:,:], int64[:,:], int64[:,:], int64[:], int64[:]),
+      cache=True)
 def _dinf_catchment_recursion(ix, catch, fdir_0, fdir_1, offsets, r_dirmap):
     visited = catch.flat[ix]
     if not visited:
@@ -1574,7 +1583,8 @@ def _dinf_catchment_recursion(ix, catch, fdir_0, fdir_1, offsets, r_dirmap):
             if points_to:
                 _dinf_catchment_recursion(neighbor, catch, fdir_0, fdir_1, offsets, r_dirmap)
 
-@njit(boolean[:,:](int64[:,:], int64[:,:], UniTuple(int64, 2), UniTuple(int64, 8)))
+@njit(boolean[:,:](int64[:,:], int64[:,:], UniTuple(int64, 2), UniTuple(int64, 8)),
+      cache=True)
 def _dinf_catchment_numba(fdir_0, fdir_1, pour_point, dirmap):
     catch = np.zeros(fdir_0.shape, dtype=np.bool8)
     dirmap = np.array(dirmap)
@@ -1592,7 +1602,8 @@ def _dinf_catchment_numba(fdir_0, fdir_1, pour_point, dirmap):
 
 # Functions for 'accumulation'
 
-@njit(void(int64, int64, float64[:,:], int64[:,:], uint8[:]))
+@njit(void(int64, int64, float64[:,:], int64[:,:], uint8[:]),
+      cache=True)
 def _d8_accumulation_recursion(startnode, endnode, acc, fdir, indegree):
     acc.flat[endnode] += acc.flat[startnode]
     indegree[endnode] -= 1
@@ -1601,7 +1612,8 @@ def _d8_accumulation_recursion(startnode, endnode, acc, fdir, indegree):
         new_endnode = fdir.flat[endnode]
         _d8_accumulation_recursion(new_startnode, new_endnode, acc, fdir, indegree)
 
-@njit(float64[:,:](float64[:,:], int64[:,:], uint8[:], int64[:]))
+@njit(float64[:,:](float64[:,:], int64[:,:], uint8[:], int64[:]),
+      cache=True)
 def _d8_accumulation_numba(acc, fdir, indegree, startnodes):
     n = startnodes.size
     for k in range(n):
@@ -1610,7 +1622,8 @@ def _d8_accumulation_numba(acc, fdir, indegree, startnodes):
         _d8_accumulation_recursion(startnode, endnode, acc, fdir, indegree)
     return acc
 
-@njit(void(int64, int64, float64[:,:], int64[:,:], uint8[:], float64[:,:]))
+@njit(void(int64, int64, float64[:,:], int64[:,:], uint8[:], float64[:,:]),
+      cache=True)
 def _d8_accumulation_eff_recursion(startnode, endnode, acc, fdir, indegree, eff):
     acc.flat[endnode] += (acc.flat[startnode] * eff.flat[startnode])
     indegree[endnode] -= 1
@@ -1619,7 +1632,8 @@ def _d8_accumulation_eff_recursion(startnode, endnode, acc, fdir, indegree, eff)
         new_endnode = fdir.flat[endnode]
         _d8_accumulation_eff_recursion(new_startnode, new_endnode, acc, fdir, indegree, eff)
 
-@njit(float64[:,:](float64[:,:], int64[:,:], uint8[:], int64[:], float64[:,:]))
+@njit(float64[:,:](float64[:,:], int64[:,:], uint8[:], int64[:], float64[:,:]),
+      cache=True)
 def _d8_accumulation_eff_numba(acc, fdir, indegree, startnodes, eff):
     n = startnodes.size
     for k in range(n):
@@ -1629,7 +1643,8 @@ def _d8_accumulation_eff_numba(acc, fdir, indegree, startnodes, eff):
     return acc
 
 @njit(void(int64, int64, float64[:,:], int64[:,:], int64[:,:], uint8[:], float64,
-           boolean[:,:], float64[:,:], float64[:,:]))
+           boolean[:,:], float64[:,:], float64[:,:]),
+      cache=True)
 def _dinf_accumulation_recursion(startnode, endnode, acc, fdir_0, fdir_1,
                                 indegree, prop, visited, props_0, props_1):
     acc.flat[endnode] += (prop * acc.flat[startnode])
@@ -1647,7 +1662,8 @@ def _dinf_accumulation_recursion(startnode, endnode, acc, fdir_0, fdir_1,
                                      indegree, prop_1, visited, props_0, props_1)
 
 @njit(float64[:,:](float64[:,:], int64[:,:], int64[:,:], uint8[:], int64[:],
-                   float64[:,:], float64[:,:]))
+                   float64[:,:], float64[:,:]),
+      cache=True)
 def _dinf_accumulation_numba(acc, fdir_0, fdir_1, indegree, startnodes,
                              props_0, props_1):
     n = startnodes.size
@@ -1667,7 +1683,8 @@ def _dinf_accumulation_numba(acc, fdir_0, fdir_1, indegree, startnodes,
     return acc
 
 @njit(void(int64, int64, float64[:,:], int64[:,:], int64[:,:], uint8[:], float64,
-           boolean[:,:], float64[:,:], float64[:,:], float64[:,:]))
+           boolean[:,:], float64[:,:], float64[:,:], float64[:,:]),
+      cache=True)
 def _dinf_accumulation_eff_recursion(startnode, endnode, acc, fdir_0, fdir_1,
                                      indegree, prop, visited, props_0, props_1, eff):
     acc.flat[endnode] += (prop * acc.flat[startnode] * eff.flat[startnode])
@@ -1685,7 +1702,8 @@ def _dinf_accumulation_eff_recursion(startnode, endnode, acc, fdir_0, fdir_1,
                                          indegree, prop_1, visited, props_0, props_1, eff)
 
 @njit(float64[:,:](float64[:,:], int64[:,:], int64[:,:], uint8[:], int64[:],
-                   float64[:,:], float64[:,:], float64[:,:]))
+                   float64[:,:], float64[:,:], float64[:,:]),
+      cache=True)
 def _dinf_accumulation_eff_numba(acc, fdir_0, fdir_1, indegree, startnodes,
                                  props_0, props_1, eff):
     n = startnodes.size
@@ -1707,7 +1725,8 @@ def _dinf_accumulation_eff_numba(acc, fdir_0, fdir_1, indegree, startnodes,
 # Functions for 'flow_distance'
 
 @njit(void(int64, int64[:,:], boolean[:,:], float64[:,:], float64[:,:],
-           int64[:], float64, int64[:]))
+           int64[:], float64, int64[:]),
+      cache=True)
 def _d8_flow_distance_recursion(ix, fdir, visits, dist, weights, r_dirmap,
                                 inc, offsets):
     visited = visits.flat[ix]
@@ -1723,7 +1742,8 @@ def _d8_flow_distance_recursion(ix, fdir, visits, dist, weights, r_dirmap,
                 _d8_flow_distance_recursion(neighbor, fdir, visits, dist, weights,
                                             r_dirmap, next_inc, offsets)
 
-@njit(float64[:,:](int64[:,:], float64[:,:], UniTuple(int64, 2), UniTuple(int64, 8)))
+@njit(float64[:,:](int64[:,:], float64[:,:], UniTuple(int64, 2), UniTuple(int64, 8)),
+      cache=True)
 def _d8_flow_distance_numba(fdir, weights, pour_point, dirmap):
     visits = np.zeros(fdir.shape, dtype=np.bool8)
     dist = np.full(fdir.shape, np.inf, dtype=np.float64)
@@ -1741,7 +1761,8 @@ def _d8_flow_distance_numba(fdir, weights, pour_point, dirmap):
     return dist
 
 @njit(void(int64, int64[:,:], int64[:,:], boolean[:,:], float64[:,:],
-           float64[:,:], float64[:,:], int64[:], float64, int64[:]))
+           float64[:,:], float64[:,:], int64[:], float64, int64[:]),
+      cache=True)
 def _dinf_flow_distance_recursion(ix, fdir_0, fdir_1, visits, dist,
                                   weights_0, weights_1, r_dirmap, inc, offsets):
     current_dist = dist.flat[ix]
@@ -1764,7 +1785,8 @@ def _dinf_flow_distance_recursion(ix, fdir_0, fdir_1, visits, dist,
                                               offsets)
 
 @njit(float64[:,:](int64[:,:], int64[:,:], float64[:,:], float64[:,:],
-                   UniTuple(int64, 2), UniTuple(int64, 8)))
+                   UniTuple(int64, 2), UniTuple(int64, 8)),
+      cache=True)
 def _dinf_flow_distance_numba(fdir_0, fdir_1, weights_0, weights_1,
                               pour_point, dirmap):
     visits = np.zeros(fdir_0.shape, dtype=np.bool8)
@@ -1782,7 +1804,8 @@ def _dinf_flow_distance_numba(fdir_0, fdir_1, weights_0, weights_1,
                                   weights_0, weights_1, r_dirmap, 0., offsets)
     return dist
 
-@njit(void(int64, int64, int64[:,:], int64[:,:], float64[:,:], int64[:,:], uint8[:]))
+@njit(void(int64, int64, int64[:,:], int64[:,:], float64[:,:], int64[:,:], uint8[:]),
+      cache=True)
 def _d8_reverse_distance_recursion(startnode, endnode, min_order, max_order,
                                    rdist, fdir, indegree):
     min_order.flat[endnode] = min(min_order.flat[endnode], rdist.flat[startnode])
@@ -1795,8 +1818,9 @@ def _d8_reverse_distance_recursion(startnode, endnode, min_order, max_order,
         _d8_reverse_distance_recursion(new_startnode, new_endnode, min_order,
                                        max_order, rdist, fdir, indegree)
 
-@njit(float64[:,:](int64[:,:], int64[:,:], float64[:,:], int64[:,:], uint8[:], int64[:]))
-def _d8_reverse_distance(min_order, max_order, rdist, fdir, indegree, startnodes):
+@njit(float64[:,:](int64[:,:], int64[:,:], float64[:,:], int64[:,:], uint8[:], int64[:]),
+      cache=True)
+def _d8_reverse_distance_numba(min_order, max_order, rdist, fdir, indegree, startnodes):
     n = startnodes.size
     for k in range(n):
         startnode = startnodes.flat[k]
@@ -1808,7 +1832,8 @@ def _d8_reverse_distance(min_order, max_order, rdist, fdir, indegree, startnodes
 # Functions for 'resolve_flats'
 
 @njit(UniTuple(boolean[:,:], 3)(float64[:,:], int64[:]),
-      parallel=True)
+      parallel=True,
+      cache=True)
 def _par_get_candidates(dem, inside):
     n = inside.size
     offset = dem.shape[1]
@@ -1842,7 +1867,8 @@ def _par_get_candidates(dem, inside):
     return flats, fdirs_defined, higher_cells
 
 @njit(uint32[:,:](int64[:], boolean[:,:], boolean[:,:], int64[:,:]),
-      parallel=True)
+      parallel=True,
+      cache=True)
 def _par_get_high_edge_cells(inside, fdirs_defined, higher_cells, labels):
     n = inside.size
     high_edge_cells = np.zeros(fdirs_defined.shape, dtype=np.uint32)
@@ -1857,7 +1883,8 @@ def _par_get_high_edge_cells(inside, fdirs_defined, higher_cells, labels):
     return high_edge_cells
 
 @njit(uint32[:,:](int64[:], float64[:,:], boolean[:,:], int64[:,:], int64),
-      parallel=True)
+      parallel=True,
+      cache=True)
 def _par_get_low_edge_cells(inside, dem, fdirs_defined, labels, numlabels):
     n = inside.size
     offset = dem.shape[1]
@@ -1882,7 +1909,8 @@ def _par_get_low_edge_cells(inside, dem, fdirs_defined, labels, numlabels):
                     low_edge_cells.flat[neighbor] = label
     return low_edge_cells
 
-@njit(uint16[:,:](uint32[:,:], boolean[:,:], int64[:,:], int64, int64))
+@njit(uint16[:,:](uint32[:,:], boolean[:,:], int64[:,:], int64, int64),
+      cache=True)
 def _grad_from_higher(hec, flats, labels, numlabels, max_iter=1000):
     offset = flats.shape[1]
     offsets = np.array([-offset, 1 - offset, 1,
@@ -1923,7 +1951,8 @@ def _grad_from_higher(hec, flats, labels, numlabels, max_iter=1000):
             z.flat[i] = max_incs[label] - z.flat[i]
     return z
 
-@njit(uint16[:,:](uint32[:,:], boolean[:,:], float64[:,:], int64))
+@njit(uint16[:,:](uint32[:,:], boolean[:,:], float64[:,:], int64),
+      cache=True)
 def _grad_towards_lower(lec, flats, dem, max_iter=1000):
     offset = flats.shape[1]
     size = flats.size
@@ -1973,8 +2002,9 @@ def _grad_towards_lower(lec, flats, dem, max_iter=1000):
 
 # Functions for 'compute_hand'
 
-@njit(int64[:,:](float64[:,:], boolean[:,:], int64[:,:], UniTuple(int64, 8)))
-def _d8_hand_iter(dem, mask, fdir, dirmap):
+@njit(int64[:,:](float64[:,:], boolean[:,:], int64[:,:], UniTuple(int64, 8)),
+      cache=True)
+def _d8_hand_iter_numba(dem, mask, fdir, dirmap):
     offset = dem.shape[1]
     offsets = np.array([-offset, 1 - offset, 1,
                         1 + offset, offset, - 1 + offset,
@@ -2007,7 +2037,8 @@ def _d8_hand_iter(dem, mask, fdir, dirmap):
             cur_queue.append(next_cell)
     return hand
 
-@njit(void(int64, int64, int64[:,:], int64[:], int64[:], int64[:,:]))
+@njit(void(int64, int64, int64[:,:], int64[:], int64[:], int64[:,:]),
+      cache=True)
 def _d8_hand_recursion(child, parent, hand, offsets, r_dirmap, fdir):
     neighbors = offsets + child
     for k in range(8):
@@ -2018,8 +2049,9 @@ def _d8_hand_recursion(child, parent, hand, offsets, r_dirmap, fdir):
             hand.flat[neighbor] = parent
             _d8_hand_recursion(neighbor, parent, hand, offsets, r_dirmap, fdir)
 
-@njit(int64[:,:](float64[:,:], int64[:], int64[:,:], UniTuple(int64, 8)))
-def _d8_hand_recursive(dem, parents, fdir, dirmap):
+@njit(int64[:,:](float64[:,:], int64[:], int64[:,:], UniTuple(int64, 8)),
+      cache=True)
+def _d8_hand_recursive_numba(dem, parents, fdir, dirmap):
     n = parents.size
     offset = dem.shape[1]
     offsets = np.array([-offset, 1 - offset, 1,
@@ -2037,8 +2069,9 @@ def _d8_hand_recursive(dem, parents, fdir, dirmap):
         _d8_hand_recursion(parent, parent, hand, offsets, r_dirmap, fdir)
     return hand
 
-@njit(int64[:,:](float64[:,:], boolean[:,:], int64[:,:], int64[:,:], UniTuple(int64, 8)))
-def _dinf_hand_iter(dem, mask, fdir_0, fdir_1, dirmap):
+@njit(int64[:,:](float64[:,:], boolean[:,:], int64[:,:], int64[:,:], UniTuple(int64, 8)),
+      cache=True)
+def _dinf_hand_iter_numba(dem, mask, fdir_0, fdir_1, dirmap):
     offset = dem.shape[1]
     offsets = np.array([-offset, 1 - offset, 1,
                         1 + offset, offset, - 1 + offset,
@@ -2072,7 +2105,8 @@ def _dinf_hand_iter(dem, mask, fdir_0, fdir_1, dirmap):
             cur_queue.append(next_cell)
     return hand
 
-@njit(void(int64, int64, int64[:,:], int64[:], int64[:], int64[:,:], int64[:,:]))
+@njit(void(int64, int64, int64[:,:], int64[:], int64[:], int64[:,:], int64[:,:]),
+      cache=True)
 def _dinf_hand_recursion(child, parent, hand, offsets, r_dirmap, fdir_0, fdir_1):
     neighbors = offsets + child
     for k in range(8):
@@ -2084,8 +2118,9 @@ def _dinf_hand_recursion(child, parent, hand, offsets, r_dirmap, fdir_0, fdir_1)
             hand.flat[neighbor] = parent
             _dinf_hand_recursion(neighbor, parent, hand, offsets, r_dirmap, fdir_0, fdir_1)
 
-@njit(int64[:,:](float64[:,:], int64[:], int64[:,:], int64[:,:], UniTuple(int64, 8)))
-def _dinf_hand_recursive(dem, parents, fdir_0, fdir_1, dirmap):
+@njit(int64[:,:](float64[:,:], int64[:], int64[:,:], int64[:,:], UniTuple(int64, 8)),
+      cache=True)
+def _dinf_hand_recursive_numba(dem, parents, fdir_0, fdir_1, dirmap):
     n = parents.size
     offset = dem.shape[1]
     offsets = np.array([-offset, 1 - offset, 1,
@@ -2104,8 +2139,9 @@ def _dinf_hand_recursive(dem, parents, fdir_0, fdir_1, dirmap):
     return hand
 
 @njit(float64[:,:](int64[:,:], float64[:,:], float64),
-      parallel=True)
-def _assign_hand_heights(hand_idx, dem, nodata_out=np.nan):
+      parallel=True,
+      cache=True)
+def _assign_hand_heights_numba(hand_idx, dem, nodata_out=np.nan):
     n = hand_idx.size
     hand = np.zeros(dem.shape, dtype=np.float64)
     for i in prange(n):
@@ -2118,7 +2154,8 @@ def _assign_hand_heights(hand_idx, dem, nodata_out=np.nan):
 
 # Functions for 'streamorder'
 
-@njit(void(int64, int64, int64[:,:], int64[:,:], int64[:,:], int64[:,:], uint8[:], uint8[:]))
+@njit(void(int64, int64, int64[:,:], int64[:,:], int64[:,:], int64[:,:], uint8[:], uint8[:]),
+      cache=True)
 def _d8_streamorder_recursion(startnode, endnode, min_order, max_order,
                               order, fdir, indegree, orig_indegree):
     min_order.flat[endnode] = min(min_order.flat[endnode], order.flat[startnode])
@@ -2134,7 +2171,8 @@ def _d8_streamorder_recursion(startnode, endnode, min_order, max_order,
         _d8_streamorder_recursion(new_startnode, new_endnode, min_order,
                                   max_order, order, fdir, indegree, orig_indegree)
 
-@njit(int64[:,:](int64[:,:], int64[:,:], int64[:,:], int64[:,:], uint8[:], uint8[:], int64[:]))
+@njit(int64[:,:](int64[:,:], int64[:,:], int64[:,:], int64[:,:], uint8[:], uint8[:], int64[:]),
+      cache=True)
 def _d8_streamorder_numba(min_order, max_order, order, fdir,
                           indegree, orig_indegree, startnodes):
     n = startnodes.size
@@ -2145,7 +2183,8 @@ def _d8_streamorder_numba(min_order, max_order, order, fdir,
                                  fdir, indegree, orig_indegree)
     return order
 
-@njit(void(int64, int64, int64[:,:], uint8[:], uint8[:], List(List(int64)), List(int64)))
+@njit(void(int64, int64, int64[:,:], uint8[:], uint8[:], List(List(int64)), List(int64)),
+      cache=True)
 def _d8_stream_network_recursion(startnode, endnode, fdir, indegree,
                                  orig_indegree, profiles, profile):
     profile.append(endnode)
@@ -2160,8 +2199,9 @@ def _d8_stream_network_recursion(startnode, endnode, fdir, indegree,
         _d8_stream_network_recursion(new_startnode, new_endnode, fdir, indegree,
                                      orig_indegree, profiles, profile)
 
-@njit(List(List(int64))(int64[:,:], uint8[:], uint8[:], int64[:]))
-def _d8_stream_network(fdir, indegree, orig_indegree, startnodes):
+@njit(List(List(int64))(int64[:,:], uint8[:], uint8[:], int64[:]),
+      cache=True)
+def _d8_stream_network_numba(fdir, indegree, orig_indegree, startnodes):
     n = startnodes.size
     profiles = [[0]]
     _ = profiles.pop()
@@ -2197,7 +2237,8 @@ def _dinf_cell_dh(startnodes, endnodes_0, endnodes_1, props_0, props_1, dem):
                       prop_1 * (dem.flat[startnode] - dem.flat[endnode_1]))
     return dh
 
-@njit(void(int64, int64[:,:], int64[:,:], int64, int64, int64, boolean[:,:]))
+@njit(void(int64, int64[:,:], int64[:,:], int64, int64, int64, boolean[:,:]),
+      cache=True)
 def _dinf_fix_cycles_recursion(node, fdir_0, fdir_1, ancestor,
                                depth, max_cycle_size, visited):
     if visited.flat[node]:
@@ -2219,8 +2260,9 @@ def _dinf_fix_cycles_recursion(node, fdir_0, fdir_1, ancestor,
         _dinf_fix_cycles_recursion(right, fdir_0, fdir_1, ancestor,
                                    depth + 1, max_cycle_size, visited)
 
-@njit(void(int64[:,:], int64[:,:], int64))
-def _dinf_fix_cycles(fdir_0, fdir_1, max_cycle_size):
+@njit(void(int64[:,:], int64[:,:], int64),
+      cache=True)
+def _dinf_fix_cycles_numba(fdir_0, fdir_1, max_cycle_size):
     n = fdir_0.size
     visited = np.zeros(fdir_0.shape, dtype=np.bool8)
     depth = 0
@@ -2231,7 +2273,8 @@ def _dinf_fix_cycles(fdir_0, fdir_1, max_cycle_size):
 
 # TODO: Assumes pits and flats are removed
 @njit(int64[:,:](int64[:,:], UniTuple(int64, 8)),
-      parallel=True)
+      parallel=True,
+      cache=True)
 def _flatten_fdir(fdir, dirmap):
     r, c = fdir.shape
     n = fdir.size
@@ -2295,7 +2338,8 @@ def _flatten_fdir(fdir, dirmap):
     return flat_fdir
 
 @njit(int64[:,:](int64[:,:], UniTuple(int64, 8)),
-      parallel=True)
+      parallel=True,
+      cache=True)
 def _flatten_fdir_no_boundary(fdir, dirmap):
     r, c = fdir.shape
     n = fdir.size
@@ -2326,7 +2370,8 @@ def _construct_matching(fdir, dirmap):
     return startnodes, endnodes
 
 @njit(boolean[:,:](float64[:,:], int64[:]),
-      parallel=True)
+      parallel=True,
+      cache=True)
 def _find_pits_numba(dem, inside):
     n = inside.size
     offset = dem.shape[1]
@@ -2346,7 +2391,8 @@ def _find_pits_numba(dem, inside):
     return pits
 
 @njit(float64[:,:](float64[:,:], int64[:]),
-      parallel=True)
+      parallel=True,
+      cache=True)
 def _fill_pits_numba(dem, pit_indices):
     n = pit_indices.size
     offset = dem.shape[1]

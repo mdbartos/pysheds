@@ -332,7 +332,6 @@ class sGrid(Grid):
                                       apply_mask=apply_mask, ignore_metdata=ignore_metadata,
                                       properties=properties, metadata=metadata, **kwargs)
 
-
     def _d8_flowdir(self, dem=None, nodata_cells=None, out_name='dir', nodata_in=None, nodata_out=0,
                     pits=-1, flats=-1, dirmap=(64, 128, 1, 2, 4, 8, 16, 32), inplace=True,
                     as_crs=None, apply_mask=False, ignore_metadata=False, properties={},
@@ -439,7 +438,6 @@ class sGrid(Grid):
         fdir = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
                                    properties=properties, ignore_metadata=ignore_metadata,
                                    **kwargs)
-        fdir = fdir.copy()
         xmin, ymin, xmax, ymax = fdir.bbox
         if xytype in ('label', 'coordinate'):
             if (x < xmin) or (x > xmax) or (y < ymin) or (y > ymax):
@@ -467,6 +465,7 @@ class sGrid(Grid):
                       inplace=True, apply_mask=False, ignore_metadata=False, properties={},
                       metadata={}, snap='corner', **kwargs):
         # Pad the rim
+        fdir = fdir.copy().astype(np.int64)
         left, right, top, bottom = self._pop_rim(fdir, nodata=nodata_in)
         # If xytype is 'label', delineate catchment based on cell nearest
         # to given geographic coordinate
@@ -484,8 +483,9 @@ class sGrid(Grid):
                         nodata_in=None, nodata_out=0, xytype='index', recursionlimit=15000,
                         inplace=True, apply_mask=False, ignore_metadata=False, properties={},
                         metadata={}, snap='corner', **kwargs):
+        fdir = fdir.copy().astype(np.float64)
         if nodata_in is None:
-            nodata_cells = np.zeros_like(fdir).astype(bool)
+            nodata_cells = np.zeros(fdir.shape, dtype=np.bool8)
         else:
             if np.isnan(nodata_in):
                 nodata_cells = (np.isnan(fdir))
@@ -563,7 +563,6 @@ class sGrid(Grid):
         fdir = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
                                    properties=properties,
                                    ignore_metadata=ignore_metadata, **kwargs)
-        fdir = fdir.copy()
         if routing.lower() == 'd8':
             return self._d8_accumulation(fdir=fdir, weights=weights,
                                          dirmap=dirmap, efficiency=efficiency,
@@ -593,8 +592,9 @@ class sGrid(Grid):
         # TODO: Instead of popping rim, handle edge cells in construct matching
         # left, right, top, bottom = self._pop_rim(fdir, nodata=0)
         # Construct flat index onto flow direction array
+        fdir = fdir.copy().astype(np.int64)
         if nodata_in is None:
-            nodata_cells = np.zeros_like(fdir).astype(bool)
+            nodata_cells = np.zeros(fdir.shape, dtype=np.bool8)
         else:
             if np.isnan(nodata_in):
                 nodata_cells = (np.isnan(fdir))
@@ -628,8 +628,9 @@ class sGrid(Grid):
                            nodata_out=0, efficiency=None, out_name='acc', inplace=True,
                            pad=False, apply_mask=False, ignore_metadata=False,
                            properties={}, metadata={}, cycle_size=1, **kwargs):
+        fdir = fdir.copy().astype(np.float64)
         if nodata_in is None:
-            nodata_cells = np.zeros_like(fdir).astype(bool)
+            nodata_cells = np.zeros(fdir.shape, dtype=np.bool8)
         else:
             if np.isnan(nodata_in):
                 nodata_cells = (np.isnan(fdir))
@@ -670,8 +671,9 @@ class sGrid(Grid):
                           nodata_out=0, out_name='dist', method='shortest', inplace=True,
                           xytype='index', apply_mask=True, ignore_metadata=False, properties={},
                           metadata={}, snap='corner', **kwargs):
+        fdir = fdir.copy().astype(np.int64)
         if nodata_in is None:
-            nodata_cells = np.zeros_like(fdir).astype(np.bool8)
+            nodata_cells = np.zeros(fdir.shape, dtype=np.bool8)
         else:
             if np.isnan(nodata_in):
                 nodata_cells = (np.isnan(fdir))
@@ -695,9 +697,10 @@ class sGrid(Grid):
                             nodata_out=0, out_name='dist', method='shortest', inplace=True,
                             xytype='index', apply_mask=True, ignore_metadata=False,
                             properties={}, metadata={}, snap='corner', **kwargs):
+        fdir = fdir.copy().astype(np.float64)
         try:
             if nodata_in is None:
-                nodata_cells = np.zeros(fdir.shape).astype(np.bool8)
+                nodata_cells = np.zeros(fdir.shape, dtype=np.bool8)
             else:
                 if np.isnan(nodata_in):
                     nodata_cells = (np.isnan(fdir))
@@ -806,8 +809,11 @@ class sGrid(Grid):
         assert (np.asarray(dem.shape) == np.asarray(mask.shape)).all()
         if routing.lower() == 'dinf':
             try:
+                dem = dem.copy().astype(np.float64)
+                fdir = fdir.copy().astype(np.float64)
+                mask = mask.copy().astype(np.bool8)
                 if nodata_in_fdir is None:
-                    nodata_cells = np.zeros_like(fdir).astype(bool)
+                    nodata_cells = np.zeros(fdir, dtype=np.bool8)
                 else:
                     if np.isnan(nodata_in_fdir):
                         nodata_cells = (np.isnan(fdir))
@@ -834,6 +840,10 @@ class sGrid(Grid):
                                         inplace=inplace, metadata=metadata)
         elif routing.lower() == 'd8':
             try:
+                dem = dem.copy().astype(np.float64)
+                fdir = fdir.copy().astype(np.int64)
+                mask = mask.copy().astype(np.bool8)
+                # TODO: Nodata cells here?
                 dirleft, dirright, dirtop, dirbottom = self._pop_rim(fdir, nodata=nodata_in_fdir)
                 maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=0)
                 hand = _d8_hand_iter_numba(dem, mask, fdir, dirmap)
@@ -947,6 +957,8 @@ class sGrid(Grid):
         mask = self._input_handler(mask, apply_mask=apply_mask, nodata_view=mask_nodata_in,
                                    properties=mask_props,
                                    ignore_metadata=ignore_metadata, **kwargs)
+        fdir = fdir.copy().astype(np.int64)
+        mask = mask.copy().astype(np.bool8)
         try:
             assert(fdir.shape == mask.shape)
             assert(fdir.affine == mask.affine)
@@ -1023,6 +1035,8 @@ class sGrid(Grid):
         mask = self._input_handler(mask, apply_mask=apply_mask, nodata_view=mask_nodata_in,
                                    properties=mask_props,
                                    ignore_metadata=ignore_metadata, **kwargs)
+        fdir = fdir.copy().astype(np.int64)
+        mask = mask.copy().astype(np.bool8)
         try:
             assert(fdir.shape == mask.shape)
             assert(fdir.affine == mask.affine)
@@ -1096,6 +1110,8 @@ class sGrid(Grid):
         mask = self._input_handler(mask, apply_mask=apply_mask, nodata_view=mask_nodata_in,
                                    properties=mask_props,
                                    ignore_metadata=ignore_metadata, **kwargs)
+        fdir = fdir.copy().astype(np.int64)
+        mask = mask.copy().astype(np.bool8)
         try:
             assert(fdir.shape == mask.shape)
             assert(fdir.affine == mask.affine)
@@ -1154,6 +1170,7 @@ class sGrid(Grid):
         dem = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
                                   properties=grid_props, ignore_metadata=ignore_metadata,
                                   **kwargs)
+        dem = dem.copy().astype(np.float64)
         if nodata_in is None:
             nodata_cells = np.zeros(dem.shape, dtype=np.bool8)
         else:
@@ -1214,6 +1231,7 @@ class sGrid(Grid):
         dem = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
                                   properties=grid_props, ignore_metadata=ignore_metadata,
                                   **kwargs)
+        dem = dem.copy().astype(np.float64)
         if nodata_in is None:
             nodata_cells = np.zeros(dem.shape, dtype=np.bool8)
         else:
@@ -1274,6 +1292,7 @@ class sGrid(Grid):
         metadata = {}
         dem = self._input_handler(data, apply_mask=apply_mask, properties=grid_props,
                                   ignore_metadata=ignore_metadata, metadata=metadata, **kwargs)
+        dem = dem.copy().astype(np.float64)
         if nodata_in is None:
             dem_mask = np.array([]).astype(int)
         else:

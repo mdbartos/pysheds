@@ -184,6 +184,10 @@ class RegularViewFinder(BaseViewFinder):
         }
         return property_dict
 
+    @property
+    def axes(self):
+        return self.grid_indices()
+
     def grid_indices(self, affine=None, shape=None, col_ascending=True, row_ascending=False):
         """
         Return row and column coordinates of a bounding box at a

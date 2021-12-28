@@ -38,10 +38,10 @@ _pyproj_crs = lambda Proj: Proj.crs if not _OLD_PYPROJ else Proj
 _pyproj_crs_is_geographic = 'is_latlong' if _OLD_PYPROJ else 'is_geographic'
 _pyproj_init = '+init=epsg:4326' if _OLD_PYPROJ else 'epsg:4326'
 
-from pysheds.view import Raster
-from pysheds.view import BaseViewFinder, RegularViewFinder, IrregularViewFinder
+from pysheds.sview import Raster
+from pysheds.view import RegularViewFinder, IrregularViewFinder
 from pysheds.view import IrregularGridViewer
-from pysheds.sview import sRegularGridViewer as RegularGridViewer
+from pysheds.sview import View, ViewFinder
 
 class sGrid(Grid):
     """
@@ -100,11 +100,166 @@ class sGrid(Grid):
     """
 
     def __init__(self, viewfinder=None):
-        super().__init__(viewfinder)
+        if viewfinder is not None:
+            try:
+                assert isinstance(new_viewfinder, ViewFinder)
+            except:
+                raise TypeError('viewfinder must be an instance of ViewFinder.')
+            self._viewfinder = viewfinder
+        else:
+            self._viewfinder = ViewFinder(**self.defaults)
 
-    def view(self, data, data_view=None, target_view=None, apply_mask=True,
-             nodata=None, interpolation='nearest', as_crs=None, return_coords=False,
-             kx=3, ky=3, s=0, tolerance=1e-3, dtype=None, metadata={}):
+    @property
+    def viewfinder(self):
+        return self._viewfinder
+
+    @viewfinder.setter
+    def viewfinder(self, new_viewfinder):
+        try:
+            assert isinstance(new_viewfinder, ViewFinder)
+        except:
+            raise TypeError('viewfinder must be an instance of ViewFinder.')
+        self._viewfinder = new_viewfinder
+
+    def read_ascii(self, data, skiprows=6, mask=None, crs=pyproj.Proj(_pyproj_init),
+                   xll='lower', yll='lower', metadata={}, **kwargs):
+        """
+        Reads data from an ascii file into a named attribute of Grid
+        instance (name of attribute determined by 'data_name').
+ 
+        Parameters
+        ----------
+        data : str
+               File name or path.
+        data_name : str
+                    Name of dataset. Will determine the name of the attribute
+                    representing the gridded data.
+        skiprows : int (optional)
+                   The number of rows taken up by the header (defaults to 6).
+        crs : pyroj.Proj
+              Coordinate reference system of ascii data.
+        xll : 'lower' or 'center' (str)
+              Whether XLLCORNER or XLLCENTER is used.
+        yll : 'lower' or 'center' (str)
+              Whether YLLCORNER or YLLCENTER is used.
+        metadata : dict
+                   Other attributes describing dataset, such as direction
+                   mapping for flow direction files. e.g.:
+                   metadata={'dirmap' : (64, 128, 1, 2, 4, 8, 16, 32),
+                             'routing' : 'd8'}
+ 
+        Additional keyword arguments are passed to numpy.loadtxt()
+        """
+        with open(data) as header:
+            ncols = int(header.readline().split()[1])
+            nrows = int(header.readline().split()[1])
+            xll = ast.literal_eval(header.readline().split()[1])
+            yll = ast.literal_eval(header.readline().split()[1])
+            cellsize = ast.literal_eval(header.readline().split()[1])
+            nodata = ast.literal_eval(header.readline().split()[1])
+            shape = (nrows, ncols)
+        data = np.loadtxt(data, skiprows=skiprows, **kwargs)
+        nodata = data.dtype.type(nodata)
+        affine = Affine(cellsize, 0., xll, 0., -cellsize, yll + nrows * cellsize)
+        viewfinder = ViewFinder(affine=affine, shape=shape, mask=mask, nodata=nodata, crs=crs)
+        out = Raster(data, viewfinder, metadata=metadata)
+        return out
+
+    def read_raster(self, data, band=1, window=None, window_crs=None,
+                    metadata={}, mask_geometry=False, **kwargs):
+        """
+        Reads data from a raster file into a named attribute of Grid
+        (name of attribute determined by keyword 'data_name').
+ 
+        Parameters
+        ----------
+        data : str
+               File name or path.
+        data_name : str
+                    Name of dataset. Will determine the name of the attribute
+                    representing the gridded data.
+        band : int
+               The band number to read if multiband.
+        window : tuple
+                 If using windowed reading, specify window (xmin, ymin, xmax, ymax).
+        window_crs : pyproj.Proj instance
+                     Coordinate reference system of window. If None, assume it's in raster's crs.
+        mask_geometry : iterable object
+                        The values must be a GeoJSON-like dict or an object that implements
+                        the Python geo interface protocol (such as a Shapely Polygon).
+        metadata : dict
+                   Other attributes describing dataset, such as direction
+                   mapping for flow direction files. e.g.:
+                   metadata={'dirmap' : (64, 128, 1, 2, 4, 8, 16, 32),
+                             'routing' : 'd8'}
+ 
+        Additional keyword arguments are passed to rasterio.open()
+        """
+        # read raster file
+        if not _HAS_RASTERIO:
+            raise ImportError('Requires rasterio module')
+        mask = None
+        with rasterio.open(data, **kwargs) as f:
+            crs = pyproj.Proj(f.crs, preserve_units=True)
+            if window is None:
+                shape = f.shape
+                if len(f.indexes) > 1:
+                    data = np.ma.filled(f.read_band(band))
+                else:
+                    data = np.ma.filled(f.read())
+                affine = f.transform
+                data = data.reshape(shape)
+            else:
+                if window_crs is not None:
+                    if window_crs.srs != crs.srs:
+                        xmin, ymin, xmax, ymax = window
+                        if _OLD_PYPROJ:
+                            extent = pyproj.transform(window_crs, crs, (xmin, xmax),
+                                                    (ymin, ymax))
+                        else:
+                            extent = pyproj.transform(window_crs, crs, (xmin, xmax),
+                                                      (ymin, ymax), errcheck=True,
+                                                      always_xy=True)
+                        window = (extent[0][0], extent[1][0], extent[0][1], extent[1][1])
+                # If window crs not specified, assume it's in raster crs
+                ix_window = f.window(*window)
+                if len(f.indexes) > 1:
+                    data = np.ma.filled(f.read_band(band, window=ix_window))
+                else:
+                    data = np.ma.filled(f.read(window=ix_window))
+                affine = f.window_transform(ix_window)
+                data = np.squeeze(data)
+                shape = data.shape
+            if mask_geometry:
+                mask = rasterio.features.geometry_mask(mask_geometry, shape, affine, invert=True)
+                if not mask.any():  # no mask was applied if all False, out of bounds
+                    warnings.warn('mask_geometry does not fall within the bounds of the raster!')
+                    mask = ~mask  # return mask to all True and deliver warning
+            nodata = f.nodatavals[0]
+        if nodata is not None:
+            nodata = data.dtype.type(nodata)
+        viewfinder = ViewFinder(affine=affine, shape=shape, mask=mask, nodata=nodata, crs=crs)
+        out = Raster(data, viewfinder, metadata=metadata)
+        return out
+
+    @classmethod
+    def from_ascii(cls, path, **kwargs):
+        newinstance = cls()
+        data = newinstance.read_ascii(path, **kwargs)
+        newinstance.viewfinder = data.viewfinder
+        return newinstance
+
+    @classmethod
+    def from_raster(cls, path, **kwargs):
+        newinstance = cls()
+        data = newinstance.read_raster(path, **kwargs)
+        newinstance.viewfinder = data.viewfinder
+        return newinstance
+
+    def view(self, data, data_view=None, target_view=None, interpolation='nearest',
+             apply_input_mask=False, apply_output_mask=True,
+             affine=None, shape=None, crs=None, mask=None, nodata=None,
+             dtype=None, inherit_metadata=True, new_metadata={}, **kwargs):
         """
         Return a copy of a gridded dataset clipped to the current "view". The view is determined by
         an affine transformation which describes the bounding box and cellsize of the grid.
@@ -150,119 +305,38 @@ class sGrid(Grid):
         dtype: numpy datatype
                Desired datatype of the output array.
         """
+        # Check input type
+        try:
+            assert isinstance(data, Raster)
+        except:
+            raise TypeError("data must be a Raster instance")
         # Check interpolation method
         try:
             interpolation = interpolation.lower()
-            assert(interpolation in ('nearest', 'linear', 'cubic', 'spline'))
+            assert(interpolation in {'nearest', 'linear'})
         except:
             raise ValueError("Interpolation method must be one of: "
-                             "'nearest', 'linear', 'cubic', 'spline'")
-        # Parse data
-        if isinstance(data, str):
-            data = getattr(self, data)
-            if nodata is None:
-                nodata = data.nodata
-            if data_view is None:
-                data_view = data.viewfinder
-            metadata.update(data.metadata)
-        elif isinstance(data, Raster):
-            if nodata is None:
-                nodata = data.nodata
-            if data_view is None:
-                data_view = data.viewfinder
-            metadata.update(data.metadata)
-        else:
-            # If not using a named dataset, make sure the data and view are properly defined
-            try:
-                assert(isinstance(data, np.ndarray))
-            except:
-                raise
-            # TODO: Should convert array to dataset here
-            if nodata is None:
-                nodata = data_view.nodata
-        # If no target view provided, construct one based on grid parameters
+                             "'nearest', 'linear'")
+        # If no data view is provided, use dataset's viewfinder
+        if data_view is None:
+            data_view = data.viewfinder
+        # If no target view is provided, use grid's viewfinder
         if target_view is None:
-            target_view = RegularViewFinder(affine=self.affine, shape=self.shape,
-                                            mask=self.mask, crs=self.crs, nodata=nodata)
-        # If viewing at a different crs, convert coordinates
-        if as_crs is not None:
-            assert(isinstance(as_crs, pyproj.Proj))
-            target_coords = target_view.coords
-            new_coords = self._convert_grid_indices_crs(target_coords, target_view.crs, as_crs)
-            new_x, new_y = new_coords[:,1], new_coords[:,0]
-            # TODO: In general, crs conversion will yield irregular grid (though not necessarily)
-            target_view = IrregularViewFinder(coords=np.column_stack([new_y, new_x]),
-                                            shape=target_view.shape, crs=as_crs,
-                                            nodata=target_view.nodata)
-        # Specify mask
-        mask = target_view.mask
-        # Make sure views are ViewFinder instances
-        assert(issubclass(type(data_view), BaseViewFinder))
-        assert(issubclass(type(target_view), BaseViewFinder))
-        same_crs = target_view.crs.srs == data_view.crs.srs
-        # If crs does not match, convert coords of data array to target array
-        if not same_crs:
-            data_coords = data_view.coords
-            # TODO: x and y order might be different
-            new_coords = self._convert_grid_indices_crs(data_coords, data_view.crs, target_view.crs)
-            new_x, new_y = new_coords[:,1], new_coords[:,0]
-            # TODO: In general, crs conversion will yield irregular grid (though not necessarily)
-            data_view = IrregularViewFinder(coords=np.column_stack([new_y, new_x]),
-                                            shape=data_view.shape, crs=target_view.crs,
-                                            nodata=data_view.nodata)
-        # Check if data can be described by regular grid
-        data_is_grid = isinstance(data_view, RegularViewFinder)
-        view_is_grid = isinstance(target_view, RegularViewFinder)
-        # If data is on a grid, use the following speedup
-        if data_is_grid and view_is_grid:
-            # If doing nearest neighbor search, use fast sorted search
-            if interpolation == 'nearest':
-                array_view = RegularGridViewer._view_affine(data, data_view, target_view)
-            # If spline interpolation is needed, use RectBivariate
-            elif interpolation == 'spline':
-                # If latitude/longitude, use RectSphereBivariate
-                if getattr(_pyproj_crs(target_view.crs), _pyproj_crs_is_geographic):
-                    array_view = RegularGridViewer._view_rectspherebivariate(data, data_view,
-                                                                             target_view,
-                                                                             x_tolerance=tolerance,
-                                                                             y_tolerance=tolerance,
-                                                                             kx=kx, ky=ky, s=s)
-                # If not latitude/longitude, use RectBivariate
-                else:
-                    array_view = RegularGridViewer._view_rectbivariate(data, data_view,
-                                                                       target_view,
-                                                                       x_tolerance=tolerance,
-                                                                       y_tolerance=tolerance,
-                                                                       kx=kx, ky=ky, s=s)
-            # If some other interpolation method is needed, use griddata
-            else:
-                array_view = IrregularGridViewer._view_griddata(data, data_view, target_view,
-                                                                method=interpolation)
-        # If either view is irregular, use griddata
-        else:
-            array_view = IrregularGridViewer._view_griddata(data, data_view, target_view,
-                                                            method=interpolation)
-        # TODO: This could be dangerous if it returns an irregular view
-        array_view = Raster(array_view, target_view, metadata=metadata)
-        # Ensure masking is safe by checking datatype
-        if dtype is None:
-            dtype = max(np.min_scalar_type(nodata), data.dtype)
-            # For matplotlib imshow compatibility
-            if issubclass(dtype.type, np.floating):
-                dtype = max(dtype, np.dtype(np.float32))
-        array_view = array_view.astype(dtype)
-        # Apply mask
-        if apply_mask:
-            np.place(array_view, ~mask, nodata)
+            target_view = self.viewfinder
+        out = View.view(data, data_view, target_view,
+                        interpolation=interpolation,
+                        apply_input_mask=apply_input_mask,
+                        apply_output_mask=apply_output_mask,
+                        affine=affine, shape=shape,
+                        crs=crs, mask=mask, nodata=nodata,
+                        dtype=dtype,
+                        inherit_metadata=inherit_metadata,
+                        new_metadata=new_metadata)
         # Return output
-        if return_coords:
-            return array_view, target_view.coords
-        else:
-            return array_view
+        return out
 
-    def flowdir(self, data, out_name='dir', nodata_in=None, nodata_out=None,
-                flats=-1, pits=-2, dirmap=(64, 128, 1, 2, 4, 8, 16, 32), routing='d8',
-                inplace=True, as_crs=None, apply_mask=False, ignore_metadata=False, **kwargs):
+    def flowdir(self, data, routing='d8', flats=-1, pits=-2, nodata_out=None,
+                dirmap=(64, 128, 1, 2, 4, 8, 16, 32), **kwargs):
         """
         Generates a flow direction grid from a DEM grid.
 
@@ -300,82 +374,55 @@ class sGrid(Grid):
         ignore_metadata : bool
                           If False, require a valid affine transform and crs.
         """
-        dirmap = self._set_dirmap(dirmap, data)
-        nodata_in = self._check_nodata_in(data, nodata_in)
-        properties = {'nodata' : nodata_out}
-        metadata = {'dirmap' : dirmap}
-        dem = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
-                                  properties=properties, ignore_metadata=ignore_metadata,
-                                  **kwargs)
-        dem = dem.copy().astype(np.float64)
-        if nodata_in is None:
-            nodata_cells = np.zeros(dem.shape, dtype=np.bool8)
-        else:
-            if np.isnan(nodata_in):
-                nodata_cells = np.isnan(dem)
-            else:
-                nodata_cells = (dem == nodata_in)
+        default_metadata = {'dirmap' : dirmap, 'flats' : flats, 'pits' : pits}
+        input_overrides = {'dtype' : np.float64}
+        kwargs.update(input_overrides)
+        dem = self._input_handler(data, **kwargs)
+        nodata_cells = self._get_nodata_cells(dem)
         if routing.lower() == 'd8':
             if nodata_out is None:
                 nodata_out = 0
-            return self._d8_flowdir(dem=dem, nodata_cells=nodata_cells, out_name=out_name,
-                                    nodata_in=nodata_in, nodata_out=nodata_out, pits=pits,
-                                    flats=flats, dirmap=dirmap, inplace=inplace, as_crs=as_crs,
-                                    apply_mask=apply_mask, ignore_metdata=ignore_metadata,
-                                    properties=properties, metadata=metadata, **kwargs)
+            fdir = self._d8_flowdir(dem=dem, nodata_cells=nodata_cells,
+                                    nodata_out=nodata_out, flats=flats,
+                                    pits=pits, dirmap=dirmap)
         elif routing.lower() == 'dinf':
             if nodata_out is None:
                 nodata_out = np.nan
-            return self._dinf_flowdir(dem=dem, nodata_cells=nodata_cells, out_name=out_name,
-                                      nodata_in=nodata_in, nodata_out=nodata_out, pits=pits,
-                                      flats=flats, dirmap=dirmap, inplace=inplace, as_crs=as_crs,
-                                      apply_mask=apply_mask, ignore_metdata=ignore_metadata,
-                                      properties=properties, metadata=metadata, **kwargs)
+            fdir = self._dinf_flowdir(dem=dem, nodata_cells=nodata_cells,
+                                      nodata_out=nodata_out, flats=flats,
+                                      pits=pits, dirmap=dirmap)
+        else:
+            raise ValueError('Routing method must be one of: `d8`, `dinf`')
+        fdir.metadata.update(default_metadata)
+        return fdir
 
-    def _d8_flowdir(self, dem=None, nodata_cells=None, out_name='dir', nodata_in=None, nodata_out=0,
-                    pits=-1, flats=-1, dirmap=(64, 128, 1, 2, 4, 8, 16, 32), inplace=True,
-                    as_crs=None, apply_mask=False, ignore_metadata=False, properties={},
-                    metadata={}, **kwargs):
+
+    def _d8_flowdir(self, dem, nodata_cells, nodata_out=0, flats=-1, pits=-2,
+                    dirmap=(64, 128, 1, 2, 4, 8, 16, 32)):
         # Make sure nothing flows to the nodata cells
         dem[nodata_cells] = dem.max() + 1
-        # Optionally, project DEM before computing slopes
-        if isinstance(dem.viewfinder, IrregularViewFinder):
-            y_arr = dem._coords[:,0].reshape(dem.shape)
-            x_arr = dem._coords[:,1].reshape(dem.shape)
-            fdir = _d8_flowdir_irregular_numba(dem, x_arr, y_arr, dirmap, nodata_cells,
-                                               nodata_out, flat=-1, pit=-2)
-        elif isinstance(dem.viewfinder, RegularViewFinder):
-            dx = abs(dem.affine.a)
-            dy = abs(dem.affine.e)
-            fdir = _d8_flowdir_numba(dem, dx, dy, dirmap, nodata_cells,
-                                    nodata_out, flat=flats, pit=pits)
-        else:
-            raise NotImplementedError('Input must be a Raster.')
-        return self._output_handler(data=fdir, out_name=out_name, properties=properties,
-                                    inplace=inplace, metadata=metadata)
+        # Get cell spans and heights
+        dx = abs(dem.affine.a)
+        dy = abs(dem.affine.e)
+        # Compute D8 flow directions
+        fdir = _d8_flowdir_numba(dem, dx, dy, dirmap, nodata_cells,
+                                 nodata_out, flat=flats, pit=pits)
+        return self._output_handler(data=fdir, viewfinder=dem.viewfinder,
+                                    metadata=dem.metadata, nodata_out=nodata_out)
 
-    def _dinf_flowdir(self, dem=None, nodata_cells=None, out_name='dir', nodata_in=None, nodata_out=0,
-                      pits=-1, flats=-1, dirmap=(64, 128, 1, 2, 4, 8, 16, 32), inplace=True,
-                      as_crs=None, apply_mask=False, ignore_metadata=False, properties={},
-                      metadata={}, **kwargs):
+    def _dinf_flowdir(self, dem, nodata_cells, nodata_out=np.nan, flats=-1, pits=-2,
+                      dirmap=(64, 128, 1, 2, 4, 8, 16, 32)):
         # Make sure nothing flows to the nodata cells
         dem[nodata_cells] = dem.max() + 1
-        if isinstance(dem.viewfinder, IrregularViewFinder):
-            y_arr = dem._coords[:,0].reshape(dem.shape)
-            x_arr = dem._coords[:,1].reshape(dem.shape)
-            fdir = _dinf_flowdir_irregular_numba(dem, x_arr, y_arr, nodata, flat=-1, pit=-2)
-        elif isinstance(dem.viewfinder, RegularViewFinder):
-            dx = abs(dem.affine.a)
-            dy = abs(dem.affine.e)
-            fdir = _dinf_flowdir_numba(dem, dx, dy, nodata_out, flat=flats, pit=pits)
-        else:
-            raise NotImplementedError('Input must be a Raster.')
-        return self._output_handler(data=fdir, out_name=out_name, properties=properties,
-                                    inplace=inplace, metadata=metadata)
+        dx = abs(dem.affine.a)
+        dy = abs(dem.affine.e)
+        fdir = _dinf_flowdir_numba(dem, dx, dy, nodata_out, flat=flats, pit=pits)
+        return self._output_handler(data=fdir, viewfinder=dem.viewfinder,
+                                    metadata=dem.metadata, nodata_out=nodata_out)
 
     def catchment(self, x, y, data, pour_value=None, out_name='catch', dirmap=None,
                   nodata_in=None, nodata_out=0, xytype='index', routing='d8',
-                  recursionlimit=15000, inplace=True, apply_mask=False, ignore_metadata=False,
+                  recursionlimit=15000, inplace=False, apply_mask=False, ignore_metadata=False,
                   snap='corner', **kwargs):
         """
         Delineates a watershed from a given pour point (x, y).
@@ -462,7 +509,7 @@ class sGrid(Grid):
 
     def _d8_catchment(self, x, y, fdir=None, pour_value=None, out_name='catch', dirmap=None,
                       nodata_in=None, nodata_out=0, xytype='index', recursionlimit=15000,
-                      inplace=True, apply_mask=False, ignore_metadata=False, properties={},
+                      inplace=False, apply_mask=False, ignore_metadata=False, properties={},
                       metadata={}, snap='corner', **kwargs):
         # Pad the rim
         fdir = fdir.copy().astype(np.int64)
@@ -481,7 +528,7 @@ class sGrid(Grid):
 
     def _dinf_catchment(self, x, y, fdir=None, pour_value=None, out_name='catch', dirmap=None,
                         nodata_in=None, nodata_out=0, xytype='index', recursionlimit=15000,
-                        inplace=True, apply_mask=False, ignore_metadata=False, properties={},
+                        inplace=False, apply_mask=False, ignore_metadata=False, properties={},
                         metadata={}, snap='corner', **kwargs):
         fdir = fdir.copy().astype(np.float64)
         if nodata_in is None:
@@ -508,7 +555,7 @@ class sGrid(Grid):
                                     inplace=inplace, metadata=metadata)
 
     def accumulation(self, data, weights=None, dirmap=None, nodata_in=None, nodata_out=0,
-                     efficiency=None, out_name='acc', routing='d8', inplace=True, pad=False,
+                     efficiency=None, out_name='acc', routing='d8', inplace=False, pad=False,
                      apply_mask=False, ignore_metadata=False, cycle_size=1, **kwargs):
         """
         Generates an array of flow accumulation, where cell values represent
@@ -586,7 +633,7 @@ class sGrid(Grid):
 
 
     def _d8_accumulation(self, fdir=None, weights=None, dirmap=None, nodata_in=None,
-                         nodata_out=0, efficiency=None, out_name='acc', inplace=True,
+                         nodata_out=0, efficiency=None, out_name='acc', inplace=False,
                          pad=False, apply_mask=False, ignore_metadata=False, properties={},
                          metadata={}, **kwargs):
         # TODO: Instead of popping rim, handle edge cells in construct matching
@@ -625,7 +672,7 @@ class sGrid(Grid):
                                     inplace=inplace, metadata=metadata)
 
     def _dinf_accumulation(self, fdir=None, weights=None, dirmap=None, nodata_in=None,
-                           nodata_out=0, efficiency=None, out_name='acc', inplace=True,
+                           nodata_out=0, efficiency=None, out_name='acc', inplace=False,
                            pad=False, apply_mask=False, ignore_metadata=False,
                            properties={}, metadata={}, cycle_size=1, **kwargs):
         fdir = fdir.copy().astype(np.float64)
@@ -668,7 +715,7 @@ class sGrid(Grid):
                                     inplace=inplace, metadata=metadata)
 
     def _d8_flow_distance(self, x, y, fdir, weights=None, dirmap=None, nodata_in=None,
-                          nodata_out=0, out_name='dist', method='shortest', inplace=True,
+                          nodata_out=0, out_name='dist', method='shortest', inplace=False,
                           xytype='index', apply_mask=True, ignore_metadata=False, properties={},
                           metadata={}, snap='corner', **kwargs):
         fdir = fdir.copy().astype(np.int64)
@@ -694,7 +741,7 @@ class sGrid(Grid):
                                     inplace=inplace, metadata=metadata)
 
     def _dinf_flow_distance(self, x, y, fdir, weights=None, dirmap=None, nodata_in=None,
-                            nodata_out=0, out_name='dist', method='shortest', inplace=True,
+                            nodata_out=0, out_name='dist', method='shortest', inplace=False,
                             xytype='index', apply_mask=True, ignore_metadata=False,
                             properties={}, metadata={}, snap='corner', **kwargs):
         fdir = fdir.copy().astype(np.float64)
@@ -740,7 +787,7 @@ class sGrid(Grid):
 
     def compute_hand(self, fdir, dem, drainage_mask, out_name='hand', dirmap=None,
                      nodata_in_fdir=None, nodata_in_dem=None, nodata_out=np.nan, routing='d8',
-                     inplace=True, apply_mask=False, ignore_metadata=False, return_index=False,
+                     inplace=False, apply_mask=False, ignore_metadata=False, return_index=False,
                      **kwargs):
         """
         Computes the height above nearest drainage (HAND), based on a flow direction grid,
@@ -857,9 +904,7 @@ class sGrid(Grid):
             return self._output_handler(data=hand, out_name=out_name, properties=properties,
                                         inplace=inplace, metadata=metadata)
 
-    def resolve_flats(self, data=None, out_name='inflated_dem', nodata_in=None, nodata_out=None,
-                      inplace=True, apply_mask=False, ignore_metadata=False, eps=1e-5,
-                      max_iter=1000, **kwargs):
+    def resolve_flats(self, data, nodata_out=None, eps=1e-5, max_iter=1000, **kwargs):
         """
         Resolve flats in a DEM using the modified method of Barnes et al. (2015).
         See: https://arxiv.org/abs/1511.04433
@@ -884,33 +929,35 @@ class sGrid(Grid):
         ignore_metadata : bool
                           If False, require a valid affine transform and CRS.
         """
-        # handle nodata values in dem
-        nodata_in = self._check_nodata_in(data, nodata_in)
-        if nodata_out is None:
-            nodata_out = nodata_in
-        grid_props = {'nodata' : nodata_out}
-        metadata = {}
-        dem = self._input_handler(data, apply_mask=apply_mask, properties=grid_props,
-                                  ignore_metadata=ignore_metadata, metadata=metadata, **kwargs)
-        if nodata_in is None:
-            dem_mask = np.array([]).astype(int)
-        else:
-            if np.isnan(nodata_in):
-                dem_mask = np.where(np.isnan(dem.ravel()))[0]
-            else:
-                dem_mask = np.where(dem.ravel() == nodata_in)[0]
-        dem = dem.copy().astype(np.float64)
+        input_overrides = {'dtype' : np.float64}
+        kwargs.update(input_overrides)
+        dem = self._input_handler(data, **kwargs)
+        # Find no data cells
+        # TODO: Should these be used?
+        nodata_cells = self._get_nodata_cells(dem)
+        # Get inside indices
         inside = np.arange(dem.size, dtype=np.int64).reshape(dem.shape)[1:-1, 1:-1].ravel()
+        # Find (i) cells in flats, (ii) cells with flow directions defined
+        # and (iii) cells with at least one higher neighbor
         flats, fdirs_defined, higher_cells = _par_get_candidates(dem, inside)
+        # Label all flats
         labels, numlabels = skimage.measure.label(flats, return_num=True)
+        # Get high-edge cells
         hec = _par_get_high_edge_cells(inside, fdirs_defined, higher_cells, labels)
+        # Get low-edge cells
         lec = _par_get_low_edge_cells(inside, dem, fdirs_defined, labels, numlabels)
+        # Construct gradient from higher terrain
         grad_from_higher = _grad_from_higher(hec, flats, labels, numlabels, max_iter)
+        # Construct gradient towards lower terrain
         grad_towards_lower = _grad_towards_lower(lec, flats, dem, max_iter)
+        # Construct a gradient that is guaranteed to drain
         new_drainage_grad = (2 * grad_towards_lower + grad_from_higher)
+        # Create a flat-removed DEM by applying drainage gradient
         inflated_dem = dem + eps * new_drainage_grad
-        return self._output_handler(data=inflated_dem, out_name=out_name, properties=grid_props,
-                                    inplace=inplace, metadata=metadata)
+        inflated_dem = self._output_handler(data=inflated_dem,
+                                            viewfinder=dem.viewfinder,
+                                            metadata=dem.metadata)
+        return inflated_dem
 
     def extract_river_network(self, fdir, mask, dirmap=None, nodata_in=None, routing='d8',
                               apply_mask=True, ignore_metadata=False, **kwargs):
@@ -989,7 +1036,7 @@ class sGrid(Grid):
         return geo
 
     def stream_order(self, fdir, mask, out_name='stream_order', dirmap=None,
-                     nodata_in=None, nodata_out=0, routing='d8', inplace=True,
+                     nodata_in=None, nodata_out=0, routing='d8', inplace=False,
                      apply_mask=False, ignore_metadata=False, metadata={},
                      **kwargs):
         """
@@ -1065,7 +1112,7 @@ class sGrid(Grid):
 
     def reverse_distance(self, fdir, mask, out_name='reverse_distance',
                          dirmap=None, nodata_in=None, nodata_out=0, routing='d8',
-                         inplace=True, apply_mask=False, ignore_metadata=False,
+                         inplace=False, apply_mask=False, ignore_metadata=False,
                          metadata={}, **kwargs):
         """
         Generates river segments from accumulation and flow_direction arrays.
@@ -1139,8 +1186,7 @@ class sGrid(Grid):
         return self._output_handler(data=rdist, out_name=out_name, properties=fdir_props,
                                     inplace=inplace, metadata=metadata)
 
-    def fill_pits(self, data, out_name='filled_dem', nodata_in=None, nodata_out=0,
-                  inplace=True, apply_mask=False, ignore_metadata=False, **kwargs):
+    def fill_pits(self, data, nodata_out=None, **kwargs):
         """
         Fill pits in a DEM. Raises pits to same elevation as lowest neighbor.
 
@@ -1164,39 +1210,33 @@ class sGrid(Grid):
         ignore_metadata : bool
                           If False, require a valid affine transform and CRS.
         """
-        nodata_in = self._check_nodata_in(data, nodata_in)
-        grid_props = {'nodata' : nodata_out}
-        metadata = {}
-        dem = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
-                                  properties=grid_props, ignore_metadata=ignore_metadata,
-                                  **kwargs)
-        dem = dem.copy().astype(np.float64)
-        if nodata_in is None:
-            nodata_cells = np.zeros(dem.shape, dtype=np.bool8)
-        else:
-            if np.isnan(nodata_in):
-                nodata_cells = np.isnan(dem)
-            else:
-                nodata_cells = (dem == nodata_in)
-        try:
-            # Make sure nothing flows to the nodata cells
-            dem[nodata_cells] = dem.max() + 1
-            inside = np.arange(dem.size, dtype=np.int64).reshape(dem.shape)[1:-1, 1:-1].ravel()
-            pits = _find_pits_numba(dem, inside)
-            pit_indices = np.flatnonzero(pits).astype(np.int64)
-            pit_filled_dem = dem.copy().astype(np.float64)
-            _fill_pits_numba(pit_filled_dem, pit_indices)
-            pit_filled_dem[nodata_cells] = nodata_out
-        except:
-            raise
-        finally:
-            if nodata_in is not None:
-                dem[nodata_cells] = nodata_in
-        return self._output_handler(data=pit_filled_dem, out_name=out_name, properties=grid_props,
-                                    inplace=inplace, metadata=metadata)
+        input_overrides = {'dtype' : np.float64}
+        kwargs.update(input_overrides)
+        dem = self._input_handler(data, **kwargs)
+        # Find no data cells
+        nodata_cells = self._get_nodata_cells(dem)
+        # Make sure nothing flows to the nodata cells
+        dem[nodata_cells] = dem.max() + 1
+        # Get indices of inner cells
+        inside = np.arange(dem.size, dtype=np.int64).reshape(dem.shape)[1:-1, 1:-1].ravel()
+        # Find pits in input DEM
+        pits = _find_pits_numba(dem, inside)
+        pit_indices = np.flatnonzero(pits).astype(np.int64)
+        # Create new array to hold pit-filled dem
+        pit_filled_dem = dem.copy().astype(np.float64)
+        # Fill pits
+        _fill_pits_numba(pit_filled_dem, pit_indices)
+        # Set output nodata value
+        if nodata_out is None:
+            nodata_out = dem.nodata
+        # Ensure nodata cells propagate to pit-filled dem
+        pit_filled_dem[nodata_cells] = nodata_out
+        pit_filled_dem = self._output_handler(data=pit_filled_dem,
+                                              viewfinder=dem.viewfinder,
+                                              metadata=dem.metadata)
+        return pit_filled_dem
 
-    def detect_pits(self, data, out_name='pits', nodata_in=None, nodata_out=0,
-                    inplace=True, apply_mask=False, ignore_metadata=False, **kwargs):
+    def detect_pits(self, data, nodata_out=0, **kwargs):
         """
         Detect pits in a DEM.
 
@@ -1225,37 +1265,22 @@ class sGrid(Grid):
         pits : numpy ndarray
                Boolean array indicating locations of pits.
         """
-        nodata_in = self._check_nodata_in(data, nodata_in)
-        grid_props = {'nodata' : nodata_out}
-        metadata = {}
-        dem = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
-                                  properties=grid_props, ignore_metadata=ignore_metadata,
-                                  **kwargs)
-        dem = dem.copy().astype(np.float64)
-        if nodata_in is None:
-            nodata_cells = np.zeros(dem.shape, dtype=np.bool8)
-        else:
-            if np.isnan(nodata_in):
-                nodata_cells = np.isnan(dem)
-            else:
-                nodata_cells = (dem == nodata_in)
-        try:
-            # Make sure nothing flows to the nodata cells
-            dem[nodata_cells] = dem.max() + 1
-            inside = np.arange(dem.size, dtype=np.int64).reshape(dem.shape)[1:-1, 1:-1].ravel()
-            dem_copy = dem.copy().astype(np.float64)
-            pits = _find_pits_numba(dem_copy, inside)
-        except:
-            raise
-        finally:
-            if nodata_in is not None:
-                dem[nodata_cells] = nodata_in
-        return self._output_handler(data=pits, out_name=out_name, properties=grid_props,
-                                    inplace=inplace, metadata=metadata)
+        input_overrides = {'dtype' : np.float64}
+        kwargs.update(input_overrides)
+        dem = self._input_handler(data, **kwargs)
+        # Find no data cells
+        nodata_cells = self._get_nodata_cells(dem)
+        # Make sure nothing flows to the nodata cells
+        dem[nodata_cells] = dem.max() + 1
+        # Get indices of inner cells
+        inside = np.arange(dem.size, dtype=np.int64).reshape(dem.shape)[1:-1, 1:-1].ravel()
+        # Find pits
+        pits = _find_pits_numba(dem, inside)
+        pits = self._output_handler(data=pits, viewfinder=dem.viewfinder,
+                                    metadata=dem.metadata)
+        return pits
 
-    def detect_flats(self, data=None, out_name='inflated_dem', nodata_in=None, nodata_out=None,
-                     inplace=True, apply_mask=False, ignore_metadata=False, eps=1e-5,
-                     max_iter=1000, **kwargs):
+    def detect_flats(self, data, nodata_out=0, **kwargs):
         """
         Detect flats in a DEM.
 
@@ -1284,27 +1309,49 @@ class sGrid(Grid):
         flats : numpy ndarray
                 Boolean array indicating locations of flats.
         """
-        # handle nodata values in dem
-        nodata_in = self._check_nodata_in(data, nodata_in)
-        if nodata_out is None:
-            nodata_out = nodata_in
-        grid_props = {'nodata' : nodata_out}
-        metadata = {}
-        dem = self._input_handler(data, apply_mask=apply_mask, properties=grid_props,
-                                  ignore_metadata=ignore_metadata, metadata=metadata, **kwargs)
-        dem = dem.copy().astype(np.float64)
-        if nodata_in is None:
-            dem_mask = np.array([]).astype(int)
-        else:
-            if np.isnan(nodata_in):
-                dem_mask = np.where(np.isnan(dem.ravel()))[0]
-            else:
-                dem_mask = np.where(dem.ravel() == nodata_in)[0]
+        input_overrides = {'dtype' : np.float64}
+        kwargs.update(input_overrides)
+        dem = self._input_handler(data, **kwargs)
+        # Find no data cells
+        nodata_cells = self._get_nodata_cells(dem)
+        # Make sure nothing flows to the nodata cells
+        dem[nodata_cells] = dem.max() + 1
+        # Get indices of inner cells
         inside = np.arange(dem.size, dtype=np.int64).reshape(dem.shape)[1:-1, 1:-1].ravel()
-        dem_copy = dem.copy().astype(np.float64)
-        flats, _, _ = _par_get_candidates(dem_copy, inside)
-        return self._output_handler(data=flats, out_name=out_name, properties=grid_props,
-                                    inplace=inplace, metadata=metadata)
+        # handle nodata values in dem
+        flats, _, _ = _par_get_candidates(dem, inside)
+        flats = self._output_handler(data=flats, viewfinder=dem.viewfinder,
+                                    metadata=dem.metadata)
+        return flats
+
+    def _input_handler(self, data, **kwargs):
+        try:
+            assert (isinstance(data, Raster))
+        except:
+            raise TypeError('Data must be a Raster.')
+        dataset = self.view(data, data_view=data.viewfinder, target_view=self.viewfinder,
+                            **kwargs)
+        return dataset
+
+    def _output_handler(self, data, viewfinder, metadata={}, **kwargs):
+        new_view = ViewFinder(**viewfinder.properties)
+        for param, value in kwargs.items():
+            if (value is not None) and (hasattr(new_view, param)):
+                setattr(new_view, param, value)
+        dataset = Raster(data, new_view, metadata=metadata)
+        return dataset
+
+    def _get_nodata_cells(self, data):
+        try:
+            assert (isinstance(data, Raster))
+        except:
+            raise TypeError('Data must be a Raster.')
+        nodata = data.nodata
+        if np.isnan(nodata):
+            nodata_cells = np.isnan(data)
+        else:
+            nodata_cells = (data == nodata)
+        return nodata_cells
 
 
 # Functions for 'flowdir'

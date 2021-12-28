@@ -6,37 +6,322 @@ from numba.types import float64, UniTuple
 import pyproj
 from affine import Affine
 from distutils.version import LooseVersion
-from pysheds.view import Raster, BaseViewFinder
-from pysheds.view import RegularViewFinder, IrregularViewFinder
-from pysheds.view import RegularGridViewer, IrregularGridViewer
 
 _OLD_PYPROJ = LooseVersion(pyproj.__version__) < LooseVersion('2.2')
 _pyproj_init = '+init=epsg:4326' if _OLD_PYPROJ else 'epsg:4326'
 
-class sRegularGridViewer(RegularGridViewer):
+class Raster(np.ndarray):
+    def __new__(cls, input_array, viewfinder, metadata={}):
+        obj = np.asarray(input_array).view(cls)
+        try:
+            assert(isinstance(viewfinder, ViewFinder))
+        except:
+            raise ValueError("Must initialize with a ViewFinder")
+        obj.viewfinder = viewfinder
+        obj.metadata = metadata
+        return obj
+
+    def __array_finalize__(self, obj):
+        if obj is None:
+            return
+        self.viewfinder = getattr(obj, 'viewfinder', None)
+        self.metadata = getattr(obj, 'metadata', None)
+
+    @property
+    def bbox(self):
+        return self.viewfinder.bbox
+    @property
+    def coords(self):
+        return self.viewfinder.coords
+    @property
+    def view_shape(self):
+        return self.viewfinder.shape
+    @property
+    def mask(self):
+        return self.viewfinder.mask
+    @property
+    def nodata(self):
+        return self.viewfinder.nodata
+    @nodata.setter
+    def nodata(self, new_nodata):
+        self.viewfinder.nodata = new_nodata
+    @property
+    def crs(self):
+        return self.viewfinder.crs
+    @property
+    def view_size(self):
+        return np.prod(self.viewfinder.shape)
+    @property
+    def extent(self):
+        bbox = self.viewfinder.bbox
+        extent = (bbox[0], bbox[2], bbox[1], bbox[3])
+        return extent
+    @property
+    def cellsize(self):
+        dy, dx = self.dy_dx
+        cellsize = (dy + dx) / 2
+        return cellsize
+    @property
+    def affine(self):
+        return self.viewfinder.affine
+    @property
+    def properties(self):
+        property_dict = {
+            'affine' : self.viewfinder.affine,
+            'shape' : self.viewfinder.shape,
+            'crs' : self.viewfinder.crs,
+            'nodata' : self.viewfinder.nodata,
+            'mask' : self.viewfinder.mask
+        }
+        return property_dict
+    @property
+    def dy_dx(self):
+        return (-self.affine.e, self.affine.a)
+
+class ViewFinder():
+    def __init__(self, affine=(1., 0., 0., 0., -1., 0.), shape=(1,1),
+                 mask=None, nodata=None, crs=pyproj.Proj(_pyproj_init)):
+        self.affine = affine
+        self.shape = shape
+        self.crs = crs
+        if nodata is None:
+            self.nodata = np.nan
+        else:
+            self.nodata = nodata
+        if mask is None:
+            self.mask = np.ones(shape, dtype=np.bool8)
+        else:
+            self.mask = mask
+        # TODO: Removed x_coord_ix and y_coord_ix---need to double-check
+
+    def __eq__(self, other):
+        if isinstance(other, ViewFinder):
+            is_eq = True
+            is_eq &= (self.affine == other.affine)
+            is_eq &= (self.shape[0] == other.shape[0])
+            is_eq &= (self.shape[1] == other.shape[1])
+            is_eq &= (self.mask == other.mask).all()
+            if np.isnan(self.nodata):
+                is_eq &= np.isnan(other.nodata)
+            else:
+                is_eq &= self.nodata == other.nodata
+            is_eq &= (self.crs == other.crs)
+            return is_eq
+        else:
+            return False
+
+    @property
+    def affine(self):
+        return self._affine
+    @affine.setter
+    def affine(self, new_affine):
+        assert(isinstance(new_affine, Affine))
+        self._affine = new_affine
+    @property
+    def shape(self):
+        return self._shape
+    @shape.setter
+    def shape(self, new_shape):
+        self._shape = new_shape
+    @property
+    def mask(self):
+        return self._mask
+    @mask.setter
+    def mask(self, new_mask):
+        assert (new_mask.shape == self.shape)
+        self._mask = new_mask
+    @property
+    def nodata(self):
+        return self._nodata
+    @nodata.setter
+    def nodata(self, new_nodata):
+        self._nodata = new_nodata
+    @property
+    def crs(self):
+        return self._crs
+    @crs.setter
+    def crs(self, new_crs):
+        assert (isinstance(new_crs, pyproj.Proj))
+        self._crs = new_crs
+    @property
+    def size(self):
+        return np.prod(self.shape)
+    @property
+    def bbox(self):
+        shape = self.shape
+        xmin, ymax = self.affine * (0,0)
+        xmax, ymin = self.affine * (shape[1], shape[0])
+        _bbox = (xmin, ymin, xmax, ymax)
+        return _bbox
+    @property
+    def extent(self):
+        bbox = self.bbox
+        extent = (bbox[0], bbox[2], bbox[1], bbox[3])
+        return extent
+    @property
+    def coords(self):
+        coordinates = np.meshgrid(*self.grid_indices(), indexing='ij')
+        return np.vstack(np.dstack(coordinates))
+    @property
+    def dy_dx(self):
+        return (-self.affine.e, self.affine.a)
+    @property
+    def properties(self):
+        property_dict = {
+            'affine' : self.affine,
+            'shape' : self.shape,
+            'nodata' : self.nodata,
+            'crs' : self.crs,
+            'mask' : self.mask
+        }
+        return property_dict
+    @property
+    def axes(self):
+        return self.grid_indices()
+
+    def view(raster):
+        data_view = raster.viewfinder
+        target_view = self
+        return View.view(raster, data_view, target_view, interpolation='nearest')
+
+    def grid_indices(self, affine=None, shape=None, col_ascending=True, row_ascending=False):
+        """
+        Return row and column coordinates of a bounding box at a
+        given cellsize.
+ 
+        Parameters
+        ----------
+        shape : tuple of ints (length 2)
+                The shape of the 2D array (rows, columns). Defaults
+                to instance shape.
+        precision : int
+                    Precision to use when matching geographic coordinates.
+        """
+        if affine is None:
+            affine = self.affine
+        if shape is None:
+            shape = self.shape
+        y_ix = np.arange(shape[0])
+        x_ix = np.arange(shape[1])
+        if row_ascending:
+            y_ix = y_ix[::-1]
+        if not col_ascending:
+            x_ix = x_ix[::-1]
+        x, _ = affine * np.vstack([x_ix, np.zeros(shape[1])])
+        _, y = affine * np.vstack([np.zeros(shape[0]), y_ix])
+        return y, x
+
+    def move_window(self, dxmin, dymin, dxmax, dymax):
+        """
+        Move bounding box window by integer indices
+        """
+        cell_height, cell_width  = self.dy_dx
+        nrows_old, ncols_old = self.shape
+        xmin_old, ymin_old, xmax_old, ymax_old = self.bbox
+        new_bbox = (xmin_old + dxmin*cell_width, ymin_old + dymin*cell_height,
+                    xmax_old + dxmax*cell_width, ymax_old + dymax*cell_height)
+        new_shape = (nrows_old + dymax - dymin,
+                     ncols_old + dxmax - dxmin)
+        new_mask = np.ones(new_shape).astype(bool)
+        mask_values = self._mask[max(dymin, 0):min(nrows_old + dymax, nrows_old),
+                                 max(dxmin, 0):min(ncols_old + dxmax, ncols_old)]
+        new_mask[max(0, dymax):max(0, dymax) + mask_values.shape[0],
+                 max(0, -dxmin):max(0, -dxmin) + mask_values.shape[1]] = mask_values
+        self.bbox = new_bbox
+        self.shape = new_shape
+        self.mask = new_mask
+
+
+class View():
     def __init__(self):
-        super().__init__()
+        pass
 
     @classmethod
-    def _view_affine(cls, data, data_view, target_view, x_tolerance=1e-3, y_tolerance=1e-3):
-        nodata = target_view.nodata
-        view = np.full(target_view.shape, nodata, dtype=data.dtype)
-        viewrows, viewcols = target_view.grid_indices()
-        _, target_row_ix = ~data_view.affine * np.vstack([np.zeros(target_view.shape[0]), viewrows])
-        target_col_ix, _ = ~data_view.affine * np.vstack([viewcols, np.zeros(target_view.shape[1])])
-        y_ix = np.around(target_row_ix).astype(int)
-        x_ix = np.around(target_col_ix).astype(int)
-        y_passed = ((np.abs(y_ix - target_row_ix) < y_tolerance)
-                    & (y_ix < data_view.shape[0]) & (y_ix >= 0))
-        x_passed = ((np.abs(x_ix - target_col_ix) < x_tolerance)
-                    & (x_ix < data_view.shape[1]) & (x_ix >= 0))
-        view = _view_fill_numba(data, view, y_ix, x_ix, y_passed, x_passed)
-        return view
+    def view(cls, data, data_view, target_view, interpolation='nearest',
+             apply_input_mask=False, apply_output_mask=True,
+             affine=None, shape=None, crs=None, mask=None, nodata=None,
+             dtype=None, inherit_metadata=True, new_metadata={}):
+        # Override parameters of target view if desired
+        target_view = cls._override_target_view(target_view,
+                                                affine=affine,
+                                                shape=shape,
+                                                crs=crs,
+                                                mask=mask,
+                                                nodata=nodata)
+        # Resolve dtype of output Raster
+        dtype = cls._override_dtype(data, target_view,
+                                    dtype=dtype,
+                                    interpolation=interpolation)
+        # Mask input data if desired
+        if apply_input_mask:
+            arr = np.where(data_view.mask, data, target_view.nodata).astype(dtype)
+            data = Raster(arr, data.viewfinder, metadata=data.metadata)
+        # If data view and target view are the same, return a copy of the data
+        if (data_view == target_view):
+            out = cls._view_same_viewfinder(data, data_view, target_view, dtype,
+                                            apply_output_mask=apply_output_mask)
+        # If data view and target view are different...
+        else:
+            out = cls._view_different_viewfinder(data, data_view, target_view, dtype,
+                                                 apply_output_mask=apply_output_mask)
+        # Write metadata
+        if inherit_metadata:
+            out.metadata.update(data.metadata)
+        out.metadata.update(new_metadata)
+        return out
 
     @classmethod
-    def _view_same_crs(cls, data, data_view, target_view, interpolation='nearest'):
-        nodata = target_view.nodata
-        view = np.full(target_view.shape, nodata, dtype=data.dtype)
+    def _override_target_view(cls, target_view, **kwargs):
+        new_view = ViewFinder(**target_view.properties)
+        for param, value in kwargs.items():
+            if (value is not None) and (hasattr(new_view, param)):
+                setattr(new_view, param, value)
+        return new_view
+
+    @classmethod
+    def _override_dtype(cls, data, target_view, dtype=None, interpolation='nearest'):
+        if dtype is not None:
+            return dtype
+        if interpolation == 'nearest':
+            # Find minimum type needed to represent nodata
+            dtype = max(np.min_scalar_type(target_view.nodata), data.dtype)
+            # For matplotlib imshow compatibility, upcast floats to float32
+            if issubclass(dtype.type, np.floating):
+                dtype = max(dtype, np.dtype(np.float32))
+        elif interpolation == 'linear':
+            dtype = np.float64
+        else:
+            raise ValueError('Interpolation method must be one of: `nearest`, `linear`')
+        return dtype
+
+    @classmethod
+    def _view_same_viewfinder(cls, data, data_view, target_view, dtype,
+                              apply_output_mask=True):
+        if apply_output_mask:
+            out = np.where(target_view.mask, data, target_view.nodata).astype(dtype)
+        else:
+            out = data.copy().astype(dtype)
+        out = Raster(out, target_view)
+        return out
+
+    @classmethod
+    def _view_different_viewfinder(cls, data, data_view, target_view, dtype,
+                                   apply_output_mask=True):
+        out = np.full(target_view.shape, target_view.nodata, dtype=dtype)
+        if (data_view.crs == target_view.crs):
+            out = cls._view_same_crs(out, data, data_view,
+                                     target_view, interpolation)
+        else:
+            out = cls._view_different_crs(out, data, data_view,
+                                          target_view, interpolation)
+        # Apply mask
+        if apply_output_mask:
+            np.place(out, ~target_view.mask, target_view.nodata)
+        out = Raster(out, target_view, metadata=metadata)
+        return out
+
+    @classmethod
+    def _view_same_crs(cls, view, data, data_view, target_view, interpolation='nearest'):
         y, x = target_view.axes
         inv_affine = tuple(~data_view.affine)
         _, y_ix = affine_map(inv_affine,
@@ -54,9 +339,7 @@ class sRegularGridViewer(RegularGridViewer):
         return view
 
     @classmethod
-    def _view_different_crs(cls, data, data_view, target_view, interpolation='nearest'):
-        nodata = target_view.nodata
-        view = np.full(target_view.shape, nodata, dtype=data.dtype)
+    def _view_different_crs(cls, view, data, data_view, target_view, interpolation='nearest'):
         y, x = target_view.coords.T
         xt, yt = pyproj.transform(target_view.crs, data_view.crs, x=x, y=y,
                                   errcheck=True, always_xy=True)
@@ -72,7 +355,6 @@ class sRegularGridViewer(RegularGridViewer):
 
 @njit(parallel=True)
 def _view_fill_numba(data, out, y_ix, x_ix, y_passed, x_passed):
-    # TODO: This is probably inefficient---don't need to iterate over everything
     n = x_ix.size
     m = y_ix.size
     for i in prange(m):

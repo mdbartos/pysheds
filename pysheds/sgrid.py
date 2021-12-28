@@ -671,76 +671,132 @@ class sGrid(Grid):
                                    metadata=fdir.metadata, nodata=nodata_out)
         return acc
 
-    def _d8_flow_distance(self, x, y, fdir, weights=None, dirmap=None, nodata_in=None,
-                          nodata_out=0, out_name='dist', method='shortest', inplace=False,
-                          xytype='index', apply_mask=True, ignore_metadata=False, properties={},
-                          metadata={}, snap='corner', **kwargs):
-        fdir = fdir.copy().astype(np.int64)
-        if nodata_in is None:
-            nodata_cells = np.zeros(fdir.shape, dtype=np.bool8)
+    def flow_distance(self, x, y, fdir, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                      nodata_out=np.nan, routing='d8', method='shortest',
+                      xytype='coordinate', snap='corner', **kwargs):
+        """
+        Generates an array representing the topological distance from each cell
+        to the outlet.
+ 
+        Parameters
+        ----------
+        x : int or float
+            x coordinate of pour point
+        y : int or float
+            y coordinate of pour point
+        data : str or Raster
+               Flow direction data.
+               If str: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        weights: numpy ndarray
+                 Weights (distances) to apply to link edges.
+        dirmap : list or tuple (length 8)
+                 List of integer values representing the following
+                 cardinal and intercardinal directions (in order):
+                 [N, NE, E, SE, S, SW, W, NW]
+        nodata_in : int or float
+                    Value to indicate nodata in input array.
+        nodata_out : int or float
+                     Value to indicate nodata in output array.
+        out_name : string
+                   Name of attribute containing new flow distance array.
+        routing : str
+                  Routing algorithm to use:
+                  'd8'   : D8 flow directions
+                  'dinf' : D-infinity flow directions
+        inplace : bool
+                  If True, write output array to self.<out_name>.
+                  Otherwise, return the output array.
+        xytype : 'index' or 'label'
+                 How to interpret parameters 'x' and 'y'.
+                     'index' : x and y represent the column and row
+                               indices of the pour point.
+                     'label' : x and y represent geographic coordinates
+                               (will be passed to self.nearest_cell).
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and CRS.
+        snap : str
+               Function to use on array for indexing:
+               'corner' : numpy.around()
+               'center' : numpy.floor()
+        """
+        if routing.lower() == 'd8':
+            input_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
+        elif routing.lower() == 'dinf':
+            input_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
         else:
-            if np.isnan(nodata_in):
-                nodata_cells = (np.isnan(fdir))
-            else:
-                nodata_cells = (fdir == nodata_in)
-        try:
-            if xytype == 'label':
-                x, y = self.nearest_cell(x, y, fdir.affine, snap)
-            # TODO: Currently the size of weights is hard to understand
-            if weights is not None:
-                weights = weights.reshape(fdir.shape).astype(np.float64)
-            else:
-                weights = (~nodata_cells).reshape(fdir.shape).astype(np.float64)
-            dist = _d8_flow_distance_numba(fdir, weights, (y, x), dirmap)
-        except:
-            raise
-        return self._output_handler(data=dist, out_name=out_name, properties=properties,
-                                    inplace=inplace, metadata=metadata)
+            raise ValueError('Routing method must be one of: `d8`, `dinf`')
+        kwargs.update(input_overrides)
+        fdir = self._input_handler(fdir, **kwargs)
+        xmin, ymin, xmax, ymax = fdir.bbox
+        if xytype in {'label', 'coordinate'}:
+            if (x < xmin) or (x > xmax) or (y < ymin) or (y > ymax):
+                raise ValueError('Pour point ({}, {}) is out of bounds for dataset with bbox {}.'
+                                .format(x, y, (xmin, ymin, xmax, ymax)))
+        elif xytype == 'index':
+            if (x < 0) or (y < 0) or (x >= fdir.shape[1]) or (y >= fdir.shape[0]):
+                raise ValueError('Pour point ({}, {}) is out of bounds for dataset with shape {}.'
+                                .format(x, y, fdir.shape))
+        if routing.lower() == 'd8':
+            dist = self._d8_flow_distance(x=x, y=y, fdir=fdir, weights=weights,
+                                          dirmap=dirmap, nodata_out=nodata_out,
+                                          method=method, xytype=xytype,
+                                          snap=snap)
+        elif routing.lower() == 'dinf':
+            dist = self._dinf_flow_distance(x=x, y=y, fdir=fdir, weights=weights,
+                                            dirmap=dirmap, nodata_out=nodata_out,
+                                            method=method, xytype=xytype,
+                                            snap=snap)
+        return dist
 
-    def _dinf_flow_distance(self, x, y, fdir, weights=None, dirmap=None, nodata_in=None,
-                            nodata_out=0, out_name='dist', method='shortest', inplace=False,
-                            xytype='index', apply_mask=True, ignore_metadata=False,
-                            properties={}, metadata={}, snap='corner', **kwargs):
+    def _d8_flow_distance(self, x, y, fdir, weights=None,
+                          dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                          nodata_out=np.nan, method='shortest',
+                          xytype='coordinate', snap='corner', **kwargs):
+        nodata_cells = self._get_nodata_cells(fdir)
+        if xytype in {'label', 'coordinate'}:
+            c, r = self.nearest_cell(x, y, fdir.affine, snap)
+        if weights is not None:
+            weights = weights.reshape(fdir.shape).astype(np.float64)
+        else:
+            weights = (~nodata_cells).reshape(fdir.shape).astype(np.float64)
+        dist = _d8_flow_distance_numba(fdir, weights, (r, c), dirmap)
+        dist = self._output_handler(data=dist, viewfinder=fdir.viewfinder,
+                                   metadata=fdir.metadata, nodata=nodata_out)
+        return dist
+
+    def _dinf_flow_distance(self, x, y, fdir, weights=None,
+                          dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                          nodata_out=np.nan, method='shortest',
+                          xytype='coordinate', snap='corner', **kwargs):
+        nodata_cells = self._get_nodata_cells(fdir)
         fdir = fdir.copy().astype(np.float64)
-        try:
-            if nodata_in is None:
-                nodata_cells = np.zeros(fdir.shape, dtype=np.bool8)
-            else:
-                if np.isnan(nodata_in):
-                    nodata_cells = (np.isnan(fdir))
-                else:
-                    nodata_cells = (fdir == nodata_in)
-            # Split d-infinity grid
-            fdir_0, fdir_1, prop_0, prop_1 = _angle_to_d8(fdir, dirmap, nodata_cells)
-            if xytype == 'label':
-                x, y = self.nearest_cell(x, y, fdir.affine, snap)
-            # TODO: Currently the size of weights is hard to understand
-            if weights is not None:
-                if isinstance(weights, list) or isinstance(weights, tuple):
-                    assert(isinstance(weights[0], np.ndarray))
-                    weights_0 = weights[0].reshape(fdir.shape).astype(np.float64)
-                    assert(isinstance(weights[1], np.ndarray))
-                    weights_1 = weights[1].reshape(fdir.shape).astype(np.float64)
-                    assert(weights_0.size == fdir.size)
-                    assert(weights_1.size == fdir.size)
-                elif isinstance(weights, np.ndarray):
-                    assert(weights.shape[0] == fdir.size)
-                    assert(weights.shape[1] == 2)
-                    weights_0 = weights[:,0].reshape(fdir.shape).astype(np.float64)
-                    weights_1 = weights[:,1].reshape(fdir.shape).astype(np.float64)
-            else:
-                weights_0 = (~nodata_cells).reshape(fdir.shape).astype(np.float64)
-                weights_1 = weights_0
-            if method.lower() == 'shortest':
-                dist = _dinf_flow_distance_numba(fdir_0, fdir_1, weights_0,
-                                                 weights_1, (y, x), dirmap)
-            else:
-                raise NotImplementedError("Only implemented for shortest path distance.")
-        except:
-            raise
+        nodata_cells = self._get_nodata_cells(fdir)
+        # Split d-infinity grid
+        fdir_0, fdir_1, prop_0, prop_1 = _angle_to_d8(fdir, dirmap, nodata_cells)
+        if xytype in {'label', 'coordinate'}:
+            c, r = self.nearest_cell(x, y, fdir.affine, snap)
+        if weights is not None:
+            if isinstance(weights, list) or isinstance(weights, tuple):
+                weights_0 = weights[0].reshape(fdir.shape).astype(np.float64)
+                weights_1 = weights[1].reshape(fdir.shape).astype(np.float64)
+            elif isinstance(weights, np.ndarray):
+                weights_0 = weights[:,0].reshape(fdir.shape).astype(np.float64)
+                weights_1 = weights[:,1].reshape(fdir.shape).astype(np.float64)
+        else:
+            weights_0 = (~nodata_cells).reshape(fdir.shape).astype(np.float64)
+            weights_1 = weights_0
+        if method.lower() == 'shortest':
+            dist = _dinf_flow_distance_numba(fdir_0, fdir_1, weights_0,
+                                                weights_1, (r, c), dirmap)
+        else:
+            raise NotImplementedError("Only implemented for shortest path distance.")
         # Prepare output
-        return self._output_handler(data=dist, out_name=out_name, properties=properties,
-                                    inplace=inplace, metadata=metadata)
+        dist = self._output_handler(data=dist, viewfinder=fdir.viewfinder,
+                                   metadata=fdir.metadata, nodata=nodata_out)
+        return dist
 
     def compute_hand(self, fdir, dem, drainage_mask, out_name='hand', dirmap=None,
                      nodata_in_fdir=None, nodata_in_dem=None, nodata_out=np.nan, routing='d8',
@@ -1305,9 +1361,9 @@ class sGrid(Grid):
             raise TypeError('Data must be a Raster.')
         nodata = data.nodata
         if np.isnan(nodata):
-            nodata_cells = np.isnan(data)
+            nodata_cells = np.isnan(data).astype(np.bool8)
         else:
-            nodata_cells = (data == nodata)
+            nodata_cells = (data == nodata).astype(np.bool8)
         return nodata_cells
 
 

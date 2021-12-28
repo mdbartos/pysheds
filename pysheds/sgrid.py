@@ -335,7 +335,7 @@ class sGrid(Grid):
         # Return output
         return out
 
-    def flowdir(self, data, routing='d8', flats=-1, pits=-2, nodata_out=None,
+    def flowdir(self, dem, routing='d8', flats=-1, pits=-2, nodata_out=None,
                 dirmap=(64, 128, 1, 2, 4, 8, 16, 32), **kwargs):
         """
         Generates a flow direction grid from a DEM grid.
@@ -375,9 +375,9 @@ class sGrid(Grid):
                           If False, require a valid affine transform and crs.
         """
         default_metadata = {'dirmap' : dirmap, 'flats' : flats, 'pits' : pits}
-        input_overrides = {'dtype' : np.float64}
+        input_overrides = {'dtype' : np.float64, 'nodata' : dem.nodata}
         kwargs.update(input_overrides)
-        dem = self._input_handler(data, **kwargs)
+        dem = self._input_handler(dem, **kwargs)
         nodata_cells = self._get_nodata_cells(dem)
         if routing.lower() == 'd8':
             if nodata_out is None:
@@ -408,7 +408,7 @@ class sGrid(Grid):
         fdir = _d8_flowdir_numba(dem, dx, dy, dirmap, nodata_cells,
                                  nodata_out, flat=flats, pit=pits)
         return self._output_handler(data=fdir, viewfinder=dem.viewfinder,
-                                    metadata=dem.metadata, nodata_out=nodata_out)
+                                    metadata=dem.metadata, nodata=nodata_out)
 
     def _dinf_flowdir(self, dem, nodata_cells, nodata_out=np.nan, flats=-1, pits=-2,
                       dirmap=(64, 128, 1, 2, 4, 8, 16, 32)):
@@ -418,12 +418,10 @@ class sGrid(Grid):
         dy = abs(dem.affine.e)
         fdir = _dinf_flowdir_numba(dem, dx, dy, nodata_out, flat=flats, pit=pits)
         return self._output_handler(data=fdir, viewfinder=dem.viewfinder,
-                                    metadata=dem.metadata, nodata_out=nodata_out)
+                                    metadata=dem.metadata, nodata=nodata_out)
 
-    def catchment(self, x, y, data, pour_value=None, out_name='catch', dirmap=None,
-                  nodata_in=None, nodata_out=0, xytype='index', routing='d8',
-                  recursionlimit=15000, inplace=False, apply_mask=False, ignore_metadata=False,
-                  snap='corner', **kwargs):
+    def catchment(self, x, y, fdir, pour_value=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                  nodata_out=None, xytype='coordinate', routing='d8', snap='corner', **kwargs):
         """
         Delineates a watershed from a given pour point (x, y).
  
@@ -475,18 +473,16 @@ class sGrid(Grid):
                'corner' : numpy.around()
                'center' : numpy.floor()
         """
-        # TODO: Why does this use set_dirmap but flowdir doesn't?
-        dirmap = self._set_dirmap(dirmap, data)
-        nodata_in = self._check_nodata_in(data, nodata_in)
-        properties = {'nodata' : nodata_out}
-        # TODO: This will overwrite metadata if provided
-        metadata = {'dirmap' : dirmap}
-        # initialize array to collect catchment cells
-        fdir = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
-                                   properties=properties, ignore_metadata=ignore_metadata,
-                                   **kwargs)
+        if routing.lower() == 'd8':
+            input_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
+        elif routing.lower() == 'dinf':
+            input_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
+        else:
+            raise ValueError('Routing method must be one of: `d8`, `dinf`')
+        kwargs.update(input_overrides)
+        fdir = self._input_handler(fdir, **kwargs)
         xmin, ymin, xmax, ymax = fdir.bbox
-        if xytype in ('label', 'coordinate'):
+        if xytype in {'label', 'coordinate'}:
             if (x < xmin) or (x > xmax) or (y < ymin) or (y > ymax):
                 raise ValueError('Pour point ({}, {}) is out of bounds for dataset with bbox {}.'
                                 .format(x, y, (xmin, ymin, xmax, ymax)))
@@ -495,68 +491,52 @@ class sGrid(Grid):
                 raise ValueError('Pour point ({}, {}) is out of bounds for dataset with shape {}.'
                                 .format(x, y, fdir.shape))
         if routing.lower() == 'd8':
-            return self._d8_catchment(x, y, fdir=fdir, pour_value=pour_value, out_name=out_name,
-                                      dirmap=dirmap, nodata_in=nodata_in, nodata_out=nodata_out,
-                                      xytype=xytype, recursionlimit=recursionlimit, inplace=inplace,
-                                      apply_mask=apply_mask, ignore_metadata=ignore_metadata,
-                                      properties=properties, metadata=metadata, snap=snap, **kwargs)
+            catch = self._d8_catchment(x, y, fdir=fdir, pour_value=pour_value, dirmap=dirmap,
+                                       nodata_out=nodata_out, xytype=xytype, snap=snap)
         elif routing.lower() == 'dinf':
-            return self._dinf_catchment(x, y, fdir=fdir, pour_value=pour_value, out_name=out_name,
-                                      dirmap=dirmap, nodata_in=nodata_in, nodata_out=nodata_out,
-                                      xytype=xytype, recursionlimit=recursionlimit, inplace=inplace,
-                                      apply_mask=apply_mask, ignore_metadata=ignore_metadata,
-                                      properties=properties, metadata=metadata, **kwargs)
+            catch = self._dinf_catchment(x, y, fdir=fdir, pour_value=pour_value, dirmap=dirmap,
+                                         nodata_out=nodata_out, xytype=xytype, snap=snap)
+        return catch
 
-    def _d8_catchment(self, x, y, fdir=None, pour_value=None, out_name='catch', dirmap=None,
-                      nodata_in=None, nodata_out=0, xytype='index', recursionlimit=15000,
-                      inplace=False, apply_mask=False, ignore_metadata=False, properties={},
-                      metadata={}, snap='corner', **kwargs):
+    def _d8_catchment(self, x, y, fdir, pour_value=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                      nodata_out=None, xytype='coordinate', snap='corner'):
         # Pad the rim
-        fdir = fdir.copy().astype(np.int64)
-        left, right, top, bottom = self._pop_rim(fdir, nodata=nodata_in)
-        # If xytype is 'label', delineate catchment based on cell nearest
+        left, right, top, bottom = self._pop_rim(fdir, nodata=0)
+        # If xytype is 'coordinate', delineate catchment based on cell nearest
         # to given geographic coordinate
-        # TODO: Valid only if the dataset is a view.
-        if xytype == 'label':
-            x, y = self.nearest_cell(x, y, fdir.affine, snap)
-        # get the flattened index of the pour point
-        catch = _d8_catchment_numba(fdir, (y, x), dirmap)
+        if xytype in {'label', 'coordinate'}:
+            c, r = self.nearest_cell(x, y, fdir.affine, snap)
+        # Delineate the catchment
+        catch = _d8_catchment_numba(fdir, (r, c), dirmap)
         if pour_value is not None:
-            catch[y, x] = pour_value
-        return self._output_handler(data=catch, out_name=out_name, properties=properties,
-                                    inplace=inplace, metadata=metadata)
+            catch[r, c] = pour_value
+        catch = self._output_handler(data=catch, viewfinder=fdir.viewfinder,
+                                     metadata=fdir.metadata, nodata=nodata_out)
+        return catch
 
-    def _dinf_catchment(self, x, y, fdir=None, pour_value=None, out_name='catch', dirmap=None,
-                        nodata_in=None, nodata_out=0, xytype='index', recursionlimit=15000,
-                        inplace=False, apply_mask=False, ignore_metadata=False, properties={},
-                        metadata={}, snap='corner', **kwargs):
-        fdir = fdir.copy().astype(np.float64)
-        if nodata_in is None:
-            nodata_cells = np.zeros(fdir.shape, dtype=np.bool8)
-        else:
-            if np.isnan(nodata_in):
-                nodata_cells = (np.isnan(fdir))
-            else:
-                nodata_cells = (fdir == nodata_in)
+    def _dinf_catchment(self, x, y, fdir, pour_value=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                        nodata_out=None, xytype='coordinate', snap='corner'):
+        # Find nodata cells
+        nodata_cells = self._get_nodata_cells(fdir)
         # Split dinf flowdir
         fdir_0, fdir_1, prop_0, prop_1 = _angle_to_d8(fdir, dirmap, nodata_cells)
         # Pad the rim
-        left_0, right_0, top_0, bottom_0 = self._pop_rim(fdir_0, nodata=nodata_in)
-        left_1, right_1, top_1, bottom_1 = self._pop_rim(fdir_1, nodata=nodata_in)
-        # TODO: This relies on the bbox of the grid instance, not the dataset
+        left_0, right_0, top_0, bottom_0 = self._pop_rim(fdir_0, nodata=0)
+        left_1, right_1, top_1, bottom_1 = self._pop_rim(fdir_1, nodata=0)
         # Valid if the dataset is a view.
-        if xytype == 'label':
-            x, y = self.nearest_cell(x, y, fdir.affine, snap)
-        catch = _dinf_catchment_numba(fdir_0, fdir_1, (y, x), dirmap)
+        if xytype in {'label', 'coordinate'}:
+            c, r = self.nearest_cell(x, y, fdir.affine, snap)
+        # Delineate the catchment
+        catch = _dinf_catchment_numba(fdir_0, fdir_1, (r, c), dirmap)
         # if pour point needs to be a special value, set it
         if pour_value is not None:
-            catch[y, x] = pour_value
-        return self._output_handler(data=catch, out_name=out_name, properties=properties,
-                                    inplace=inplace, metadata=metadata)
+            catch[r, c] = pour_value
+        catch = self._output_handler(data=catch, viewfinder=fdir.viewfinder,
+                                     metadata=fdir.metadata, nodata=nodata_out)
+        return catch
 
-    def accumulation(self, data, weights=None, dirmap=None, nodata_in=None, nodata_out=0,
-                     efficiency=None, out_name='acc', routing='d8', inplace=False, pad=False,
-                     apply_mask=False, ignore_metadata=False, cycle_size=1, **kwargs):
+    def accumulation(self, fdir, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                     nodata_out=0., efficiency=None, routing='d8', cycle_size=1, **kwargs):
         """
         Generates an array of flow accumulation, where cell values represent
         the number of upstream cells.
@@ -602,87 +582,62 @@ class sGrid(Grid):
         ignore_metadata : bool
                           If False, require a valid affine transform and crs.
         """
-        dirmap = self._set_dirmap(dirmap, data)
-        nodata_in = self._check_nodata_in(data, nodata_in)
-        properties = {'nodata' : nodata_out}
-        # TODO: This will overwrite any provided metadata
-        metadata = {}
-        fdir = self._input_handler(data, apply_mask=apply_mask, nodata_view=nodata_in,
-                                   properties=properties,
-                                   ignore_metadata=ignore_metadata, **kwargs)
         if routing.lower() == 'd8':
-            return self._d8_accumulation(fdir=fdir, weights=weights,
-                                         dirmap=dirmap, efficiency=efficiency,
-                                         nodata_in=nodata_in,
-                                         nodata_out=nodata_out,
-                                         out_name=out_name, inplace=inplace,
-                                         pad=pad, apply_mask=apply_mask,
-                                         ignore_metadata=ignore_metadata,
-                                         properties=properties,
-                                         metadata=metadata, **kwargs)
+            input_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
         elif routing.lower() == 'dinf':
-            return self._dinf_accumulation(fdir=fdir, weights=weights,
-                                           dirmap=dirmap,efficiency=efficiency,
-                                           nodata_in=nodata_in,
-                                           nodata_out=nodata_out,
-                                           out_name=out_name, inplace=inplace,
-                                           pad=pad, apply_mask=apply_mask,
-                                           ignore_metadata=ignore_metadata,
-                                           properties=properties,
-                                           metadata=metadata, cycle_size=cycle_size, **kwargs)
-
-
-    def _d8_accumulation(self, fdir=None, weights=None, dirmap=None, nodata_in=None,
-                         nodata_out=0, efficiency=None, out_name='acc', inplace=False,
-                         pad=False, apply_mask=False, ignore_metadata=False, properties={},
-                         metadata={}, **kwargs):
-        # TODO: Instead of popping rim, handle edge cells in construct matching
-        # left, right, top, bottom = self._pop_rim(fdir, nodata=0)
-        # Construct flat index onto flow direction array
-        fdir = fdir.copy().astype(np.int64)
-        if nodata_in is None:
-            nodata_cells = np.zeros(fdir.shape, dtype=np.bool8)
+            input_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
         else:
-            if np.isnan(nodata_in):
-                nodata_cells = (np.isnan(fdir))
-            else:
-                nodata_cells = (fdir == nodata_in)
+            raise ValueError('Routing method must be one of: `d8`, `dinf`')
+        kwargs.update(input_overrides)
+        fdir = self._input_handler(fdir, **kwargs)
+        if routing.lower() == 'd8':
+            acc = self._d8_accumulation(fdir, weights=weights, dirmap=dirmap,
+                                        nodata_out=nodata_out,
+                                        efficiency=efficiency)
+        elif routing.lower() == 'dinf':
+            acc = self._dinf_accumulation(fdir, weights=weights, dirmap=dirmap,
+                                          nodata_out=nodata_out,
+                                          efficiency=efficiency,
+                                          cycle_size=cycle_size)
+        return acc
+
+    def _d8_accumulation(self, fdir, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                         nodata_out=0., efficiency=None, **kwargs):
+        # Find nodata cells and invalid cells
+        nodata_cells = self._get_nodata_cells(fdir)
         invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
         fdir[nodata_cells] = 0
         fdir[invalid_cells] = 0
-        # Get matching of start and end nodes
+        # Start and end nodes
         startnodes = np.arange(fdir.size, dtype=np.int64)
         endnodes = _flatten_fdir(fdir, dirmap).reshape(fdir.shape)
+        # Initialize accumulation array to weights, if using weights
         if weights is not None:
             acc = weights.astype(np.float64).reshape(fdir.shape)
+        # Otherwise, initialize accumulation array to ones where valid cells exist
         else:
             acc = (~nodata_cells).astype(np.float64).reshape(fdir.shape)
+        # If using efficiency, initialize array
         if efficiency is not None:
             eff = efficiency.astype(np.float64).reshape(fdir.shape)
-            acc = acc.astype(np.float64).reshape(fdir.shape)
+        # Find indegree of all cells
         indegree = np.bincount(endnodes.ravel(), minlength=fdir.size).astype(np.uint8)
+        # Set starting nodes to those with no predecessors
         startnodes = startnodes[(indegree == 0)]
+        # Compute accumulation
         if efficiency is None:
             acc = _d8_accumulation_numba(acc, endnodes, indegree, startnodes)
         else:
             acc = _d8_accumulation_eff_numba(acc, endnodes, indegree, startnodes, eff)
-        acc = np.reshape(acc, fdir.shape)
-        return self._output_handler(data=acc, out_name=out_name, properties=properties,
-                                    inplace=inplace, metadata=metadata)
+        acc = self._output_handler(data=acc, viewfinder=fdir.viewfinder,
+                                   metadata=fdir.metadata, nodata=nodata_out)
+        return acc
 
-    def _dinf_accumulation(self, fdir=None, weights=None, dirmap=None, nodata_in=None,
-                           nodata_out=0, efficiency=None, out_name='acc', inplace=False,
-                           pad=False, apply_mask=False, ignore_metadata=False,
-                           properties={}, metadata={}, cycle_size=1, **kwargs):
-        fdir = fdir.copy().astype(np.float64)
-        if nodata_in is None:
-            nodata_cells = np.zeros(fdir.shape, dtype=np.bool8)
-        else:
-            if np.isnan(nodata_in):
-                nodata_cells = (np.isnan(fdir))
-            else:
-                nodata_cells = (fdir == nodata_in)
+    def _dinf_accumulation(self, fdir, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                           nodata_out=0., efficiency=None, cycle_size=1, **kwargs):
+        # Find nodata cells and invalid cells
+        nodata_cells = self._get_nodata_cells(fdir)
         # Split d-infinity grid
         fdir_0, fdir_1, prop_0, prop_1 = _angle_to_d8(fdir, dirmap, nodata_cells)
         # Get matching of start and end nodes
@@ -691,28 +646,30 @@ class sGrid(Grid):
         endnodes_1 = _flatten_fdir(fdir_1, dirmap).reshape(fdir.shape)
         # Remove cycles
         _dinf_fix_cycles_numba(endnodes_0, endnodes_1, cycle_size)
-        # Initialize accumulation array
+        # Initialize accumulation array to weights, if using weights
         if weights is not None:
             acc = weights.reshape(fdir.shape).astype(np.float64)
+        # Otherwise, initialize accumulation array to ones where valid cells exist
         else:
             acc = (~nodata_cells).reshape(fdir.shape).astype(np.float64)
         if efficiency is not None:
             eff = efficiency.reshape(fdir.shape).astype(np.float64)
-        # Initialize indegree
+        # Find indegree of all cells
         indegree_0 = np.bincount(endnodes_0.ravel(), minlength=fdir.size)
         indegree_1 = np.bincount(endnodes_1.ravel(), minlength=fdir.size)
         indegree = (indegree_0 + indegree_1).astype(np.uint8)
+        # Set starting nodes to those with no predecessors
         startnodes = startnodes[(indegree == 0)]
+        # Compute accumulation
         if efficiency is None:
             acc = _dinf_accumulation_numba(acc, endnodes_0, endnodes_1, indegree,
                                            startnodes, prop_0, prop_1)
         else:
             acc = _dinf_accumulation_eff_numba(acc, endnodes_0, endnodes_1, indegree,
                                                startnodes, prop_0, prop_1, eff)
-        # Reshape and offset accumulation
-        acc = np.reshape(acc, fdir.shape)
-        return self._output_handler(data=acc, out_name=out_name, properties=properties,
-                                    inplace=inplace, metadata=metadata)
+        acc = self._output_handler(data=acc, viewfinder=fdir.viewfinder,
+                                   metadata=fdir.metadata, nodata=nodata_out)
+        return acc
 
     def _d8_flow_distance(self, x, y, fdir, weights=None, dirmap=None, nodata_in=None,
                           nodata_out=0, out_name='dist', method='shortest', inplace=False,
@@ -1186,7 +1143,7 @@ class sGrid(Grid):
         return self._output_handler(data=rdist, out_name=out_name, properties=fdir_props,
                                     inplace=inplace, metadata=metadata)
 
-    def fill_pits(self, data, nodata_out=None, **kwargs):
+    def fill_pits(self, dem, nodata_out=None, **kwargs):
         """
         Fill pits in a DEM. Raises pits to same elevation as lowest neighbor.
 
@@ -1210,9 +1167,9 @@ class sGrid(Grid):
         ignore_metadata : bool
                           If False, require a valid affine transform and CRS.
         """
-        input_overrides = {'dtype' : np.float64}
+        input_overrides = {'dtype' : np.float64, 'nodata' : dem.nodata}
         kwargs.update(input_overrides)
-        dem = self._input_handler(data, **kwargs)
+        dem = self._input_handler(dem, **kwargs)
         # Find no data cells
         nodata_cells = self._get_nodata_cells(dem)
         # Make sure nothing flows to the nodata cells
@@ -1236,7 +1193,7 @@ class sGrid(Grid):
                                               metadata=dem.metadata)
         return pit_filled_dem
 
-    def detect_pits(self, data, nodata_out=0, **kwargs):
+    def detect_pits(self, dem, **kwargs):
         """
         Detect pits in a DEM.
 
@@ -1265,9 +1222,9 @@ class sGrid(Grid):
         pits : numpy ndarray
                Boolean array indicating locations of pits.
         """
-        input_overrides = {'dtype' : np.float64}
+        input_overrides = {'dtype' : np.float64, 'nodata' : dem.nodata}
         kwargs.update(input_overrides)
-        dem = self._input_handler(data, **kwargs)
+        dem = self._input_handler(dem, **kwargs)
         # Find no data cells
         nodata_cells = self._get_nodata_cells(dem)
         # Make sure nothing flows to the nodata cells
@@ -1277,10 +1234,10 @@ class sGrid(Grid):
         # Find pits
         pits = _find_pits_numba(dem, inside)
         pits = self._output_handler(data=pits, viewfinder=dem.viewfinder,
-                                    metadata=dem.metadata)
+                                    metadata=dem.metadata, nodata=None)
         return pits
 
-    def detect_flats(self, data, nodata_out=0, **kwargs):
+    def detect_flats(self, dem, **kwargs):
         """
         Detect flats in a DEM.
 
@@ -1309,9 +1266,9 @@ class sGrid(Grid):
         flats : numpy ndarray
                 Boolean array indicating locations of flats.
         """
-        input_overrides = {'dtype' : np.float64}
+        input_overrides = {'dtype' : np.float64, 'nodata' : dem.nodata}
         kwargs.update(input_overrides)
-        dem = self._input_handler(data, **kwargs)
+        dem = self._input_handler(dem, **kwargs)
         # Find no data cells
         nodata_cells = self._get_nodata_cells(dem)
         # Make sure nothing flows to the nodata cells
@@ -1321,7 +1278,7 @@ class sGrid(Grid):
         # handle nodata values in dem
         flats, _, _ = _par_get_candidates(dem, inside)
         flats = self._output_handler(data=flats, viewfinder=dem.viewfinder,
-                                    metadata=dem.metadata)
+                                     metadata=dem.metadata, nodata=None)
         return flats
 
     def _input_handler(self, data, **kwargs):

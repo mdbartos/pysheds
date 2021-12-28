@@ -100,12 +100,13 @@ class ViewFinder():
             is_eq &= (self.affine == other.affine)
             is_eq &= (self.shape[0] == other.shape[0])
             is_eq &= (self.shape[1] == other.shape[1])
-            is_eq &= (self.mask == other.mask).all()
-            if np.isnan(self.nodata):
-                is_eq &= np.isnan(other.nodata)
-            else:
-                is_eq &= self.nodata == other.nodata
             is_eq &= (self.crs == other.crs)
+            # TODO: May want to double-check this...
+            # is_eq &= (self.mask == other.mask).all()
+            # if np.isnan(self.nodata):
+            #     is_eq &= np.isnan(other.nodata)
+            # else:
+            #     is_eq &= self.nodata == other.nodata
             return is_eq
         else:
             return False
@@ -263,7 +264,8 @@ class View():
         # If data view and target view are different...
         else:
             out = cls._view_different_viewfinder(data, data_view, target_view, dtype,
-                                                 apply_output_mask=apply_output_mask)
+                                                 apply_output_mask=apply_output_mask,
+                                                 interpolation=interpolation)
         # Write metadata
         if inherit_metadata:
             out.metadata.update(data.metadata)
@@ -306,7 +308,7 @@ class View():
 
     @classmethod
     def _view_different_viewfinder(cls, data, data_view, target_view, dtype,
-                                   apply_output_mask=True):
+                                   apply_output_mask=True, interpolation='nearest'):
         out = np.full(target_view.shape, target_view.nodata, dtype=dtype)
         if (data_view.crs == target_view.crs):
             out = cls._view_same_crs(out, data, data_view,

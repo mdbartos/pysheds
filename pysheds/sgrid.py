@@ -1190,6 +1190,233 @@ class sGrid(Grid):
                                      metadata=fdir.metadata, nodata=nodata_out)
         return rdist
 
+    def cell_dh(self, dem, fdir, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                nodata_out=np.nan, routing='d8', **kwargs):
+        """
+        Generates an array representing the elevation difference from each cell to its
+        downstream neighbor.
+ 
+        Parameters
+        ----------
+        fdir : str or Raster
+               Flow direction data.
+               If str: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        dem : str or Raster
+              DEM data.
+              If str: name of the dataset to be viewed.
+              If Raster: a Raster instance (see pysheds.view.Raster)
+        out_name : string
+                   Name of attribute containing new cell elevation difference array.
+        dirmap : list or tuple (length 8)
+                 List of integer values representing the following
+                 cardinal and intercardinal directions (in order):
+                 [N, NE, E, SE, S, SW, W, NW]
+        nodata_in : int or float
+                     Value to indicate nodata in input array.
+        nodata_out : int or float
+                     Value to indicate nodata in output array.
+        routing : str
+                  Routing algorithm to use:
+                  'd8'   : D8 flow directions
+        inplace : bool
+                  If True, write output array to self.<out_name>.
+                  Otherwise, return the output array.
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and CRS.
+        """
+        if routing.lower() == 'd8':
+            fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
+        elif routing.lower() == 'dinf':
+            fdir_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
+        else:
+            raise ValueError('Routing method must be one of: `d8`, `dinf`')
+        dem_overrides = {'dtype' : np.float64, 'nodata' : dem.nodata}
+        kwargs.update(fdir_overrides)
+        fdir = self._input_handler(fdir, **kwargs)
+        kwargs.update(dem_overrides)
+        dem = self._input_handler(dem, **kwargs)
+        if routing.lower() == 'd8':
+            dh = self._d8_cell_dh(dem=dem, fdir=fdir, dirmap=dirmap,
+                                  nodata_out=nodata_out)
+        elif routing.lower() == 'dinf':
+            dh = self._dinf_cell_dh(dem=dem, fdir=fdir, dirmap=dirmap,
+                                    nodata_out=nodata_out)
+        return dh
+
+    def _d8_cell_dh(self, dem, fdir, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                    nodata_out=np.nan):
+        # Find nodata cells and invalid cells
+        nodata_cells = self._get_nodata_cells(fdir)
+        invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
+        # Set nodata cells to zero
+        fdir[nodata_cells] = 0
+        fdir[invalid_cells] = 0
+        dirleft, dirright, dirtop, dirbottom = self._pop_rim(fdir, nodata=0)
+        startnodes = np.arange(fdir.size, dtype=np.int64)
+        endnodes = _flatten_fdir(fdir, dirmap).reshape(fdir.shape)
+        dh = _d8_cell_dh_numba(startnodes, endnodes, dem)
+        dh = self._output_handler(data=dh, viewfinder=fdir.viewfinder,
+                                  metadata=fdir.metadata, nodata=nodata_out)
+        return dh
+
+    def _dinf_cell_dh(self, dem, fdir, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                         nodata_out=np.nan):
+        # Get nodata cells
+        nodata_cells = self._get_nodata_cells(fdir)
+        # Split dinf flowdir
+        fdir_0, fdir_1, prop_0, prop_1 = _angle_to_d8(fdir, dirmap, nodata_cells)
+        # Pad the rim
+        dirleft_0, dirright_0, dirtop_0, dirbottom_0 = self._pop_rim(fdir_0,
+                                                                     nodata=0)
+        dirleft_1, dirright_1, dirtop_1, dirbottom_1 = self._pop_rim(fdir_1,
+                                                                     nodata=0)
+        startnodes = np.arange(fdir.size, dtype=np.int64)
+        endnodes_0 = _flatten_fdir(fdir_0, dirmap).reshape(fdir.shape)
+        endnodes_1 = _flatten_fdir(fdir_1, dirmap).reshape(fdir.shape)
+        dh = _dinf_cell_dh_numba(startnodes, endnodes_0, endnodes_1, prop_0, prop_1, dem)
+        dh = self._output_handler(data=dh, viewfinder=fdir.viewfinder,
+                                  metadata=fdir.metadata, nodata=nodata_out)
+        return dh
+
+    def cell_distances(self, fdir, dirmap=(64, 128, 1, 2, 4, 8, 16, 32), nodata_out=np.nan,
+                       routing='d8', **kwargs):
+        """
+        Generates an array representing the distance from each cell to its downstream neighbor.
+ 
+        Parameters
+        ----------
+        data : str or Raster
+               Flow direction data.
+               If str: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        out_name : string
+                   Name of attribute containing new cell distance array.
+        dirmap : list or tuple (length 8)
+                 List of integer values representing the following
+                 cardinal and intercardinal directions (in order):
+                 [N, NE, E, SE, S, SW, W, NW]
+        nodata_in : int or float
+                     Value to indicate nodata in input array.
+        nodata_out : int or float
+                     Value to indicate nodata in output array.
+        routing : str
+                  Routing algorithm to use:
+                  'd8'   : D8 flow directions
+        inplace : bool
+                  If True, write output array to self.<out_name>.
+                  Otherwise, return the output array.
+        as_crs : pyproj.Proj
+                 CRS at which to compute the distance from each cell to its downstream neighbor.
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and CRS.
+        """
+        if routing.lower() == 'd8':
+            fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
+        elif routing.lower() == 'dinf':
+            fdir_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
+        else:
+            raise ValueError('Routing method must be one of: `d8`, `dinf`')
+        kwargs.update(fdir_overrides)
+        fdir = self._input_handler(fdir, **kwargs)
+        if routing.lower() == 'd8':
+            cdist = self._d8_cell_distances(fdir=fdir, dirmap=dirmap,
+                                         nodata_out=nodata_out)
+        elif routing.lower() == 'dinf':
+            cdist = self._dinf_cell_distances(fdir=fdir, dirmap=dirmap,
+                                           nodata_out=nodata_out)
+        return cdist
+
+    def _d8_cell_distances(self, fdir, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                           nodata_out=np.nan):
+        # Find nodata cells and invalid cells
+        nodata_cells = self._get_nodata_cells(fdir)
+        invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
+        # Set nodata cells to zero
+        fdir[nodata_cells] = 0
+        fdir[invalid_cells] = 0
+        dx = abs(fdir.affine.a)
+        dy = abs(fdir.affine.e)
+        cdist = _d8_cell_distances_numba(fdir, dirmap, dx, dy)
+        cdist = self._output_handler(data=cdist, viewfinder=fdir.viewfinder,
+                                     metadata=fdir.metadata, nodata=nodata_out)
+        return cdist
+
+    def _dinf_cell_distances(self, fdir, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                             nodata_out=np.nan):
+        # Get nodata cells
+        nodata_cells = self._get_nodata_cells(fdir)
+        # Split dinf flowdir
+        fdir_0, fdir_1, prop_0, prop_1 = _angle_to_d8(fdir, dirmap, nodata_cells)
+        # Pad the rim
+        dirleft_0, dirright_0, dirtop_0, dirbottom_0 = self._pop_rim(fdir_0,
+                                                                     nodata=0)
+        dirleft_1, dirright_1, dirtop_1, dirbottom_1 = self._pop_rim(fdir_1,
+                                                                     nodata=0)
+        dx = abs(fdir.affine.a)
+        dy = abs(fdir.affine.e)
+        cdist = _dinf_cell_distances_numba(fdir_0, fdir_1, prop_0, prop_1,
+                                           dirmap, dx, dy)
+        cdist = self._output_handler(data=cdist, viewfinder=fdir.viewfinder,
+                                     metadata=fdir.metadata, nodata=nodata_out)
+        return cdist
+
+    def cell_slopes(self, dem, fdir, dirmap=(64, 128, 1, 2, 4, 8, 16, 32), nodata_out=np.nan,
+                    routing='d8', **kwargs):
+        """
+        Generates an array representing the distance from each cell to its downstream neighbor.
+ 
+        Parameters
+        ----------
+        data : str or Raster
+               Flow direction data.
+               If str: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        out_name : string
+                   Name of attribute containing new cell distance array.
+        dirmap : list or tuple (length 8)
+                 List of integer values representing the following
+                 cardinal and intercardinal directions (in order):
+                 [N, NE, E, SE, S, SW, W, NW]
+        nodata_in : int or float
+                     Value to indicate nodata in input array.
+        nodata_out : int or float
+                     Value to indicate nodata in output array.
+        routing : str
+                  Routing algorithm to use:
+                  'd8'   : D8 flow directions
+        inplace : bool
+                  If True, write output array to self.<out_name>.
+                  Otherwise, return the output array.
+        as_crs : pyproj.Proj
+                 CRS at which to compute the distance from each cell to its downstream neighbor.
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and CRS.
+        """
+        if routing.lower() == 'd8':
+            fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
+        elif routing.lower() == 'dinf':
+            fdir_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
+        else:
+            raise ValueError('Routing method must be one of: `d8`, `dinf`')
+        dem_overrides = {'dtype' : np.float64, 'nodata' : dem.nodata}
+        kwargs.update(fdir_overrides)
+        fdir = self._input_handler(fdir, **kwargs)
+        kwargs.update(dem_overrides)
+        dem = self._input_handler(dem, **kwargs)
+        dh = self.cell_dh(dem, fdir, dirmap=dirmap, nodata_out=np.nan,
+                          routing=routing, **kwargs)
+        cdist = self.cell_distances(fdir, dirmap=dirmap, nodata_out=np.nan,
+                                    routing=routing, **kwargs)
+        slopes = _cell_slopes_numba(dh, cdist)
+        return slopes
+
     def fill_pits(self, dem, nodata_out=None, **kwargs):
         """
         Fill pits in a DEM. Raises pits to same elevation as lowest neighbor.
@@ -2295,7 +2522,7 @@ def _d8_stream_network_numba(fdir, indegree, orig_indegree, startnodes):
     return profiles
 
 @njit(parallel=True)
-def _d8_cell_dh(startnodes, endnodes, dem):
+def _d8_cell_dh_numba(startnodes, endnodes, dem):
     n = startnodes.size
     dh = np.zeros_like(dem)
     for k in prange(n):
@@ -2305,7 +2532,7 @@ def _d8_cell_dh(startnodes, endnodes, dem):
     return dh
 
 @njit(parallel=True)
-def _dinf_cell_dh(startnodes, endnodes_0, endnodes_1, props_0, props_1, dem):
+def _dinf_cell_dh_numba(startnodes, endnodes_0, endnodes_1, props_0, props_1, dem):
     n = startnodes.size
     dh = np.zeros(dem.shape, dtype=np.float64)
     for k in prange(n):
@@ -2317,6 +2544,53 @@ def _dinf_cell_dh(startnodes, endnodes_0, endnodes_1, props_0, props_1, dem):
         dh.flat[k] = (prop_0 * (dem.flat[startnode] - dem.flat[endnode_0]) +
                       prop_1 * (dem.flat[startnode] - dem.flat[endnode_1]))
     return dh
+
+@njit(parallel=True)
+def _d8_cell_distances_numba(fdir, dirmap, dx, dy):
+    n = fdir.size
+    cdist = np.zeros(fdir.shape, dtype=np.float64)
+    dd = np.sqrt(dx**2 + dy**2)
+    distances = (dy, dd, dx, dd, dy, dd, dx, dd)
+    dist_map = {0 : 0.}
+    for i in range(8):
+        dist_map[dirmap[i]] = distances[i]
+    for k in prange(n):
+        fdir_k = fdir.flat[k]
+        cdist.flat[k] = dist_map[fdir_k]
+    return cdist
+
+@njit(parallel=True)
+def _dinf_cell_distances_numba(fdir_0, fdir_1, prop_0, prop_1, dirmap, dx, dy):
+    n = fdir_0.size
+    cdist = np.zeros(fdir_0.shape, dtype=np.float64)
+    dd = np.sqrt(dx**2 + dy**2)
+    distances = (dy, dd, dx, dd, dy, dd, dx, dd)
+    dist_map = {0 : 0.}
+    for i in range(8):
+        dist_map[dirmap[i]] = distances[i]
+    for k in prange(n):
+        fdir_k_0 = fdir_0.flat[k]
+        fdir_k_1 = fdir_1.flat[k]
+        dist_k_0 = dist_map[fdir_k_0]
+        dist_k_1 = dist_map[fdir_k_1]
+        prop_k_0 = prop_0.flat[k]
+        prop_k_1 = prop_1.flat[k]
+        dist_k = prop_k_0 * dist_k_0 + prop_k_1 * dist_k_1
+        cdist.flat[k] = dist_k
+    return cdist
+
+@njit(parallel=True)
+def _cell_slopes_numba(dh, cdist):
+    n = dh.size
+    slopes = np.zeros(dh.shape, dtype=np.float64)
+    for k in prange(n):
+        dh_k = dh.flat[k]
+        cdist_k = cdist.flat[k]
+        if (cdist_k == 0):
+            slopes.flat[k] = 0.
+        else:
+            slopes.flat[k] = dh_k / cdist_k
+    return slopes
 
 @njit(void(int64, int64[:,:], int64[:,:], int64, int64, int64, boolean[:,:]),
       cache=True)

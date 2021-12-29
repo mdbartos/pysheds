@@ -677,7 +677,7 @@ class sGrid(Grid):
         """
         Generates an array representing the topological distance from each cell
         to the outlet.
- 
+
         Parameters
         ----------
         x : int or float
@@ -755,7 +755,12 @@ class sGrid(Grid):
                           dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
                           nodata_out=np.nan, method='shortest',
                           xytype='coordinate', snap='corner', **kwargs):
+        # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
+        invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
+        # Set nodata cells to zero
+        fdir[nodata_cells] = 0
+        fdir[invalid_cells] = 0
         if xytype in {'label', 'coordinate'}:
             c, r = self.nearest_cell(x, y, fdir.affine, snap)
         if weights is not None:
@@ -771,8 +776,7 @@ class sGrid(Grid):
                           dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
                           nodata_out=np.nan, method='shortest',
                           xytype='coordinate', snap='corner', **kwargs):
-        nodata_cells = self._get_nodata_cells(fdir)
-        fdir = fdir.copy().astype(np.float64)
+        # Find nodata cells
         nodata_cells = self._get_nodata_cells(fdir)
         # Split d-infinity grid
         fdir_0, fdir_1, prop_0, prop_1 = _angle_to_d8(fdir, dirmap, nodata_cells)
@@ -798,10 +802,8 @@ class sGrid(Grid):
                                    metadata=fdir.metadata, nodata=nodata_out)
         return dist
 
-    def compute_hand(self, fdir, dem, drainage_mask, out_name='hand', dirmap=None,
-                     nodata_in_fdir=None, nodata_in_dem=None, nodata_out=np.nan, routing='d8',
-                     inplace=False, apply_mask=False, ignore_metadata=False, return_index=False,
-                     **kwargs):
+    def compute_hand(self, fdir, dem, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                     nodata_out=None, routing='d8', return_index=False, **kwargs):
         """
         Computes the height above nearest drainage (HAND), based on a flow direction grid,
         a digital elevation grid, and a grid containing the locations of drainage channels.
@@ -848,74 +850,70 @@ class sGrid(Grid):
         ignore_metadata : bool
                           If False, require a valid affine transform and crs.
         """
-        # TODO: Why does this use set_dirmap but flowdir doesn't?
-        dirmap = self._set_dirmap(dirmap, fdir)
-        nodata_in_fdir = self._check_nodata_in(fdir, nodata_in_fdir)
-        nodata_in_dem = self._check_nodata_in(dem, nodata_in_dem)
-        properties = {'nodata' : nodata_out}
-        # TODO: This will overwrite metadata if provided
-        metadata = {'dirmap' : dirmap}
-        # initialize array to collect catchment cells
-        fdir = self._input_handler(fdir, apply_mask=apply_mask, nodata_view=nodata_in_fdir,
-                                   properties=properties, ignore_metadata=ignore_metadata,
-                                   **kwargs)
-        dem = self._input_handler(dem, apply_mask=apply_mask, nodata_view=nodata_in_dem,
-                                  properties=properties, ignore_metadata=ignore_metadata,
-                                  **kwargs)
-        mask = self._input_handler(drainage_mask, apply_mask=apply_mask, nodata_view=0,
-                                   properties=properties, ignore_metadata=ignore_metadata,
-                                   **kwargs)
-        assert (np.asarray(dem.shape) == np.asarray(fdir.shape)).all()
-        assert (np.asarray(dem.shape) == np.asarray(mask.shape)).all()
-        if routing.lower() == 'dinf':
-            try:
-                dem = dem.copy().astype(np.float64)
-                fdir = fdir.copy().astype(np.float64)
-                mask = mask.copy().astype(np.bool8)
-                if nodata_in_fdir is None:
-                    nodata_cells = np.zeros(fdir, dtype=np.bool8)
-                else:
-                    if np.isnan(nodata_in_fdir):
-                        nodata_cells = (np.isnan(fdir))
-                    else:
-                        nodata_cells = (fdir == nodata_in_fdir)
-                # Split dinf flowdir
-                fdir_0, fdir_1, prop_0, prop_1 = _angle_to_d8(fdir, dirmap, nodata_cells)
-                # Pad the rim
-                dirleft_0, dirright_0, dirtop_0, dirbottom_0 = self._pop_rim(fdir_0,
-                                                                            nodata=nodata_in_fdir)
-                dirleft_1, dirright_1, dirtop_1, dirbottom_1 = self._pop_rim(fdir_1,
-                                                                            nodata=nodata_in_fdir)
-                maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=0)
-                hand = _dinf_hand_iter_numba(dem, mask, fdir_0, fdir_1, dirmap)
-                if not return_index:
-                    hand = _assign_hand_heights_numba(hand, dem, nodata_out)
-            except:
-                raise
-            finally:
-                self._replace_rim(fdir_0, dirleft_0, dirright_0, dirtop_0, dirbottom_0)
-                self._replace_rim(fdir_1, dirleft_1, dirright_1, dirtop_1, dirbottom_1)
-                self._replace_rim(mask, maskleft, maskright, masktop, maskbottom)
-            return self._output_handler(data=hand, out_name=out_name, properties=properties,
-                                        inplace=inplace, metadata=metadata)
-        elif routing.lower() == 'd8':
-            try:
-                dem = dem.copy().astype(np.float64)
-                fdir = fdir.copy().astype(np.int64)
-                mask = mask.copy().astype(np.bool8)
-                # TODO: Nodata cells here?
-                dirleft, dirright, dirtop, dirbottom = self._pop_rim(fdir, nodata=nodata_in_fdir)
-                maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=0)
-                hand = _d8_hand_iter_numba(dem, mask, fdir, dirmap)
-                if not return_index:
-                    hand = _assign_hand_heights_numba(hand, dem, nodata_out)
-            except:
-                raise
-            finally:
-                self._replace_rim(fdir, dirleft, dirright, dirtop, dirbottom)
-                self._replace_rim(mask, maskleft, maskright, masktop, maskbottom)
-            return self._output_handler(data=hand, out_name=out_name, properties=properties,
-                                        inplace=inplace, metadata=metadata)
+        if routing.lower() == 'd8':
+            fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
+        elif routing.lower() == 'dinf':
+            fdir_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
+        else:
+            raise ValueError('Routing method must be one of: `d8`, `dinf`')
+        dem_overrides = {'dtype' : np.float64, 'nodata' : dem.nodata}
+        mask_overrides = {'dtype' : np.bool8, 'nodata' : False}
+        kwargs.update(fdir_overrides)
+        fdir = self._input_handler(fdir, **kwargs)
+        kwargs.update(dem_overrides)
+        dem = self._input_handler(dem, **kwargs)
+        kwargs.update(mask_overrides)
+        mask = self._input_handler(mask, **kwargs)
+        # Set default nodata for hand index and hand
+        if nodata_out is None:
+            if return_index:
+                nodata_out = -1
+            else:
+                nodata_out = dem.nodata
+        # Compute height above nearest drainage
+        if routing.lower() == 'd8':
+            hand = self._d8_compute_hand(fdir=fdir, mask=mask,
+                                         dirmap=dirmap, nodata_out=nodata_out)
+        elif routing.lower() == 'dinf':
+            hand = self._dinf_compute_hand(fdir=fdir, mask=mask,
+                                           nodata_out=nodata_out)
+        # If index is not desired, return heights
+        if not return_index:
+            hand = _assign_hand_heights_numba(hand, dem, nodata_out)
+        return hand
+
+    def _d8_compute_hand(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                         nodata_out=-1):
+        # Find nodata cells and invalid cells
+        nodata_cells = self._get_nodata_cells(fdir)
+        invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
+        # Set nodata cells to zero
+        fdir[nodata_cells] = 0
+        fdir[invalid_cells] = 0
+        # TODO: Need to check validity of fdir
+        dirleft, dirright, dirtop, dirbottom = self._pop_rim(fdir, nodata=0)
+        maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=False)
+        hand = _d8_hand_iter_numba(fdir, mask, dirmap)
+        hand = self._output_handler(data=hand, viewfinder=fdir.viewfinder,
+                                    metadata=fdir.metadata, nodata=nodata_out)
+        return hand
+
+    def _dinf_compute_hand(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                         nodata_out=-1):
+        # Get nodata cells
+        nodata_cells = self._get_nodata_cells(fdir)
+        # Split dinf flowdir
+        fdir_0, fdir_1, prop_0, prop_1 = _angle_to_d8(fdir, dirmap, nodata_cells)
+        # Pad the rim
+        dirleft_0, dirright_0, dirtop_0, dirbottom_0 = self._pop_rim(fdir_0,
+                                                                     nodata=0)
+        dirleft_1, dirright_1, dirtop_1, dirbottom_1 = self._pop_rim(fdir_1,
+                                                                     nodata=0)
+        maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=False)
+        hand = _dinf_hand_iter_numba(fdir_0, fdir_1, mask, dirmap)
+        hand = self._output_handler(data=hand, viewfinder=fdir.viewfinder,
+                                    metadata=fdir.metadata, nodata=nodata_out)
+        return hand
 
     def resolve_flats(self, data, nodata_out=None, eps=1e-5, max_iter=1000, **kwargs):
         """
@@ -972,8 +970,8 @@ class sGrid(Grid):
                                             metadata=dem.metadata)
         return inflated_dem
 
-    def extract_river_network(self, fdir, mask, dirmap=None, nodata_in=None, routing='d8',
-                              apply_mask=True, ignore_metadata=False, **kwargs):
+    def extract_river_network(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                              routing='d8', **kwargs):
         """
         Generates river segments from accumulation and flow_direction arrays.
 
@@ -1005,40 +1003,30 @@ class sGrid(Grid):
               A geojson feature collection of river segments. Each array contains the cell
               indices of junctions in the segment.
         """
-        if routing.lower() != 'd8':
+        if routing.lower() == 'd8':
+            fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
+        else:
             raise NotImplementedError('Only implemented for D8 routing.')
-        fdir_nodata_in = self._check_nodata_in(fdir, nodata_in)
-        mask_nodata_in = self._check_nodata_in(mask, nodata_in)
-        fdir_props = {}
-        mask_props = {}
-        fdir = self._input_handler(fdir, apply_mask=apply_mask, nodata_view=fdir_nodata_in,
-                                   properties=fdir_props,
-                                   ignore_metadata=ignore_metadata, **kwargs)
-        mask = self._input_handler(mask, apply_mask=apply_mask, nodata_view=mask_nodata_in,
-                                   properties=mask_props,
-                                   ignore_metadata=ignore_metadata, **kwargs)
-        fdir = fdir.copy().astype(np.int64)
-        mask = mask.copy().astype(np.bool8)
-        try:
-            assert(fdir.shape == mask.shape)
-            assert(fdir.affine == mask.affine)
-        except:
-            raise ValueError('Flow direction and accumulation grids not aligned.')
-        dirmap = self._set_dirmap(dirmap, fdir)
-        try:
-            # TODO: Check if this is needed
-            maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=0)
-            masked_fdir = np.where(mask, fdir, 0).astype(np.int64)
-            startnodes = np.arange(fdir.size, dtype=np.int64)
-            endnodes = _flatten_fdir(masked_fdir, dirmap).reshape(fdir.shape)
-            indegree = np.bincount(endnodes.ravel(), minlength=fdir.size).astype(np.uint8)
-            orig_indegree = np.copy(indegree)
-            startnodes = startnodes[(indegree == 0)]
-            profiles = _d8_stream_network_numba(endnodes, indegree, orig_indegree, startnodes)
-        except:
-            raise
-        finally:
-            self._replace_rim(mask, maskleft, maskright, masktop, maskbottom)
+        mask_overrides = {'dtype' : np.bool8, 'nodata' : False}
+        kwargs.update(fdir_overrides)
+        fdir = self._input_handler(fdir, **kwargs)
+        kwargs.update(mask_overrides)
+        mask = self._input_handler(mask, **kwargs)
+        # Find nodata cells and invalid cells
+        nodata_cells = self._get_nodata_cells(fdir)
+        invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
+        # Set nodata cells to zero
+        fdir[nodata_cells] = 0
+        fdir[invalid_cells] = 0
+        maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=False)
+        masked_fdir = np.where(mask, fdir, 0).astype(np.int64)
+        startnodes = np.arange(fdir.size, dtype=np.int64)
+        endnodes = _flatten_fdir(masked_fdir, dirmap).reshape(fdir.shape)
+        indegree = np.bincount(endnodes.ravel(), minlength=fdir.size).astype(np.uint8)
+        orig_indegree = np.copy(indegree)
+        startnodes = startnodes[(indegree == 0)]
+        profiles = _d8_stream_network_numba(endnodes, indegree, orig_indegree, startnodes)
+        # Fill geojson dict with profiles
         featurelist = []
         for index, profile in enumerate(profiles):
             yi, xi = np.unravel_index(list(profile), fdir.shape)
@@ -1048,10 +1036,8 @@ class sGrid(Grid):
             geo = geojson.FeatureCollection(featurelist)
         return geo
 
-    def stream_order(self, fdir, mask, out_name='stream_order', dirmap=None,
-                     nodata_in=None, nodata_out=0, routing='d8', inplace=False,
-                     apply_mask=False, ignore_metadata=False, metadata={},
-                     **kwargs):
+    def stream_order(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                     nodata_out=0, routing='d8', **kwargs):
         """
         Generates river segments from accumulation and flow_direction arrays.
 
@@ -1083,50 +1069,39 @@ class sGrid(Grid):
               A geojson feature collection of river segments. Each array contains the cell
               indices of junctions in the segment.
         """
-        if routing.lower() != 'd8':
+        if routing.lower() == 'd8':
+            fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
+        else:
             raise NotImplementedError('Only implemented for D8 routing.')
-        fdir_nodata_in = self._check_nodata_in(fdir, nodata_in)
-        mask_nodata_in = self._check_nodata_in(mask, nodata_in)
-        fdir_props = {}
-        mask_props = {}
-        fdir = self._input_handler(fdir, apply_mask=apply_mask, nodata_view=fdir_nodata_in,
-                                   properties=fdir_props,
-                                   ignore_metadata=ignore_metadata, **kwargs)
-        mask = self._input_handler(mask, apply_mask=apply_mask, nodata_view=mask_nodata_in,
-                                   properties=mask_props,
-                                   ignore_metadata=ignore_metadata, **kwargs)
-        fdir = fdir.copy().astype(np.int64)
-        mask = mask.copy().astype(np.bool8)
-        try:
-            assert(fdir.shape == mask.shape)
-            assert(fdir.affine == mask.affine)
-        except:
-            raise ValueError('Flow direction and accumulation grids not aligned.')
-        dirmap = self._set_dirmap(dirmap, fdir)
-        try:
-            maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=0)
-            masked_fdir = np.where(mask, fdir, 0).astype(np.int64)
-            startnodes = np.arange(fdir.size, dtype=np.int64)
-            endnodes = _flatten_fdir(masked_fdir, dirmap).reshape(fdir.shape)
-            indegree = np.bincount(endnodes.ravel()).astype(np.uint8)
-            orig_indegree = np.copy(indegree)
-            startnodes = startnodes[(indegree == 0)]
-            min_order = np.full(fdir.shape, np.iinfo(np.int64).max, dtype=np.int64)
-            max_order = np.ones(fdir.shape, dtype=np.int64)
-            order = np.where(mask, 1, 0).astype(np.int64).reshape(fdir.shape)
-            order = _d8_streamorder_numba(min_order, max_order, order, endnodes,
-                                          indegree, orig_indegree, startnodes)
-        except:
-            raise
-        finally:
-            self._replace_rim(mask, maskleft, maskright, masktop, maskbottom)
-        return self._output_handler(data=order, out_name=out_name, properties=fdir_props,
-                                    inplace=inplace, metadata=metadata)
+        mask_overrides = {'dtype' : np.bool8, 'nodata' : False}
+        kwargs.update(fdir_overrides)
+        fdir = self._input_handler(fdir, **kwargs)
+        kwargs.update(mask_overrides)
+        mask = self._input_handler(mask, **kwargs)
+        # Find nodata cells and invalid cells
+        nodata_cells = self._get_nodata_cells(fdir)
+        invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
+        # Set nodata cells to zero
+        fdir[nodata_cells] = 0
+        fdir[invalid_cells] = 0
+        maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=False)
+        masked_fdir = np.where(mask, fdir, 0).astype(np.int64)
+        startnodes = np.arange(fdir.size, dtype=np.int64)
+        endnodes = _flatten_fdir(masked_fdir, dirmap).reshape(fdir.shape)
+        indegree = np.bincount(endnodes.ravel()).astype(np.uint8)
+        orig_indegree = np.copy(indegree)
+        startnodes = startnodes[(indegree == 0)]
+        min_order = np.full(fdir.shape, np.iinfo(np.int64).max, dtype=np.int64)
+        max_order = np.ones(fdir.shape, dtype=np.int64)
+        order = np.where(mask, 1, 0).astype(np.int64).reshape(fdir.shape)
+        order = _d8_streamorder_numba(min_order, max_order, order, endnodes,
+                                        indegree, orig_indegree, startnodes)
+        order = self._output_handler(data=order, viewfinder=fdir.viewfinder,
+                                     metadata=fdir.metadata, nodata=nodata_out)
+        return order
 
-    def reverse_distance(self, fdir, mask, out_name='reverse_distance',
-                         dirmap=None, nodata_in=None, nodata_out=0, routing='d8',
-                         inplace=False, apply_mask=False, ignore_metadata=False,
-                         metadata={}, **kwargs):
+    def reverse_distance(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                         nodata_out=0, routing='d8', **kwargs):
         """
         Generates river segments from accumulation and flow_direction arrays.
 
@@ -1158,46 +1133,37 @@ class sGrid(Grid):
               A geojson feature collection of river segments. Each array contains the cell
               indices of junctions in the segment.
         """
-        if routing.lower() != 'd8':
+        if routing.lower() == 'd8':
+            fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
+        else:
             raise NotImplementedError('Only implemented for D8 routing.')
-        fdir_nodata_in = self._check_nodata_in(fdir, nodata_in)
-        mask_nodata_in = self._check_nodata_in(mask, nodata_in)
-        fdir_props = {}
-        mask_props = {}
-        fdir = self._input_handler(fdir, apply_mask=apply_mask, nodata_view=fdir_nodata_in,
-                                   properties=fdir_props,
-                                   ignore_metadata=ignore_metadata, **kwargs)
-        mask = self._input_handler(mask, apply_mask=apply_mask, nodata_view=mask_nodata_in,
-                                   properties=mask_props,
-                                   ignore_metadata=ignore_metadata, **kwargs)
-        fdir = fdir.copy().astype(np.int64)
-        mask = mask.copy().astype(np.bool8)
-        try:
-            assert(fdir.shape == mask.shape)
-            assert(fdir.affine == mask.affine)
-        except:
-            raise ValueError('Flow direction and accumulation grids not aligned.')
-        dirmap = self._set_dirmap(dirmap, fdir)
-        try:
-            maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=0)
-            masked_fdir = np.where(mask, fdir, 0).astype(np.int64)
-            startnodes = np.arange(fdir.size, dtype=np.int64)
-            endnodes = _flatten_fdir(masked_fdir, dirmap).reshape(fdir.shape)
-            indegree = np.bincount(endnodes.ravel()).astype(np.uint8)
-            orig_indegree = np.copy(indegree)
-            startnodes = startnodes[(indegree == 0)]
-            min_order = np.full(fdir.shape, np.iinfo(np.int64).max, dtype=np.int64)
-            max_order = np.ones(fdir.shape, dtype=np.int64)
-            # TODO: Weights not implemented
-            rdist = np.zeros(fdir.shape, dtype=np.float64)
-            rdist = _d8_reverse_distance_numba(min_order, max_order, rdist,
-                                               endnodes, indegree, startnodes)
-        except:
-            raise
-        finally:
-            self._replace_rim(mask, maskleft, maskright, masktop, maskbottom)
-        return self._output_handler(data=rdist, out_name=out_name, properties=fdir_props,
-                                    inplace=inplace, metadata=metadata)
+        mask_overrides = {'dtype' : np.bool8, 'nodata' : False}
+        kwargs.update(fdir_overrides)
+        fdir = self._input_handler(fdir, **kwargs)
+        kwargs.update(mask_overrides)
+        mask = self._input_handler(mask, **kwargs)
+        # Find nodata cells and invalid cells
+        nodata_cells = self._get_nodata_cells(fdir)
+        invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
+        # Set nodata cells to zero
+        fdir[nodata_cells] = 0
+        fdir[invalid_cells] = 0
+        maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=0)
+        masked_fdir = np.where(mask, fdir, 0).astype(np.int64)
+        startnodes = np.arange(fdir.size, dtype=np.int64)
+        endnodes = _flatten_fdir(masked_fdir, dirmap).reshape(fdir.shape)
+        indegree = np.bincount(endnodes.ravel()).astype(np.uint8)
+        orig_indegree = np.copy(indegree)
+        startnodes = startnodes[(indegree == 0)]
+        min_order = np.full(fdir.shape, np.iinfo(np.int64).max, dtype=np.int64)
+        max_order = np.ones(fdir.shape, dtype=np.int64)
+        # TODO: Weights not implemented
+        rdist = np.zeros(fdir.shape, dtype=np.float64)
+        rdist = _d8_reverse_distance_numba(min_order, max_order, rdist,
+                                            endnodes, indegree, startnodes)
+        rdist = self._output_handler(data=rdist, viewfinder=fdir.viewfinder,
+                                     metadata=fdir.metadata, nodata=nodata_out)
+        return rdist
 
     def fill_pits(self, dem, nodata_out=None, **kwargs):
         """
@@ -1366,6 +1332,14 @@ class sGrid(Grid):
             nodata_cells = (data == nodata).astype(np.bool8)
         return nodata_cells
 
+    def _sanitize_fdir(self, fdir):
+        # Find nodata cells and invalid cells
+        nodata_cells = self._get_nodata_cells(fdir)
+        invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
+        # Set nodata cells to zero
+        fdir[nodata_cells] = 0
+        fdir[invalid_cells] = 0
+        return fdir
 
 # Functions for 'flowdir'
 
@@ -2081,17 +2055,17 @@ def _grad_towards_lower(lec, flats, dem, max_iter=1000):
 
 # Functions for 'compute_hand'
 
-@njit(int64[:,:](float64[:,:], boolean[:,:], int64[:,:], UniTuple(int64, 8)),
+@njit(int64[:,:](int64[:,:], boolean[:,:], UniTuple(int64, 8)),
       cache=True)
-def _d8_hand_iter_numba(dem, mask, fdir, dirmap):
-    offset = dem.shape[1]
+def _d8_hand_iter_numba(fdir, mask, dirmap):
+    offset = fdir.shape[1]
     offsets = np.array([-offset, 1 - offset, 1,
                         1 + offset, offset, - 1 + offset,
                         - 1, - 1 - offset])
     r_dirmap = np.array([dirmap[4], dirmap[5], dirmap[6],
                          dirmap[7], dirmap[0], dirmap[1],
                          dirmap[2], dirmap[3]])
-    hand = -np.ones(dem.shape, dtype=np.int64)
+    hand = -np.ones(fdir.shape, dtype=np.int64)
     cur_queue = []
     next_queue = []
     for i in range(hand.size):
@@ -2128,18 +2102,18 @@ def _d8_hand_recursion(child, parent, hand, offsets, r_dirmap, fdir):
             hand.flat[neighbor] = parent
             _d8_hand_recursion(neighbor, parent, hand, offsets, r_dirmap, fdir)
 
-@njit(int64[:,:](float64[:,:], int64[:], int64[:,:], UniTuple(int64, 8)),
+@njit(int64[:,:](int64[:], int64[:,:], UniTuple(int64, 8)),
       cache=True)
-def _d8_hand_recursive_numba(dem, parents, fdir, dirmap):
+def _d8_hand_recursive_numba(parents, fdir, dirmap):
     n = parents.size
-    offset = dem.shape[1]
+    offset = fdir.shape[1]
     offsets = np.array([-offset, 1 - offset, 1,
                         1 + offset, offset, - 1 + offset,
                         - 1, - 1 - offset])
     r_dirmap = np.array([dirmap[4], dirmap[5], dirmap[6],
                          dirmap[7], dirmap[0], dirmap[1],
                          dirmap[2], dirmap[3]])
-    hand = -np.ones(dem.shape, dtype=np.int64)
+    hand = -np.ones(fdir.shape, dtype=np.int64)
     for i in range(n):
         parent = parents[i]
         hand.flat[parent] = parent
@@ -2148,17 +2122,17 @@ def _d8_hand_recursive_numba(dem, parents, fdir, dirmap):
         _d8_hand_recursion(parent, parent, hand, offsets, r_dirmap, fdir)
     return hand
 
-@njit(int64[:,:](float64[:,:], boolean[:,:], int64[:,:], int64[:,:], UniTuple(int64, 8)),
+@njit(int64[:,:](int64[:,:], int64[:,:], boolean[:,:], UniTuple(int64, 8)),
       cache=True)
-def _dinf_hand_iter_numba(dem, mask, fdir_0, fdir_1, dirmap):
-    offset = dem.shape[1]
+def _dinf_hand_iter_numba(fdir_0, fdir_1, mask, dirmap):
+    offset = fdir_0.shape[1]
     offsets = np.array([-offset, 1 - offset, 1,
                         1 + offset, offset, - 1 + offset,
                         - 1, - 1 - offset])
     r_dirmap = np.array([dirmap[4], dirmap[5], dirmap[6],
                          dirmap[7], dirmap[0], dirmap[1],
                          dirmap[2], dirmap[3]])
-    hand = -np.ones(dem.shape, dtype=np.int64)
+    hand = -np.ones(fdir_0.shape, dtype=np.int64)
     cur_queue = []
     next_queue = []
     for i in range(hand.size):
@@ -2197,18 +2171,18 @@ def _dinf_hand_recursion(child, parent, hand, offsets, r_dirmap, fdir_0, fdir_1)
             hand.flat[neighbor] = parent
             _dinf_hand_recursion(neighbor, parent, hand, offsets, r_dirmap, fdir_0, fdir_1)
 
-@njit(int64[:,:](float64[:,:], int64[:], int64[:,:], int64[:,:], UniTuple(int64, 8)),
+@njit(int64[:,:](int64[:], int64[:,:], int64[:,:], UniTuple(int64, 8)),
       cache=True)
-def _dinf_hand_recursive_numba(dem, parents, fdir_0, fdir_1, dirmap):
+def _dinf_hand_recursive_numba(parents, fdir_0, fdir_1, dirmap):
     n = parents.size
-    offset = dem.shape[1]
+    offset = fdir_0.shape[1]
     offsets = np.array([-offset, 1 - offset, 1,
                         1 + offset, offset, - 1 + offset,
                         - 1, - 1 - offset])
     r_dirmap = np.array([dirmap[4], dirmap[5], dirmap[6],
                          dirmap[7], dirmap[0], dirmap[1],
                          dirmap[2], dirmap[3]])
-    hand = -np.ones(dem.shape, dtype=np.int64)
+    hand = -np.ones(fdir_0.shape, dtype=np.int64)
     for i in range(n):
         parent = parents[i]
         hand.flat[parent] = parent

@@ -1100,7 +1100,7 @@ class sGrid(Grid):
                                      metadata=fdir.metadata, nodata=nodata_out)
         return order
 
-    def reverse_distance(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+    def reverse_distance(self, fdir, mask, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
                          nodata_out=0, routing='d8', **kwargs):
         """
         Generates river segments from accumulation and flow_direction arrays.
@@ -1148,6 +1148,10 @@ class sGrid(Grid):
         # Set nodata cells to zero
         fdir[nodata_cells] = 0
         fdir[invalid_cells] = 0
+        if weights is not None:
+            weights = weights.reshape(fdir.shape).astype(np.float64)
+        else:
+            weights = (~nodata_cells).reshape(fdir.shape).astype(np.float64)
         maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=0)
         masked_fdir = np.where(mask, fdir, 0).astype(np.int64)
         startnodes = np.arange(fdir.size, dtype=np.int64)
@@ -1157,10 +1161,9 @@ class sGrid(Grid):
         startnodes = startnodes[(indegree == 0)]
         min_order = np.full(fdir.shape, np.iinfo(np.int64).max, dtype=np.int64)
         max_order = np.ones(fdir.shape, dtype=np.int64)
-        # TODO: Weights not implemented
         rdist = np.zeros(fdir.shape, dtype=np.float64)
         rdist = _d8_reverse_distance_numba(min_order, max_order, rdist,
-                                            endnodes, indegree, startnodes)
+                                            endnodes, indegree, startnodes, weights)
         rdist = self._output_handler(data=rdist, viewfinder=fdir.viewfinder,
                                      metadata=fdir.metadata, nodata=nodata_out)
         return rdist
@@ -1857,29 +1860,32 @@ def _dinf_flow_distance_numba(fdir_0, fdir_1, weights_0, weights_1,
                                   weights_0, weights_1, r_dirmap, 0., offsets)
     return dist
 
-@njit(void(int64, int64, int64[:,:], int64[:,:], float64[:,:], int64[:,:], uint8[:]),
+@njit(void(int64, int64, int64[:,:], int64[:,:], float64[:,:],
+           int64[:,:], uint8[:], float64[:,:]),
       cache=True)
 def _d8_reverse_distance_recursion(startnode, endnode, min_order, max_order,
-                                   rdist, fdir, indegree):
+                                   rdist, fdir, indegree, weights):
     min_order.flat[endnode] = min(min_order.flat[endnode], rdist.flat[startnode])
     max_order.flat[endnode] = max(max_order.flat[endnode], rdist.flat[startnode])
     indegree.flat[endnode] -= 1
     if indegree.flat[endnode] == 0:
-        rdist.flat[endnode] = max_order.flat[endnode] + 1
+        rdist.flat[endnode] = max_order.flat[endnode] + weights.flat[endnode]
         new_startnode = endnode
         new_endnode = fdir.flat[new_startnode]
         _d8_reverse_distance_recursion(new_startnode, new_endnode, min_order,
-                                       max_order, rdist, fdir, indegree)
+                                       max_order, rdist, fdir, indegree, weights)
 
-@njit(float64[:,:](int64[:,:], int64[:,:], float64[:,:], int64[:,:], uint8[:], int64[:]),
+@njit(float64[:,:](int64[:,:], int64[:,:], float64[:,:], int64[:,:],
+                   uint8[:], int64[:], float64[:,:]),
       cache=True)
-def _d8_reverse_distance_numba(min_order, max_order, rdist, fdir, indegree, startnodes):
+def _d8_reverse_distance_numba(min_order, max_order, rdist, fdir,
+                               indegree, startnodes, weights):
     n = startnodes.size
     for k in range(n):
         startnode = startnodes.flat[k]
         endnode = fdir.flat[startnode]
         _d8_reverse_distance_recursion(startnode, endnode, min_order, max_order,
-                                       rdist, fdir, indegree)
+                                       rdist, fdir, indegree, weights)
     return rdist
 
 # Functions for 'resolve_flats'

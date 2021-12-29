@@ -84,6 +84,33 @@ class Raster(np.ndarray):
     def dy_dx(self):
         return (-self.affine.e, self.affine.a)
 
+    def to_crs(self, new_crs, **kwargs):
+        old_crs = self.crs
+        dx = self.affine.a
+        dy = self.affine.e
+        m, n = self.shape
+        Y, X = np.mgrid[0:m, 0:n]
+        top = np.column_stack([X[0, :], Y[0, :]])
+        bottom = np.column_stack([X[-1, :], Y[-1, :]])
+        left = np.column_stack([X[:, 0], Y[:, 0]])
+        right = np.column_stack([X[:, -1], Y[:, -1]])
+        boundary = np.vstack([top, bottom, left, right])
+        xb, yb = self.affine * boundary.T
+        xb_p, yb_p = pyproj.transform(old_crs, new_crs, xb, yb,
+                                    errcheck=True, always_xy=True)
+        x0_p = xb_p.min() if (dx > 0) else xb_p.max()
+        y0_p = yb_p.min() if (dy > 0) else yb_p.max()
+        xn_p = xb_p.max() if (dx > 0) else xb_p.min()
+        yn_p = yb_p.max() if (dy > 0) else yb_p.min()
+        a = (xn_p - x0_p) / n
+        e = (yn_p - y0_p) / m
+        new_affine = Affine(a, 0., x0_p, 0., e, y0_p)
+        new_viewfinder = ViewFinder(affine=new_affine, shape=self.shape,
+                                    mask=self.mask, crs=new_crs)
+        new_raster = View.view(self, target_view=new_viewfinder,
+                            data_view=self.viewfinder, **kwargs)
+        return new_raster
+
 class ViewFinder():
     def __init__(self, affine=Affine(1., 0., 0., 0., 1., 0.), shape=(1,1),
                  nodata=0, mask=None, crs=pyproj.Proj(_pyproj_init)):
@@ -400,7 +427,6 @@ class View():
         else:
             out = cls._view_different_crs(out, data, data_view,
                                           target_view, interpolation)
-        # Apply mask
         if apply_output_mask:
             np.place(out, ~target_view.mask, target_view.nodata)
         out = Raster(out, target_view)

@@ -805,18 +805,14 @@ class sGrid(Grid):
         if xytype in {'label', 'coordinate'}:
             x, y = self.nearest_cell(x, y, fdir.affine, snap)
         if weights is not None:
-            if isinstance(weights, list) or isinstance(weights, tuple):
-                weights_0 = weights[0].reshape(fdir.shape).astype(np.float64)
-                weights_1 = weights[1].reshape(fdir.shape).astype(np.float64)
-            elif isinstance(weights, np.ndarray):
-                weights_0 = weights[:,0].reshape(fdir.shape).astype(np.float64)
-                weights_1 = weights[:,1].reshape(fdir.shape).astype(np.float64)
+            weights_0 = weights[0].reshape(fdir.shape).astype(np.float64)
+            weights_1 = weights[1].reshape(fdir.shape).astype(np.float64)
         else:
             weights_0 = (~nodata_cells).reshape(fdir.shape).astype(np.float64)
             weights_1 = weights_0
         if method.lower() == 'shortest':
             dist = _self._dinf_flow_distance_numba(fdir_0, fdir_1, weights_0,
-                                                weights_1, (y, x), dirmap)
+                                                   weights_1, (y, x), dirmap)
         else:
             raise NotImplementedError("Only implemented for shortest path distance.")
         # Prepare output

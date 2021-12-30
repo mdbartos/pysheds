@@ -3,6 +3,7 @@ import os
 import warnings
 import numpy as np
 from pysheds.grid import Grid
+from pysheds.sview import Raster
 from pysheds.rfsm import RFSM
 
 current_dir = os.path.dirname(os.path.realpath(__file__))
@@ -212,12 +213,12 @@ def test_flow_distance():
     col, row = grid.nearest_cell(x, y)
     dist = grid.flow_distance(col, row, fdir, dirmap=dirmap, xytype='index')
     assert(dist[np.isfinite(dist)].max() == max_distance_d8)
-    weights = 2 * np.ones(grid.size)
+    weights = Raster(2 * np.ones(grid.shape), grid.viewfinder)
     grid.flow_distance(x, y, fdir_dinf, dirmap=dirmap, routing='dinf',
                        xytype='coordinate')
     grid.flow_distance(x, y, fdir, weights=weights,
                        dirmap=dirmap, xytype='label')
-    grid.flow_distance(x, y, fdir_dinf, dirmap=dirmap, weights=(weights, weights),
+    grid.flow_distance(x, y, fdir_dinf, dirmap=dirmap, weights=weights,
                        routing='dinf', xytype='label')
 
 def test_stream_order():

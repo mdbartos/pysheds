@@ -212,7 +212,7 @@ class ViewFinder():
         """
         Return row and column coordinates of a bounding box at a
         given cellsize.
- 
+
         Parameters
         ----------
         shape : tuple of ints (length 2)

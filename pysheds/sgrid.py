@@ -527,13 +527,21 @@ class sGrid(Grid):
                           If False, require a valid affine transform and crs.
         """
         if routing.lower() == 'd8':
-            input_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
+            fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
         elif routing.lower() == 'dinf':
-            input_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
+            fdir_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
         else:
             raise ValueError('Routing method must be one of: `d8`, `dinf`')
-        kwargs.update(input_overrides)
+        kwargs.update(fdir_overrides)
         fdir = self._input_handler(fdir, **kwargs)
+        if weights is not None:
+            weights_overrides = {'dtype' : np.float64, 'nodata' : weights.nodata}
+            kwargs.update(weights_overrides)
+            weights = self._input_handler(weights, **kwargs)
+        if efficiency is not None:
+            efficiency_overrides = {'dtype' : np.float64, 'nodata' : efficiency.nodata}
+            kwargs.update(efficiency_overrides)
+            efficiency = self._input_handler(efficiency, **kwargs)
         if routing.lower() == 'd8':
             acc = self._d8_accumulation(fdir, weights=weights, dirmap=dirmap,
                                         nodata_out=nodata_out,
@@ -674,6 +682,10 @@ class sGrid(Grid):
             raise ValueError('Routing method must be one of: `d8`, `dinf`')
         kwargs.update(input_overrides)
         fdir = self._input_handler(fdir, **kwargs)
+        if weights is not None:
+            weights_overrides = {'dtype' : np.float64, 'nodata' : weights.nodata}
+            kwargs.update(weights_overrides)
+            weights = self._input_handler(weights, **kwargs)
         xmin, ymin, xmax, ymax = fdir.bbox
         if xytype in {'label', 'coordinate'}:
             if (x < xmin) or (x > xmax) or (y < ymin) or (y > ymax):
@@ -707,9 +719,7 @@ class sGrid(Grid):
         fdir[invalid_cells] = 0
         if xytype in {'label', 'coordinate'}:
             x, y = self.nearest_cell(x, y, fdir.affine, snap)
-        if weights is not None:
-            weights = weights.reshape(fdir.shape).astype(np.float64)
-        else:
+        if weights is None:
             weights = (~nodata_cells).reshape(fdir.shape).astype(np.float64)
         dist = _self._d8_flow_distance_numba(fdir, weights, (y, x), dirmap)
         dist = self._output_handler(data=dist, viewfinder=fdir.viewfinder,
@@ -727,8 +737,8 @@ class sGrid(Grid):
         if xytype in {'label', 'coordinate'}:
             x, y = self.nearest_cell(x, y, fdir.affine, snap)
         if weights is not None:
-            weights_0 = weights[0].reshape(fdir.shape).astype(np.float64)
-            weights_1 = weights[1].reshape(fdir.shape).astype(np.float64)
+            weights_0 = weights
+            weights_1 = weights
         else:
             weights_0 = (~nodata_cells).reshape(fdir.shape).astype(np.float64)
             weights_1 = weights_0
@@ -1082,15 +1092,17 @@ class sGrid(Grid):
         fdir = self._input_handler(fdir, **kwargs)
         kwargs.update(mask_overrides)
         mask = self._input_handler(mask, **kwargs)
+        if weights is not None:
+            weights_overrides = {'dtype' : np.float64, 'nodata' : weights.nodata}
+            kwargs.update(weights_overrides)
+            weights = self._input_handler(weights, **kwargs)
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
         invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
         fdir[nodata_cells] = 0
         fdir[invalid_cells] = 0
-        if weights is not None:
-            weights = weights.reshape(fdir.shape).astype(np.float64)
-        else:
+        if weights is None:
             weights = (~nodata_cells).reshape(fdir.shape).astype(np.float64)
         maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=0)
         masked_fdir = np.where(mask, fdir, 0).astype(np.int64)

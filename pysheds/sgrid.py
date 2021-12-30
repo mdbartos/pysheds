@@ -9,17 +9,12 @@ import geojson
 from affine import Affine
 from distutils.version import LooseVersion
 try:
-    import scipy.sparse
     import scipy.spatial
-    from scipy.sparse import csgraph
-    import scipy.interpolate
     _HAS_SCIPY = True
 except:
     _HAS_SCIPY = False
 try:
     import skimage.measure
-    import skimage.transform
-    import skimage.morphology
     _HAS_SKIMAGE = True
 except:
     _HAS_SKIMAGE = False
@@ -35,6 +30,9 @@ _OLD_PYPROJ = LooseVersion(pyproj.__version__) < LooseVersion('2.2')
 _pyproj_crs = lambda Proj: Proj.crs if not _OLD_PYPROJ else Proj
 _pyproj_crs_is_geographic = 'is_latlong' if _OLD_PYPROJ else 'is_geographic'
 _pyproj_init = '+init=epsg:4326' if _OLD_PYPROJ else 'epsg:4326'
+
+# Import input/output functions
+import pysheds.io
 
 # Import viewing functions
 from pysheds.sview import Raster
@@ -121,126 +119,50 @@ class sGrid(Grid):
             raise TypeError('viewfinder must be an instance of ViewFinder.')
         self._viewfinder = new_viewfinder
 
-    def read_ascii(self, data, skiprows=6, mask=None, crs=pyproj.Proj(_pyproj_init),
-                   xll='lower', yll='lower', metadata={}, **kwargs):
-        """
-        Reads data from an ascii file into a named attribute of Grid
-        instance (name of attribute determined by 'data_name').
- 
-        Parameters
-        ----------
-        data : str
-               File name or path.
-        data_name : str
-                    Name of dataset. Will determine the name of the attribute
-                    representing the gridded data.
-        skiprows : int (optional)
-                   The number of rows taken up by the header (defaults to 6).
-        crs : pyroj.Proj
-              Coordinate reference system of ascii data.
-        xll : 'lower' or 'center' (str)
-              Whether XLLCORNER or XLLCENTER is used.
-        yll : 'lower' or 'center' (str)
-              Whether YLLCORNER or YLLCENTER is used.
-        metadata : dict
-                   Other attributes describing dataset, such as direction
-                   mapping for flow direction files. e.g.:
-                   metadata={'dirmap' : (64, 128, 1, 2, 4, 8, 16, 32),
-                             'routing' : 'd8'}
- 
-        Additional keyword arguments are passed to numpy.loadtxt()
-        """
-        with open(data) as header:
-            ncols = int(header.readline().split()[1])
-            nrows = int(header.readline().split()[1])
-            xll = ast.literal_eval(header.readline().split()[1])
-            yll = ast.literal_eval(header.readline().split()[1])
-            cellsize = ast.literal_eval(header.readline().split()[1])
-            nodata = ast.literal_eval(header.readline().split()[1])
-            shape = (nrows, ncols)
-        data = np.loadtxt(data, skiprows=skiprows, **kwargs)
-        nodata = data.dtype.type(nodata)
-        affine = Affine(cellsize, 0., xll, 0., -cellsize, yll + nrows * cellsize)
-        viewfinder = ViewFinder(affine=affine, shape=shape, mask=mask, nodata=nodata, crs=crs)
-        out = Raster(data, viewfinder, metadata=metadata)
-        return out
+    def read_ascii(self, data, skiprows=6, mask=None,
+                   crs=pyproj.Proj(_pyproj_init), xll='lower', yll='lower',
+                   metadata={}, **kwargs):
+        return pysheds.io.read_ascii(data, skiprows=skiprows, mask=mask,
+                                     crs=crs, xll=xll, yll=yll, metadata=metadata,
+                                     **kwargs)
 
     def read_raster(self, data, band=1, window=None, window_crs=None,
                     metadata={}, mask_geometry=False, **kwargs):
-        """
-        Reads data from a raster file into a named attribute of Grid
-        (name of attribute determined by keyword 'data_name').
- 
-        Parameters
-        ----------
-        data : str
-               File name or path.
-        data_name : str
-                    Name of dataset. Will determine the name of the attribute
-                    representing the gridded data.
-        band : int
-               The band number to read if multiband.
-        window : tuple
-                 If using windowed reading, specify window (xmin, ymin, xmax, ymax).
-        window_crs : pyproj.Proj instance
-                     Coordinate reference system of window. If None, assume it's in raster's crs.
-        mask_geometry : iterable object
-                        The values must be a GeoJSON-like dict or an object that implements
-                        the Python geo interface protocol (such as a Shapely Polygon).
-        metadata : dict
-                   Other attributes describing dataset, such as direction
-                   mapping for flow direction files. e.g.:
-                   metadata={'dirmap' : (64, 128, 1, 2, 4, 8, 16, 32),
-                             'routing' : 'd8'}
- 
-        Additional keyword arguments are passed to rasterio.open()
-        """
-        # read raster file
-        if not _HAS_RASTERIO:
-            raise ImportError('Requires rasterio module')
-        mask = None
-        with rasterio.open(data, **kwargs) as f:
-            crs = pyproj.Proj(f.crs, preserve_units=True)
-            if window is None:
-                shape = f.shape
-                if len(f.indexes) > 1:
-                    data = np.ma.filled(f.read_band(band))
-                else:
-                    data = np.ma.filled(f.read())
-                affine = f.transform
-                data = data.reshape(shape)
-            else:
-                if window_crs is not None:
-                    if window_crs.srs != crs.srs:
-                        xmin, ymin, xmax, ymax = window
-                        if _OLD_PYPROJ:
-                            extent = pyproj.transform(window_crs, crs, (xmin, xmax),
-                                                    (ymin, ymax))
-                        else:
-                            extent = pyproj.transform(window_crs, crs, (xmin, xmax),
-                                                      (ymin, ymax), errcheck=True,
-                                                      always_xy=True)
-                        window = (extent[0][0], extent[1][0], extent[0][1], extent[1][1])
-                # If window crs not specified, assume it's in raster crs
-                ix_window = f.window(*window)
-                if len(f.indexes) > 1:
-                    data = np.ma.filled(f.read_band(band, window=ix_window))
-                else:
-                    data = np.ma.filled(f.read(window=ix_window))
-                affine = f.window_transform(ix_window)
-                data = np.squeeze(data)
-                shape = data.shape
-            if mask_geometry:
-                mask = rasterio.features.geometry_mask(mask_geometry, shape, affine, invert=True)
-                if not mask.any():  # no mask was applied if all False, out of bounds
-                    warnings.warn('mask_geometry does not fall within the bounds of the raster!')
-                    mask = ~mask  # return mask to all True and deliver warning
-            nodata = f.nodatavals[0]
-        if nodata is not None:
-            nodata = data.dtype.type(nodata)
-        viewfinder = ViewFinder(affine=affine, shape=shape, mask=mask, nodata=nodata, crs=crs)
-        out = Raster(data, viewfinder, metadata=metadata)
-        return out
+        return pysheds.io.read_raster(data=data, band=band, window=window,
+                                      window_crs=window_crs, metadata=metadata,
+                                      mask_geometry=mask_geometry, **kwargs)
+
+    def to_ascii(data, file_name, target_view=None, delimiter=' ', fmt=None,
+                interpolation='nearest', apply_input_mask=False,
+                apply_output_mask=True, affine=None, shape=None, crs=None,
+                mask=None, nodata=None, dtype=None, **kwargs):
+        if target_view is None:
+            target_view = self.viewfinder
+        return pysheds.io.to_ascii(data, file_name, target_view=target_view,
+                                   delimeter=delimeter, fmt=fmt, interpolation=interpolation,
+                                   apply_input_mask=apply_input_mask,
+                                   apply_output_mask=apply_output_mask,
+                                   affine=affine, shape=shape, crs=crs,
+                                   mask=mask, nodata=nodata,
+                                   dtype=dtype, **kwargs)
+
+    def to_raster(data, file_name, target_view=None, profile=None, view=True,
+                blockxsize=256, blockysize=256, interpolation='nearest',
+                apply_input_mask=False, apply_output_mask=True, affine=None,
+                shape=None, crs=None, mask=None, nodata=None, dtype=None,
+                **kwargs):
+        if target_view is None:
+            target_view = self.viewfinder
+        return pysheds.io.to_raster(data, file_name, target_view=target_view,
+                                    profile=profile, view=view,
+                                    blockxsize=blockxsize,
+                                    blockysize=blockysize,
+                                    interpolation=interpolation,
+                                    apply_input_mask=apply_input_mask,
+                                    apply_output_mask=apply_output_mask,
+                                    affine=affine, shape=shape, crs=crs,
+                                    mask=mask, nodata=nodata, dtype=dtype,
+                                    **kwargs)
 
     @classmethod
     def from_ascii(cls, path, **kwargs):

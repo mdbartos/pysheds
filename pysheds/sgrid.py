@@ -24,7 +24,6 @@ try:
     _HAS_RASTERIO = True
 except:
     _HAS_RASTERIO = False
-from pysheds.pgrid import Grid
 
 _OLD_PYPROJ = LooseVersion(pyproj.__version__) < LooseVersion('2.2')
 _pyproj_crs = lambda Proj: Proj.crs if not _OLD_PYPROJ else Proj

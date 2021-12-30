@@ -105,11 +105,10 @@ def test_clip():
 def test_input_output_mask():
     pass
 
-# def test_fill_depressions():
-#     dem = d.dem
-#     # TODO: detect_depressions no longer working
-#     depressions = grid.detect_depressions(dem)
-#     filled = grid.fill_depressions(dem)
+def test_fill_depressions():
+    dem = d.dem
+    depressions = grid.detect_depressions(dem)
+    filled = grid.fill_depressions(dem)
 
 def test_resolve_flats():
     dem = d.dem
@@ -266,16 +265,18 @@ def test_to_ascii():
     fdir_out = grid.read_ascii('test_dir.asc', dtype=np.uint8)
     assert((fdir_out == grid.view(fdir)).all())
 
-# def test_to_raster():
-#     grid.clip_to('catch')
-#     grid.to_raster('dir', 'test_dir.tif', view=False, apply_mask=False, blockxsize=16, blockysize=16)
-#     grid.read_raster('test_dir.tif', 'dir_output')
-#     assert((grid.dir_output == grid.dir).all())
-#     assert((grid.view('dir_output') == grid.view('dir')).all())
-#     grid.to_raster('dir', 'test_dir.tif', view=True, apply_mask=True, blockxsize=16, blockysize=16)
-#     grid.read_raster('test_dir.tif', 'dir_output')
-#     assert((grid.dir_output == grid.view('dir', apply_mask=True)).all())
-#     # TODO: Write test for windowed reading
+def test_to_raster():
+    catch = d.catch
+    fdir = d.fdir
+    grid.clip_to(catch)
+    grid.to_raster(fdir, 'test_dir.tif', target_view=fdir.viewfinder,
+                   blockxsize=16, blockysize=16)
+    fdir_out = grid.read_raster('test_dir.tif')
+    assert((fdir_out == fdir).all())
+    assert((grid.view(fdir_out) == grid.view(fdir)).all())
+    grid.to_raster(fdir, 'test_dir.tif', blockxsize=16, blockysize=16)
+    fdir_out = grid.read_raster('test_dir.tif')
+    assert((fdir_out == grid.view(fdir)).all())
 
 # def test_from_raster():
 #     grid.clip_to('catch')
@@ -288,6 +289,7 @@ def test_to_ascii():
 #     assert((newgrid.dir_output == grid.view('dir', apply_mask=True)).all())
 
 def test_windowed_reading():
+    # TODO: Write test for windowed reading
     newgrid = Grid.from_raster('test_dir.tif', window=grid.bbox, window_crs=grid.crs)
 
 # def test_mask_geometry():
@@ -350,17 +352,6 @@ def test_to_crs():
     dem_p = dem.to_crs(new_crs)
     fdir_p = fdir.to_crs(new_crs)
 
-# def test_other_methods():
-#     dem = d.dem
-#     fdir = d.fdir
-#     grid.cell_area(dem)
-#     # TODO: Not a super robust test
-#     assert((grid.area.mean() > 7000) and (grid.area.mean() < 7500))
-#     # TODO: Need checks for these
-#     grid.cell_distances('dir', as_crs=new_crs, dirmap=dirmap)
-#     grid.cell_dh(fdir='dir', dem='dem', dirmap=dirmap)
-#     grid.cell_slopes(fdir='dir', dem='dem', as_crs=new_crs, dirmap=dirmap)
-
 def test_snap_to():
     acc = d.acc
     # TODO: Need checks
@@ -386,10 +377,10 @@ def test_snap_to():
 #     grid.clip_to('catch')
 #     # TODO: Need to check that everything was reset properly
 
-# def test_polygonize_rasterize():
-#     shapes = grid.polygonize()
-#     raster = grid.rasterize(shapes)
-#     assert (raster == grid.mask).all()
+def test_polygonize_rasterize():
+    shapes = grid.polygonize()
+    raster = grid.rasterize(shapes)
+    assert (raster == grid.mask).all()
 
 # def test_detect_cycles():
 #     cycles = grid.detect_cycles('dir')

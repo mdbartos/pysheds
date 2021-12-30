@@ -132,21 +132,21 @@ class sGrid(Grid):
                                       window_crs=window_crs, metadata=metadata,
                                       mask_geometry=mask_geometry, **kwargs)
 
-    def to_ascii(data, file_name, target_view=None, delimiter=' ', fmt=None,
+    def to_ascii(self, data, file_name, target_view=None, delimiter=' ', fmt=None,
                 interpolation='nearest', apply_input_mask=False,
                 apply_output_mask=True, affine=None, shape=None, crs=None,
                 mask=None, nodata=None, dtype=None, **kwargs):
         if target_view is None:
             target_view = self.viewfinder
         return pysheds.io.to_ascii(data, file_name, target_view=target_view,
-                                   delimeter=delimeter, fmt=fmt, interpolation=interpolation,
+                                   delimiter=delimiter, fmt=fmt, interpolation=interpolation,
                                    apply_input_mask=apply_input_mask,
                                    apply_output_mask=apply_output_mask,
                                    affine=affine, shape=shape, crs=crs,
                                    mask=mask, nodata=nodata,
                                    dtype=dtype, **kwargs)
 
-    def to_raster(data, file_name, target_view=None, profile=None, view=True,
+    def to_raster(self, data, file_name, target_view=None, profile=None, view=True,
                 blockxsize=256, blockysize=256, interpolation='nearest',
                 apply_input_mask=False, apply_output_mask=True, affine=None,
                 shape=None, crs=None, mask=None, nodata=None, dtype=None,

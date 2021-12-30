@@ -123,13 +123,13 @@ def test_flowdir():
     fdir = d.fdir
     inflated_dem = d.inflated_dem
     grid.clip_to(fdir)
-    d8_dir = grid.flowdir(inflated_dem, dirmap=dirmap, routing='d8')
-    d.d8_dir = d8_dir
+    fdir_d8 = grid.flowdir(inflated_dem, dirmap=dirmap, routing='d8')
+    d.fdir_d8 = fdir_d8
 
 def test_dinf_flowdir():
     inflated_dem = d.inflated_dem
-    dinf_dir = grid.flowdir(inflated_dem, dirmap=dirmap, routing='dinf')
-    d.dinf_dir = dinf_dir
+    fdir_dinf = grid.flowdir(inflated_dem, dirmap=dirmap, routing='dinf')
+    d.fdir_dinf = fdir_dinf
 
 def test_clip_pad():
     catch = d.catch
@@ -141,31 +141,33 @@ def test_clip_pad():
     # TODO: Should check for non-square padding
 
 def test_computed_fdir_catch():
-    d8_dir = d.d8_dir
-    dinf_dir = d.dinf_dir
-    d8_catch = grid.catchment(x, y, d8_dir, dirmap=dirmap, routing='d8',
+    fdir_d8 = d.fdir_d8
+    fdir_dinf = d.fdir_dinf
+    catch_d8 = grid.catchment(x, y, fdir_d8, dirmap=dirmap, routing='d8',
                               xytype='coordinate')
-    assert(np.count_nonzero(d8_catch) > 11300)
+    assert(np.count_nonzero(catch_d8) > 11300)
     # Reference routing
-    d8_catch = grid.catchment(x, y, d8_dir, dirmap=dirmap, routing='d8',
+    catch_d8 = grid.catchment(x, y, fdir_d8, dirmap=dirmap, routing='d8',
                               xytype='coordinate')
-    dinf_catch = grid.catchment(x, y, dinf_dir, dirmap=dirmap, routing='dinf',
+    catch_dinf = grid.catchment(x, y, fdir_dinf, dirmap=dirmap, routing='dinf',
                                 xytype='coordinate')
-    assert(np.count_nonzero(dinf_catch) > 11300)
+    assert(np.count_nonzero(catch_dinf) > 11300)
 
 def test_accumulation():
     fdir = d.fdir
     eff = d.eff
     catch = d.catch
+    fdir_d8 = d.fdir_d8
+    fdir_dinf = d.fdir_dinf
     # TODO: This breaks if clip_to's padding of dir is nonzero
     grid.clip_to(fdir)
     acc = grid.accumulation(fdir, dirmap=dirmap, routing='d8')
     assert(acc.max() == acc_in_frame)
-    d.acc = acc
-#     # set nodata to 1
-#     eff = grid.view(eff)
-#     eff[eff == eff.nodata] = 1
-#     eff_acc_d8 = grid.accumulation(fdir, dirmap=dirmap, efficiency=eff, routing='d8')
+    # set nodata to 1
+    eff = grid.view(eff)
+    eff[eff == eff.nodata] = 1
+    acc_d8_eff = grid.accumulation(fdir, dirmap=dirmap,
+                                   efficiency=eff, routing='d8')
 #     # TODO: Need to find new accumulation with efficiency
 #     # assert(abs(grid.acc_eff.max() - acc_in_frame_eff) < 0.001)
 #     # assert(abs(grid.acc_eff[grid.acc==grid.acc.max()] - acc_in_frame_eff1) < 0.001)
@@ -176,58 +178,92 @@ def test_accumulation():
     c, r = grid.nearest_cell(x, y)
     acc_d8 = grid.accumulation(fdir, dirmap=dirmap, routing='d8')
     assert(acc_d8[r, c] == cells_in_catch)
-#     # Test accumulation on computed flowdirs
-#     # TODO: Failing due to loose typing
-#     # grid.accumulation(data='d8_dir', dirmap=dirmap, out_name='d8_acc', routing='d8')
-#     # assert(grid.d8_acc.max() > 11300)
-#     grid.accumulation(data='dinf_dir', dirmap=dirmap, out_name='dinf_acc', routing='dinf')
-#     # grid.accumulation(data='dinf_dir', dirmap=dirmap, out_name='dinf_acc', as_crs=new_crs,
-#     #                   routing='dinf')
-#     assert(grid.dinf_acc.max() > 11400)
-#     #set nodata to 1
-#     eff = grid.view("dinf_eff")
-#     eff[eff==grid.dinf_eff.nodata] = 1
-#     grid.accumulation(data='dinf_dir', dirmap=dirmap, out_name='dinf_acc_eff', routing='dinf',
-#                       efficiency=eff)
-#     pos = np.where(grid.dinf_acc==grid.dinf_acc.max())
-#     assert(np.round(grid.dinf_acc[pos] / grid.dinf_acc_eff[pos]) == 4.)
+    # Test accumulation on computed flowdirs
+    # TODO: Failing due to loose typing
+    acc_d8 = grid.accumulation(fdir_d8, dirmap=dirmap, routing='d8')
+    # TODO: Need better test
+    assert(acc_d8.max() > 11300)
+    acc_dinf = grid.accumulation(fdir_dinf, dirmap=dirmap, routing='dinf')
+    assert(acc_dinf.max() > 11300)
+    # #set nodata to 1
+    eff = grid.view(dinf_eff)
+    eff[eff==dinf_eff.nodata] = 1
+    acc_dinf_eff = grid.accumulation(fdir_dinf, dirmap=dirmap,
+                                     routing='dinf', efficiency=eff)
+    # pos = np.where(grid.dinf_acc==grid.dinf_acc.max())
+    # assert(np.round(grid.dinf_acc[pos] / grid.dinf_acc_eff[pos]) == 4.)
+    d.acc = acc
 
 def test_hand():
     fdir = d.fdir
     dem = d.dem
     acc = d.acc
-    hand = grid.compute_hand(fdir, dem, acc > 100)
+    fdir_dinf = d.fdir_dinf
+    hand_d8 = grid.compute_hand(fdir, dem, acc > 100, routing='d8')
+    hand_dinf = grid.compute_hand(fdir_dinf, dem, acc > 100, routing='dinf')
 
 def test_flow_distance():
+    fdir = d.fdir
     catch = d.catch
-    dinf_dir = d.dinf_dir
+    fdir_dinf = d.fdir_dinf
     grid.clip_to(catch)
     dist = grid.flow_distance(x, y, fdir, dirmap=dirmap, xytype='coordinate')
     assert(dist[np.isfinite(dist)].max() == max_distance_d8)
     col, row = grid.nearest_cell(x, y)
     dist = grid.flow_distance(col, row, fdir, dirmap=dirmap, xytype='index')
     assert(dist[np.isfinite(dist)].max() == max_distance_d8)
-    grid.flow_distance(x, y, dinf_dir, dirmap=dirmap, routing='dinf',
+    weights = 2 * np.ones(grid.size)
+    grid.flow_distance(x, y, fdir_dinf, dirmap=dirmap, routing='dinf',
                        xytype='coordinate')
-    grid.flow_distance(x, y, fdir, weights=2 * np.ones(grid.size),
+    grid.flow_distance(x, y, fdir, weights=weights,
                        dirmap=dirmap, xytype='label')
-    # grid.flow_distance(x, y, data='dinf_dir', dirmap=dirmap, weights=np.ones((grid.size, 2)),
-    #                    routing='dinf', out_name='dinf_dist', xytype='label')
+    grid.flow_distance(x, y, fdir_dinf, dirmap=dirmap, weights=(weights, weights),
+                       routing='dinf', xytype='label')
+
+def test_stream_order():
+    fdir = d.fdir
+    acc = d.acc
+    order = grid.stream_order(fdir, acc > 100)
+
+def test_reverse_distance():
+    fdir = d.fdir
+    acc = d.acc
+    order = grid.reverse_distance(fdir, acc > 100)
+
+def test_cell_dh():
+    fdir = d.fdir
+    fdir_dinf = d.fdir_dinf
+    dem = d.dem
+    dh_d8 = grid.cell_dh(dem, fdir, routing='d8')
+    dh_dinf = grid.cell_dh(dem, fdir_dinf, routing='dinf')
+
+def test_cell_distances():
+    fdir = d.fdir
+    fdir_dinf = d.fdir_dinf
+    dem = d.dem
+    cdist_d8 = grid.cell_distances(fdir, routing='d8')
+    cdist_dinf = grid.cell_distances(fdir_dinf, routing='dinf')
+
+def test_cell_slopes():
+    fdir = d.fdir
+    fdir_dinf = d.fdir_dinf
+    dem = d.dem
+    slopes_d8 = grid.cell_slopes(dem, fdir, routing='d8')
+    slopes_dinf = grid.cell_slopes(dem, fdir_dinf, routing='dinf')
 
 # def test_set_nodata():
 #     grid.set_nodata('dir', 0)
 
-# TODO: Need to rewrite to_ascii and to_raster
-# def test_to_ascii():
-#     catch = d.catch
-#     fdir = d.fdir
-#     grid.clip_to(catch)
-#     grid.to_ascii(fdir, 'test_dir.asc', view=False, apply_mask=False, dtype=np.float)
-#     fdir_out = grid.read_ascii('test_dir.asc', dtype=np.uint8)
-#     assert((fdir_out == fdir).all())
-    # grid.to_ascii('dir', 'test_dir.asc', view=True, apply_mask=True, dtype=np.uint8)
-    # grid.read_ascii('test_dir.asc', 'dir_output', dtype=np.uint8)
-    # assert((grid.dir_output == grid.view('dir', apply_mask=True)).all())
+def test_to_ascii():
+    catch = d.catch
+    fdir = d.fdir
+    grid.clip_to(catch)
+    grid.to_ascii(fdir, 'test_dir.asc', target_view=fdir.viewfinder, dtype=np.float)
+    fdir_out = grid.read_ascii('test_dir.asc', dtype=np.uint8)
+    assert((fdir_out == fdir).all())
+    grid.to_ascii(fdir, 'test_dir.asc', dtype=np.uint8)
+    fdir_out = grid.read_ascii('test_dir.asc', dtype=np.uint8)
+    assert((fdir_out == grid.view(fdir)).all())
 
 # def test_to_raster():
 #     grid.clip_to('catch')

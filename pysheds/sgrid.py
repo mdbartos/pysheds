@@ -41,7 +41,7 @@ from pysheds.sview import View, ViewFinder
 # Import numba functions
 import pysheds._sgrid as _self
 
-class sGrid(Grid):
+class sGrid():
     """
     Container class for holding and manipulating gridded data.
 
@@ -118,6 +118,70 @@ class sGrid(Grid):
         except:
             raise TypeError('viewfinder must be an instance of ViewFinder.')
         self._viewfinder = new_viewfinder
+
+    @property
+    def defaults(self):
+        props = {
+            'affine' : Affine(1.,0.,0.,0.,1.,0.),
+            'shape' : (1,1),
+            'nodata' : 0,
+            'crs' : pyproj.Proj(_pyproj_init),
+        }
+        return props
+
+    @property
+    def affine(self):
+        return self.viewfinder.affine
+
+    @property
+    def shape(self):
+        return self.viewfinder.shape
+
+    @property
+    def nodata(self):
+        return self.viewfinder.nodata
+
+    @property
+    def crs(self):
+        return self.viewfinder.crs
+
+    @property
+    def mask(self):
+        return self.viewfinder.mask
+
+    @affine.setter
+    def affine(self, new_affine):
+        self.viewfinder.affine = new_affine
+
+    @shape.setter
+    def shape(self, new_shape):
+        self.viewfinder.shape = new_shape
+
+    @nodata.setter
+    def nodata(self, new_nodata):
+        self.viewfinder.nodata = new_nodata
+
+    @crs.setter
+    def crs(self, new_crs):
+        self.viewfinder.crs = new_crs
+
+    @mask.setter
+    def mask(self, new_mask):
+        self.viewfinder.mask = new_mask
+
+    @property
+    def bbox(self):
+        return self.viewfinder.bbox
+
+    @property
+    def size(self):
+        return self.viewfinder.size
+
+    @property
+    def extent(self):
+        bbox = self.bbox
+        extent = (self.bbox[0], self.bbox[2], self.bbox[1], self.bbox[3])
+        return extent
 
     def read_ascii(self, data, skiprows=6, mask=None,
                    crs=pyproj.Proj(_pyproj_init), xll='lower', yll='lower',
@@ -253,6 +317,35 @@ class sGrid(Grid):
                         new_metadata=new_metadata)
         # Return output
         return out
+
+    def nearest_cell(self, x, y, affine=None, snap='corner'):
+        """
+        Returns the index of the cell (column, row) closest
+        to a given geographical coordinate.
+ 
+        Parameters
+        ----------
+        x : int or float
+            x coordinate.
+        y : int or float
+            y coordinate.
+        affine : affine.Affine
+                 Affine transformation that defines the translation between
+                 geographic x/y coordinate and array row/column coordinate.
+                 Defaults to self.affine.
+        snap : str
+               Indicates the cell indexing method. If "corner", will resolve to 
+               snapping the (x,y) geometry to the index of the nearest top-left 
+               cell corner. If "center", will return the index of the cell that 
+               the geometry falls within.
+        Returns
+        -------
+        col, row : tuple of ints
+                   Column index and row index
+        """
+        if not affine:
+            affine = self.affine
+        return View.nearest_cell(x, y, affine=affine, snap=snap)
 
     def clip_to(self, data, pad=(0,0,0,0)):
         """
@@ -1441,6 +1534,87 @@ class sGrid(Grid):
                                     metadata=dem.metadata, nodata=None)
         return pits
 
+    def detect_depressions(self, dem, **kwargs):
+        """
+        Fill depressions in a DEM. Raises depressions to same elevation as lowest neighbor.
+
+        Parameters
+        ----------
+        data : str or Raster
+               DEM data.
+               If str: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        out_name : string
+                   Name of attribute containing new filled depressions array.
+        nodata_in : int or float
+                     Value to indicate nodata in input array.
+        nodata_out : int or float
+                     Value indicating no data in output array.
+        inplace : bool
+                  If True, write output array to self.<out_name>.
+                  Otherwise, return the output array.
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and CRS.
+        """
+        if not _HAS_SKIMAGE:
+            raise ImportError('detect_depressions requires skimage.morphology module')
+        input_overrides = {'dtype' : np.float64, 'nodata' : dem.nodata}
+        kwargs.update(input_overrides)
+        dem = self._input_handler(dem, **kwargs)
+        filled_dem = self.fill_depressions(dem, **kwargs)
+        depressions = np.zeros(filled_dem.shape, dtype=np.bool8)
+        depressions[dem != filled_dem] = True
+        depressions[np.isnan(dem) | np.isnan(filled_dem)] = False
+        depressions = self._output_handler(data=depressions,
+                                           viewfinder=filled_dem.viewfinder,
+                                           metadata=filled_dem.metadata,
+                                           nodata=False)
+        return depressions
+
+    def fill_depressions(self, dem, nodata_out=np.nan, **kwargs):
+        """
+        Fill depressions in a DEM. Raises depressions to same elevation as lowest neighbor.
+
+        Parameters
+        ----------
+        data : str or Raster
+               DEM data.
+               If str: name of the dataset to be viewed.
+               If Raster: a Raster instance (see pysheds.view.Raster)
+        out_name : string
+                   Name of attribute containing new filled depressions array.
+        nodata_in : int or float
+                     Value to indicate nodata in input array.
+        nodata_out : int or float
+                     Value indicating no data in output array.
+        inplace : bool
+                  If True, write output array to self.<out_name>.
+                  Otherwise, return the output array.
+        apply_mask : bool
+               If True, "mask" the output using self.mask.
+        ignore_metadata : bool
+                          If False, require a valid affine transform and CRS.
+        """
+        if not _HAS_SKIMAGE:
+            raise ImportError('resolve_flats requires skimage.morphology module')
+        input_overrides = {'dtype' : np.float64, 'nodata' : dem.nodata}
+        kwargs.update(input_overrides)
+        dem = self._input_handler(dem, **kwargs)
+        dem_mask = self._get_nodata_cells(dem)
+        dem_mask[0, :] = True
+        dem_mask[-1, :] = True
+        dem_mask[:, 0] = True
+        dem_mask[:, -1] = True
+        # Make sure nothing flows to the nodata cells
+        seed = np.copy(dem)
+        seed[~dem_mask] = np.nanmax(dem)
+        dem_out = skimage.morphology.reconstruction(seed, dem, method='erosion')
+        dem_out = self._output_handler(data=dem_out, viewfinder=dem.viewfinder,
+                                     metadata=dem.metadata, nodata=nodata_out)
+        return dem_out
+
     def detect_flats(self, dem, **kwargs):
         """
         Detect flats in a DEM.
@@ -1484,6 +1658,79 @@ class sGrid(Grid):
         flats = self._output_handler(data=flats, viewfinder=dem.viewfinder,
                                      metadata=dem.metadata, nodata=None)
         return flats
+
+    def polygonize(self, data=None, mask=None, connectivity=4, transform=None):
+        """
+        Yield (polygon, value) for each set of adjacent pixels of the same value.
+        Wrapper around rasterio.features.shapes
+
+        From rasterio documentation:
+
+        Parameters
+        ----------
+        data : numpy ndarray
+        mask : numpy ndarray
+               Values of False or 0 will be excluded from feature generation.
+        connectivity : 4 or 8 (int)
+                       Use 4 or 8 pixel connectivity.
+        transform : affine.Affine
+                    Transformation from pixel coordinates of `image` to the
+                    coordinate system of the input `shapes`.
+        """
+        if not _HAS_RASTERIO:
+            raise ImportError('Requires rasterio module')
+        if data is None:
+            data = self.mask.astype(np.uint8)
+        if mask is None:
+            mask = self.mask
+        if transform is None:
+            transform = self.affine
+        shapes = rasterio.features.shapes(data, mask=mask, connectivity=connectivity,
+                                          transform=transform)
+        return shapes
+
+    def rasterize(self, shapes, out_shape=None, fill=0, out=None, transform=None,
+                  all_touched=False, default_value=1, dtype=None):
+        """
+        Return an image array with input geometries burned in.
+        Wrapper around rasterio.features.rasterize
+
+        From rasterio documentation:
+
+        Parameters
+        ----------
+        shapes : iterable of (geometry, value) pairs or iterable over
+                 geometries.
+        out_shape : tuple or list
+                    Shape of output numpy ndarray.
+        fill : int or float, optional
+               Fill value for all areas not covered by input geometries.
+        out : numpy ndarray
+              Array of same shape and data type as `image` in which to store
+              results.
+        transform : affine.Affine
+                    Transformation from pixel coordinates of `image` to the
+                    coordinate system of the input `shapes`.
+        all_touched : boolean, optional
+                      If True, all pixels touched by geometries will be burned in.  If
+                      false, only pixels whose center is within the polygon or that
+                      are selected by Bresenham's line algorithm will be burned in.
+        default_value : int or float, optional
+                        Used as value for all geometries, if not provided in `shapes`.
+        dtype : numpy data type
+                Used as data type for results, if `out` is not provided.
+        """
+        if not _HAS_RASTERIO:
+            raise ImportError('Requires rasterio module')
+        if out_shape is None:
+            out_shape = self.shape
+        if transform is None:
+            transform = self.affine
+        raster = rasterio.features.rasterize(shapes, out_shape=out_shape, fill=fill,
+                                             out=out, transform=transform,
+                                             all_touched=all_touched,
+                                             default_value=default_value, dtype=dtype)
+        return raster
 
     def snap_to_mask(self, mask, xy, return_dist=False, **kwargs):
         """
@@ -1550,11 +1797,18 @@ class sGrid(Grid):
             nodata_cells = (data == nodata).astype(np.bool8)
         return nodata_cells
 
-    def _sanitize_fdir(self, fdir):
-        # Find nodata cells and invalid cells
-        nodata_cells = self._get_nodata_cells(fdir)
-        invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
-        # Set nodata cells to zero
-        fdir[nodata_cells] = 0
-        fdir[invalid_cells] = 0
-        return fdir
+    def _pop_rim(self, data, nodata=0):
+        left, right, top, bottom = (data[:,0].copy(), data[:,-1].copy(),
+                                    data[0,:].copy(), data[-1,:].copy())
+        data[:,0] = nodata
+        data[:,-1] = nodata
+        data[0,:] = nodata
+        data[-1,:] = nodata
+        return left, right, top, bottom
+
+    def _replace_rim(self, data, left, right, top, bottom):
+        data[:,0] = left
+        data[:,-1] = right
+        data[0,:] = top
+        data[-1,:] = bottom
+        return None

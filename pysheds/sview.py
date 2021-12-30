@@ -301,6 +301,41 @@ class View():
         return x_t, y_t
 
     @classmethod
+    def nearest_cell(cls, x, y, affine=None, snap='corner'):
+        """
+        Returns the index of the cell (column, row) closest
+        to a given geographical coordinate.
+ 
+        Parameters
+        ----------
+        x : int or float
+            x coordinate.
+        y : int or float
+            y coordinate.
+        affine : affine.Affine
+                 Affine transformation that defines the translation between
+                 geographic x/y coordinate and array row/column coordinate.
+                 Defaults to self.affine.
+        snap : str
+               Indicates the cell indexing method. If "corner", will resolve to
+               snapping the (x,y) geometry to the index of the nearest top-left
+               cell corner. If "center", will return the index of the cell that
+               the geometry falls within.
+        Returns
+        -------
+        col, row : tuple of ints
+                   Column index and row index
+        """
+        try:
+            assert isinstance(affine, Affine)
+        except:
+            raise TypeError('affine must be an Affine instance.')
+        snap_dict = {'corner': np.around, 'center': np.floor}
+        xi, yi = cls.affine_transform(~affine, x, y)
+        col, row = snap_dict[snap]((xi, yi)).astype(int)
+        return col, row
+
+    @classmethod
     def trim_zeros(cls, data, pad=(0,0,0,0)):
         try:
             for value in pad:

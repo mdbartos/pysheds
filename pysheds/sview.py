@@ -71,6 +71,9 @@ class Raster(np.ndarray):
     def coords(self):
         return self.viewfinder.coords
     @property
+    def axes(self):
+        return self.viewfinder.axes
+    @property
     def view_shape(self):
         return self.viewfinder.shape
     @property

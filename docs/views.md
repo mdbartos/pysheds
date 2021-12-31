@@ -1,30 +1,46 @@
 # Views
 
-The `grid.view` method returns a copy of a dataset cropped to the grid's current view. The grid's current view is defined by the following attributes:
+The `grid.view` method returns a copy of a dataset cropped to the grid's current view. The grid's current view is defined by its `viewfinder` attribute, which contains five properties that fully define the spatial reference system:
 
-- `affine`: An affine transform that defines the coordinates of the top-left cell, along with the cell resolution and rotation.
-- `crs`: The coordinate reference system of the grid.
-- `shape`: The shape of the grid (number of rows by number of columns)
-- `mask`: A boolean array that defines which cells will be masked in the output `Raster`.
+  - `affine`: An affine transformation matrix.
+  - `shape`: The desired shape (rows, columns).
+  - `crs` : The coordinate reference system.
+  - `mask` : A boolean array indicating which cells are masked.
+  - `nodata` : A sentinel value indicating 'no data'.
 
 ## Initializing the grid view
 
 The grid's view will be populated automatically upon reading the first dataset.
 
 ```python
->>> grid = Grid.from_raster('../data/dem.tif',
-                            data_name='dem')
->>> grid.affine
+grid = Grid.from_raster('./data/dem.tif')
+```
+```python
+grid.affine
+```
+```
 Affine(0.0008333333333333, 0.0, -97.4849999999961,
        0.0, -0.0008333333333333, 32.82166666666536)
-       
->>> grid.crs
-<pyproj.Proj at 0x123da4b88>
+```
 
->>> grid.shape
+```python
+grid.crs
+```
+```
+Proj('+proj=longlat +datum=WGS84 +no_defs', preserve_units=True)
+```
+
+```python
+grid.shape
+```
+```
 (359, 367)
+```
 
->>> grid.mask
+```python
+grid.mask
+```
+```
 array([[ True,  True,  True, ...,  True,  True,  True],
        [ True,  True,  True, ...,  True,  True,  True],
        [ True,  True,  True, ...,  True,  True,  True],
@@ -37,13 +53,34 @@ array([[ True,  True,  True, ...,  True,  True,  True],
 We can verify that the spatial reference system is the same as that of the originating dataset:
 
 ```python
->>> grid.affine == grid.dem.affine
+dem = grid.read_raster('./data/dem.tif')
+```
+
+```python
+grid.affine == dem.affine
+```
+```
 True
->>> grid.crs == grid.dem.crs
+```
+
+```python
+grid.crs == dem.crs
+```
+```
 True
->>> grid.shape == grid.dem.shape
+```
+
+```python
+grid.shape == dem.shape
+```
+```
 True
->>> (grid.mask == grid.dem.mask).all()
+```
+
+```python
+(grid.mask == dem.mask).all()
+```
+```
 True
 ```
 
@@ -53,21 +90,32 @@ First, let's delineate a watershed and use the `grid.view` method to get the res
 
 ```python
 # Resolve flats
->>> grid.resolve_flats(data='dem', out_name='inflated_dem')
+inflated_dem = grid.resolve_flats(dem)
+
+# Compute flow directions
+fdir = grid.flowdir(inflated_dem)
 
 # Specify pour point
->>> x, y = -97.294167, 32.73750
+x, y = -97.294167, 32.73750
 
 # Delineate the catchment
->>> grid.catchment(data='dir', x=x, y=y, out_name='catch',
-                   recursionlimit=15000, xytype='label')
+catch = grid.catchment(x=x, y=y, fdir=fdir, xytype='label')
 
 # Get the current view and plot
->>> catch = grid.view('catch')
->>> plt.imshow(catch)
+catch_view = grid.view(catch)
+plt.imshow(catch_view, zorder=1)
 ```
 
 ![Catchment view](https://s3.us-east-2.amazonaws.com/pysheds/img/catchment_view.png)
+
+Note that in this case, the original raster and its view are the same:
+
+```python
+(catch == catch_view).all()
+```
+```
+True
+```
 
 ## Clipping the view to a dataset
 
@@ -75,11 +123,19 @@ The `grid.clip_to` method clips the grid's current view to nonzero elements in a
 
 ```python
 # Clip the grid's view to the catchment dataset
->>> grid.clip_to('catch')
+grid.clip_to(catch)
 
 # Get the current view and plot
->>> catch = grid.view('catch')
->>> plt.imshow(catch)
+catch_view = grid.view(catch)
+plt.imshow(catch_view, zorder=1)
+```
+
+We can also now use the `view` method to view other datasets within the current catchment boundaries:
+
+```python
+# Get the current view of flow directions
+fdir_view = grid.view(fdir)
+plt.imshow(fdir_view, cmap='viridis', zorder=1)
 ```
 
 ![Clipped view](https://s3.us-east-2.amazonaws.com/pysheds/img/catchment_view_clipped.png)
@@ -91,20 +147,20 @@ The `grid.clip_to` method clips the grid's current view to nonzero elements in a
 The "no data" value in the output array can be specified using the `nodata` keyword argument. This is often useful for visualization.
 
 ```python
->>> catch = grid.view('dem', nodata=np.nan)
->>> plt.imshow(catch)
+dem_view = grid.view(dem, nodata=np.nan)
+plt.imshow(dem_view, cmap='terrain', zorder=1)
 ```
 
 ![Setting nodata](https://s3.us-east-2.amazonaws.com/pysheds/img/dem_view_clipped_nodata.png)
 
 ### Toggling the mask
 
-The mask can be turned off by setting `apply_mask=False`.
+The mask can be turned off by setting `apply_output_mask=False`.
 
 ```python
->>> catch = grid.view('dem', nodata=np.nan,
-                      apply_mask=False)
->>> plt.imshow(catch)
+dem_view = grid.view(dem, nodata=np.nan,
+                     apply_output_mask=False)
+plt.imshow(dem_view, cmap='terrain', zorder=1)
 ```
 
 ![Setting nodata](https://s3.us-east-2.amazonaws.com/pysheds/img/dem_view_nomask.png)
@@ -114,57 +170,38 @@ The mask can be turned off by setting `apply_mask=False`.
 By default, the view method uses a nearest neighbors approach for interpolation. However, this can be changed using the `interpolation` keyword argument.
 
 ```python
->>> nn_interpolation = grid.view('terrain',
-                                 nodata=np.nan)
->>> plt.imshow(nn_interpolation)
+# Load a dataset with a different spatial reference system
+terrain = grid.read_raster('./data/impervious_area.tiff', window=grid.bbox,
+                           window_crs=grid.crs)
+```
+
+```python
+# View the new dataset with nearest neighbor interpolation
+nn_interpolation = grid.view(terrain, nodata=np.nan)
+plt.imshow(nn_interpolation, zorder=1, cmap='bone')
 ```
 
 ![Nearest neighbors](https://s3.us-east-2.amazonaws.com/pysheds/img/nn_interpolation.png)
 
 ```python
->>> linear_interpolation = grid.view('terrain',
-                                     interpolation='linear',
-                                     nodata=np.nan)
->>> plt.imshow(linear_interpolation)
+# View the new dataset with linear interpolation
+lin_interpolation = grid.view(terrain, nodata=np.nan, interpolation='linear')
+plt.imshow(lin_interpolation, zorder=1, cmap='bone')
 ```
 
 ![Linear interpolation](https://s3.us-east-2.amazonaws.com/pysheds/img/linear_interpolation.png)
 
-## Clipping the view to a bounding box
-
-The grid's view can be set to a rectangular bounding box using the `grid.set_bbox` method. 
-
-```python
-# Specify new bbox as upper-right quadrant of old bbox
->>> new_xmin = (grid.bbox[2] + grid.bbox[0]) / 2
->>> new_ymin = (grid.bbox[3] + grid.bbox[1]) / 2
->>> new_xmax = grid.bbox[2]
->>> new_ymax = grid.bbox[3]
->>> new_bbox = (new_xmin, new_ymin, new_xmax, new_ymax)
-
-# Set new bbox
->>> grid.set_bbox(new_bbox)
-
-# Plot the new view
->>> plt.imshow(grid.view('catch'))
-```
-
-![Set bbox](https://s3.us-east-2.amazonaws.com/pysheds/img/catch_upper_quad.png)
-
-
 ## Setting the view manually
 
-The `grid.affine`, `grid.crs`, `grid.shape` and `grid.mask` attributes can also be set manually.
+The `grid.viewfinder` attribute can also be set manually.
 
 ```python
 # Reset the view to the dataset's original view
->>> grid.affine = grid.dem.affine
->>> grid.crs = grid.dem.crs
->>> grid.shape = grid.dem.shape
->>> grid.mask = grid.dem.mask
+grid.viewfinder = dem.viewfinder
 
 # Plot the new view
->>> plt.imshow(grid.view('catch'))
+dem_view = grid.view(dem)
+plt.imshow(dem_view, zorder=1, cmap='terrain')
 ```
 
 ![Set bbox](https://s3.us-east-2.amazonaws.com/pysheds/img/full_dem.png)

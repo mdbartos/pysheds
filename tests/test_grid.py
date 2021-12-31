@@ -33,10 +33,9 @@ class Datasets():
 d = Datasets()
 
 # Initialize grid
-grid = Grid()
 crs = pyproj.Proj('epsg:4326', preserve_units=True)
-fdir = grid.read_ascii(dir_path, dtype=np.uint8, crs=crs)
-grid.viewfinder = fdir.viewfinder
+grid = Grid.from_raster(dem_path)
+fdir = grid.read_ascii(dir_path, dtype=np.uint8, crs=grid.crs)
 dem = grid.read_raster(dem_path)
 roi = grid.read_raster(roi_path)
 eff = grid.read_raster(eff_path)
@@ -61,8 +60,7 @@ acc_in_frame_eff = 76498 # max value with efficiency
 acc_in_frame_eff1 = 19125.5 # accumulation for raster cell with acc_in_frame with transport efficiency
 cells_in_catch = 11422
 catch_shape = (159, 169)
-max_distance_d8 = 214
-max_distance_dinf = 217
+max_distance_d8 = 209
 new_crs = pyproj.Proj('epsg:3083')
 old_crs = pyproj.Proj('epsg:4326', preserve_units=True)
 x, y = -97.29416666666677, 32.73749999999989
@@ -101,6 +99,8 @@ def test_clip():
     grid.clip_to(catch)
     assert(grid.shape == catch_shape)
     assert(grid.view(catch).shape == catch_shape)
+    # Restore viewfinder
+    grid.viewfinder = dem.viewfinder
 
 def test_input_output_mask():
     pass

@@ -274,3 +274,43 @@ array([[ 32.82166667, -97.485     ],
 </p>
 </details>
 
+## Converting the raster coordinate reference system
+
+The Raster can be transformed to a new coordinate reference system using the `to_crs` method:
+
+```python
+import pyproj
+import numpy as np
+
+# Initialize new CRS
+new_crs = pyproj.Proj('epsg:3083')
+
+# Convert CRS of dataset and set nodata value for better plotting
+dem.nodata = np.nan
+proj_dem = dem.to_crs(new_crs)
+```
+
+<details>
+<summary>Plotting code...</summary>
+<p>
+
+```python
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+fig, ax = plt.subplots(1, 2, figsize=(12,8))
+fig.patch.set_alpha(0)
+ax[0].imshow(dem, cmap='terrain', zorder=1)
+ax[1].imshow(proj_dem, cmap='terrain', zorder=1)
+ax[0].set_title('DEM', size=14)
+ax[1].set_title('Projected DEM', size=14)
+plt.tight_layout()
+```
+
+</p>
+</details>
+
+Note that the projected Raster appears slightly rotated to the counterclockwise direction.
+
+![Projection](https://s3.us-east-2.amazonaws.com/pysheds/img/rasters_projection.png)
+

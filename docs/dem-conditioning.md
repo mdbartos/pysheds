@@ -120,7 +120,7 @@ assert not depressions.any()
 
 ## Flats
 
-Flats consist of cells at which every surrounding cell is at the same elevation or higher. 
+Flats consist of cells at which every surrounding cell is at the same elevation or higher. Note that we have created flats by filling in our pits and depressions.
 
 ### Detecting flats
 

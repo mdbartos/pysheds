@@ -152,7 +152,8 @@ class Raster(np.ndarray):
         e = (yn_p - y0_p) / m
         new_affine = Affine(a, 0., x0_p, 0., e, y0_p)
         new_viewfinder = ViewFinder(affine=new_affine, shape=self.shape,
-                                    mask=self.mask, crs=new_crs)
+                                    nodata=self.nodata, mask=self.mask,
+                                    crs=new_crs)
         new_raster = View.view(self, target_view=new_viewfinder,
                             data_view=self.viewfinder, **kwargs)
         return new_raster

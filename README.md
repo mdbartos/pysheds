@@ -22,7 +22,7 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
 ### Read DEM data
 
 ```python
-# Read elevation and flow direction rasters
+# Read elevation raster
 # ----------------------------
 from pysheds.grid import Grid
 
@@ -53,7 +53,7 @@ plt.tight_layout()
 ```
 
 </p>
-</details>  
+</details>
 
 ![Example 1](https://pysheds.s3.us-east-2.amazonaws.com/img/dem.png)
 

@@ -16,6 +16,10 @@ Here, `grid` is the `Grid` instance, and `dem` is a `Raster` object. If we call 
 ```python
 dem
 ```
+<details>
+<summary>Output...</summary>
+<p>
+
 ```
 Raster([[214, 212, 210, ..., 177, 177, 175],
         [214, 210, 207, ..., 176, 176, 174],
@@ -26,6 +30,9 @@ Raster([[214, 212, 210, ..., 177, 177, 175],
         [268, 267, 266, ..., 216, 217, 216]], dtype=int16)
 ```
 
+</p>
+</details>
+
 ## Calling methods on rasters
 
 Hydrologic functions (such as flow direction determination and catchment delineation) accept and return `Raster objects`:
@@ -34,9 +41,15 @@ Hydrologic functions (such as flow direction determination and catchment delinea
 inflated_dem = grid.resolve_flats(dem)
 fdir = grid.flowdir(inflated_dem)
 ```
+
 ```python
 fdir
 ```
+
+<details>
+<summary>Output...</summary>
+<p>
+
 ```
 Raster([[  0,   0,   0, ...,   0,   0,   0],
         [  0,   2,   2, ...,   4,   1,   0],
@@ -47,6 +60,11 @@ Raster([[  0,   0,   0, ...,   0,   0,   0],
         [  0,   0,   0, ...,   0,   0,   0]])
 ```
 
+</p>
+</details>
+
+
+
 ## Raster attributes
 
 ### Viewfinder
@@ -56,9 +74,18 @@ The viewfinder attribute contains all the information needed to specify the Rast
 ```python
 dem.viewfinder
 ```
+
+<details>
+<summary>Output...</summary>
+<p>
+
 ```
 <pysheds.sview.ViewFinder at 0x13222f908>
 ```
+
+</p>
+</details>
+
 
 The viewfinder contains five necessary elements that completely define the spatial reference system.
 
@@ -75,19 +102,26 @@ An affine transform uniquely specifies the spatial location of each cell in a gr
 ```python
 dem.affine
 ```
+<details>
+<summary>Output...</summary>
+<p>
+
 ```
 Affine(0.0008333333333333, 0.0, -100.0,
        0.0, -0.0008333333333333, 34.9999999999998)
 ```
 
+</p>
+</details>
+
 The elements of the affine transform `(a, b, c, d, e, f)` are:
 
-- **a**: cell width
-- **b**: row rotation (generally zero)
-- **c**: x-coordinate of upper-left corner of upper-leftmost cell
-- **d**: column rotation (generally zero)
-- **e**: cell height
-- **f**: y-coordinate of upper-left corner of upper-leftmost cell
+- **a**: Horizontal scaling (equal to cell width if no rotation)
+- **b**: Horizontal shear
+- **c**: Horizontal translation (x-coordinate of upper-left corner of upper-leftmost cell)
+- **d**: Vertical shear
+- **e**: Vertical scaling (equal to cell height if no rotation)
+- **f**: Vertical translation (y-coordinate of upper-left corner of upper-leftmost cell)
 
 The affine transform uses the [affine](https://pypi.org/project/affine/) module.
 
@@ -98,9 +132,17 @@ The shape is equal to the shape of the underlying array (i.e. number of rows, nu
 ```python
 dem.shape
 ```
+
+<details>
+<summary>Output...</summary>
+<p>
+
 ```
 (359, 367)
 ```
+
+</p>
+</details>
 
 ### Coordinate reference system
 
@@ -111,9 +153,17 @@ raster file, the CRS will be detected and populated automaticaally.
 ```python
 dem.crs
 ```
+
+<details>
+<summary>Output...</summary>
+<p>
+
 ```
 Proj('+proj=longlat +datum=WGS84 +no_defs', preserve_units=True)
 ```
+
+</p>
+</details>
 
 This example dataset has a geographic projection (meaning that coordinates are defined in terms of latitudes and longitudes).
 
@@ -126,6 +176,11 @@ The mask is a boolean array indicating which cells in the dataset should be mask
 ```python
 dem.mask
 ```
+
+<details>
+<summary>Output...</summary>
+<p>
+
 ```
 array([[ True,  True,  True, ...,  True,  True,  True],
        [ True,  True,  True, ...,  True,  True,  True],
@@ -136,6 +191,9 @@ array([[ True,  True,  True, ...,  True,  True,  True],
        [ True,  True,  True, ...,  True,  True,  True]])
 ```
 
+</p>
+</details>
+
 ### "No data" value
 
 The `nodata` attribute specifies the value that indicates missing or invalid data.
@@ -143,9 +201,17 @@ The `nodata` attribute specifies the value that indicates missing or invalid dat
 ```python
 dem.nodata
 ```
+
+<details>
+<summary>Output...</summary>
+<p>
+
 ```
 -32768
 ```
+
+</p>
+</details>
 
 ### Derived attributes
 
@@ -156,24 +222,45 @@ Other attributes are derived from these primary attributes:
 ```python
 dem.bbox
 ```
+
+<details>
+<summary>Output...</summary>
+<p>
+
 ```
 (-97.4849999999961, 32.52166666666537, -97.17833333332945, 32.82166666666536)
 ```
+
+</p>
+</details>
 
 #### Extent
 
 ```python
 dem.extent
 ```
+
+<details>
+<summary>Output...</summary>
+<p>
+
 ```
 (-97.4849999999961, -97.17833333332945, 32.52166666666537, 32.82166666666536)
 ```
+
+</p>
+</details>
 
 #### Coordinates
 
 ```python
 dem.coords
 ```
+
+<details>
+<summary>Output...</summary>
+<p>
+
 ```
 array([[ 32.82166667, -97.485     ],
        [ 32.82166667, -97.48416667],
@@ -183,4 +270,7 @@ array([[ 32.82166667, -97.485     ],
        [ 32.52333333, -97.18083333],
        [ 32.52333333, -97.18      ]])
 ```
+
+</p>
+</details>
 

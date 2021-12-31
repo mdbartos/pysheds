@@ -15,31 +15,63 @@ The grid's view will be populated automatically upon reading the first dataset.
 ```python
 grid = Grid.from_raster('./data/dem.tif')
 ```
+
 ```python
 grid.affine
 ```
+
+<details>
+<summary>Output...</summary>
+<p>
+
 ```
 Affine(0.0008333333333333, 0.0, -97.4849999999961,
        0.0, -0.0008333333333333, 32.82166666666536)
 ```
 
+</p>
+</details>
+
+
 ```python
 grid.crs
 ```
+
+<details>
+<summary>Output...</summary>
+<p>
+
 ```
 Proj('+proj=longlat +datum=WGS84 +no_defs', preserve_units=True)
 ```
 
+</p>
+</details>
+
+
 ```python
 grid.shape
 ```
+
+<details>
+<summary>Output...</summary>
+<p>
+
 ```
 (359, 367)
 ```
 
+</p>
+</details>
+
 ```python
 grid.mask
 ```
+
+<details>
+<summary>Output...</summary>
+<p>
+
 ```
 array([[ True,  True,  True, ...,  True,  True,  True],
        [ True,  True,  True, ...,  True,  True,  True],
@@ -50,6 +82,9 @@ array([[ True,  True,  True, ...,  True,  True,  True],
        [ True,  True,  True, ...,  True,  True,  True]])
 ```
 
+</p>
+</details>
+
 We can verify that the spatial reference system is the same as that of the originating dataset:
 
 ```python
@@ -59,30 +94,64 @@ dem = grid.read_raster('./data/dem.tif')
 ```python
 grid.affine == dem.affine
 ```
+
+<details>
+<summary>Output...</summary>
+<p>
+
 ```
 True
 ```
+
+</p>
+</details>
 
 ```python
 grid.crs == dem.crs
 ```
+
+<details>
+<summary>Output...</summary>
+<p>
+
 ```
 True
 ```
+
+</p>
+</details>
 
 ```python
 grid.shape == dem.shape
 ```
+
+<details>
+<summary>Output...</summary>
+<p>
+
 ```
 True
 ```
 
+</p>
+</details>
+
+
 ```python
 (grid.mask == dem.mask).all()
 ```
+
+<details>
+<summary>Output...</summary>
+<p>
+
 ```
 True
 ```
+
+</p>
+</details>
+
 
 ## Viewing datasets
 
@@ -113,9 +182,18 @@ Note that in this case, the original raster and its view are the same:
 ```python
 (catch == catch_view).all()
 ```
+
+<details>
+<summary>Output...</summary>
+<p>
+
 ```
 True
 ```
+
+</p>
+</details>
+
 
 ## Clipping the view to a dataset
 
@@ -175,6 +253,8 @@ terrain = grid.read_raster('./data/impervious_area.tiff', window=grid.bbox,
                            window_crs=grid.crs)
 ```
 
+#### Nearest neighbor interpolation
+
 ```python
 # View the new dataset with nearest neighbor interpolation
 nn_interpolation = grid.view(terrain, nodata=np.nan)
@@ -182,6 +262,8 @@ plt.imshow(nn_interpolation, zorder=1, cmap='bone')
 ```
 
 ![Nearest neighbors](https://s3.us-east-2.amazonaws.com/pysheds/img/nn_interpolation.png)
+
+#### Linear interpolation
 
 ```python
 # View the new dataset with linear interpolation

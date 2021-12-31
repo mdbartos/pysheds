@@ -3,7 +3,7 @@
 
 ## Documentation
 
-Read the docs [here](https://mdbartos.github.io/pysheds).
+Read the docs [here 📖](https://mdbartos.github.io/pysheds).
 
 ## Media
 
@@ -17,8 +17,6 @@ Read the docs [here](https://mdbartos.github.io/pysheds).
 
 ## Example usage
 
-See [examples/quickstart](https://github.com/mdbartos/pysheds/blob/master/examples/quickstart.ipynb) for more details.
-
 Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadownload.php) project.
 
 ### Read DEM data
@@ -28,34 +26,121 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
 # ----------------------------
 from pysheds.grid import Grid
 
-grid = Grid.from_raster('n30w100_con', data_name='dem')
-grid.read_raster('n30w100_dir', data_name='dir')
-grid.view('dem')
+grid = Grid.from_raster('dem.tiff')
+dem = grid.read_raster('dem.tiff')
 ```
 
-![Example 1](examples/img/conditioned_dem.png)
+<details>
+<summary>Plotting code...</summary>
+<p>
+
+```python
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib import colors
+import seaborn as sns
+
+fig, ax = plt.subplots(figsize=(8,6))
+fig.patch.set_alpha(0)
+
+plt.imshow(dem, extent=grid.extent, cmap='terrain', zorder=1)
+plt.colorbar(label='Elevation (m)')
+plt.grid(zorder=0)
+plt.title('Digital elevation map', size=14)
+plt.xlabel('Longitude')
+plt.ylabel('Latitude')
+plt.tight_layout()
+\```
+
+</p>
+</details>  
+
+![Example 1](https://pysheds.s3.us-east-2.amazonaws.com/img/dem.png)
+
+### Condition the elevation data
+
+```python
+# Condition DEM
+# ----------------------
+# Fill pits in DEM
+pit_filled_dem = grid.fill_pits(dem)
+
+# Fill depressions in DEM
+flooded_dem = grid.fill_depressions(pit_filled_dem)
+    
+# Resolve flats in DEM
+inflated_dem = grid.resolve_flats(flooded_dem)
+```
 
 ### Elevation to flow direction
 
 ```python
 # Determine D8 flow directions from DEM
 # ----------------------
-# Fill depressions in DEM
-grid.fill_depressions('dem', out_name='flooded_dem')
-    
-# Resolve flats in DEM
-grid.resolve_flats('flooded_dem', out_name='inflated_dem')
-    
 # Specify directional mapping
 dirmap = (64, 128, 1, 2, 4, 8, 16, 32)
     
 # Compute flow directions
 # -------------------------------------
-grid.flowdir(data='inflated_dem', out_name='dir', dirmap=dirmap)
-grid.view('dir')
+fdir = grid.flowdir(inflated_dem, dirmap=dirmap)
 ```
 
-![Example 2](examples/img/flow_direction.png)
+<details>
+<summary>Plotting code...</summary>
+<p>
+
+```python
+fig = plt.figure(figsize=(8,6))
+fig.patch.set_alpha(0)
+
+plt.imshow(fdir, extent=grid.extent, cmap='viridis', zorder=2)
+boundaries = ([0] + sorted(list(dirmap)))
+plt.colorbar(boundaries= boundaries,
+             values=sorted(dirmap))
+plt.xlabel('Longitude')
+plt.ylabel('Latitude')
+plt.title('Flow direction grid', size=14)
+plt.grid(zorder=-1)
+plt.tight_layout()
+\```
+
+</p>
+</details>
+
+![Example 2](https://pysheds.s3.us-east-2.amazonaws.com/img/fdir.png)
+
+### Compute accumulation from flow direction
+
+```python
+# Calculate flow accumulation
+# --------------------------
+acc = grid.accumulation(fdir, dirmap=dirmap)
+```
+
+<details>
+<summary>Plotting code...</summary>
+<p>
+
+```python
+fig, ax = plt.subplots(figsize=(8,6))
+fig.patch.set_alpha(0)
+plt.grid('on', zorder=0)
+im = ax.imshow(acc, extent=grid.extent, zorder=2,
+               cmap='cubehelix',
+               norm=colors.LogNorm(1, acc.max()),
+               interpolation='bilinear')
+plt.colorbar(im, ax=ax, label='Upstream Cells')
+plt.title('Flow Accumulation', size=14)
+plt.xlabel('Longitude')
+plt.ylabel('Latitude')
+plt.tight_layout()
+\```
+
+</p>
+</details>
+
+![Example 4](https://pysheds.s3.us-east-2.amazonaws.com/img/acc.png)
+
 
 ### Delineate catchment from flow direction
 
@@ -63,66 +148,139 @@ grid.view('dir')
 # Delineate a catchment
 # ---------------------
 # Specify pour point
-x, y = -97.294167, 32.73750
+x, y = -97.294, 32.737
+
+# Snap pour point to high accumulation cell
+x_snap, y_snap = grid.snap_to_mask(acc > 1000, (x, y))
 
 # Delineate the catchment
-grid.catchment(data='dir', x=x, y=y, dirmap=dirmap, out_name='catch',
-               recursionlimit=15000, xytype='label')
+catch = grid.catchment(x=x_snap, y=y_snap, fdir=fdir, dirmap=dirmap, 
+                       xytype='coordinate')
 
 # Crop and plot the catchment
 # ---------------------------
 # Clip the bounding box to the catchment
-grid.clip_to('catch')
-grid.view('catch')
+grid.clip_to(catch)
+clipped_catch = grid.view(catch)
 ```
 
-![Example 3](examples/img/catchment.png)
-
-### Compute accumulation from flow direction
+<details>
+<summary>Plotting code...</summary>
+<p>
 
 ```python
-# Calculate flow accumulation
-# --------------------------
-grid.accumulation(data='catch', dirmap=dirmap, out_name='acc')
-grid.view('acc')
-```
+# Plot the catchment
+fig, ax = plt.subplots(figsize=(8,6))
+fig.patch.set_alpha(0)
 
-![Example 4](examples/img/flow_accumulation.png)
+plt.grid('on', zorder=0)
+im = ax.imshow(np.where(clipped_catch, clipped_catch, np.nan), extent=grid.extent,
+               zorder=1, cmap='Greys_r')
+plt.xlabel('Longitude')
+plt.ylabel('Latitude')
+plt.title('Delineated Catchment', size=14)
+\```
 
-### Compute flow distance from flow direction
+</p>
+</details>
 
-```python
-# Calculate distance to outlet from each cell
-# -------------------------------------------
-grid.flow_distance(data='catch', x=x, y=y, dirmap=dirmap,
-                   out_name='dist', xytype='label')
-grid.view('dist')
-```
-
-![Example 5](examples/img/flow_distance.png)
+![Example 3](https://pysheds.s3.us-east-2.amazonaws.com/img/catch.png)
 
 ### Extract the river network
 
 ```python
 # Extract river network
 # ---------------------
-branches = grid.extract_river_network(fdir='catch', acc='acc',
-                                      threshold=50, dirmap=dirmap)
+branches = grid.extract_river_network(fdir, acc > 50, dirmap=dirmap)
 ```
 
-![Example 6](examples/img/river_network.png)
+<details>
+<summary>Plotting code...</summary>
+<p>
+
+```python
+sns.set_palette('husl')
+fig, ax = plt.subplots(figsize=(8.5,6.5))
+
+plt.xlim(grid.bbox[0], grid.bbox[2])
+plt.ylim(grid.bbox[1], grid.bbox[3])
+ax.set_aspect('equal')
+
+for branch in branches['features']:
+    line = np.asarray(branch['geometry']['coordinates'])
+    plt.plot(line[:, 0], line[:, 1])
+    
+_ = plt.title('D8 channels', size=14)
+\```
+
+</p>
+</details>
+
+![Example 6](https://pysheds.s3.us-east-2.amazonaws.com/img/river.png)
+
+### Compute flow distance from flow direction
+
+```python
+# Calculate distance to outlet from each cell
+# -------------------------------------------
+dist = grid.distance_to_outlet(x=x_snap, y=y_snap, fdir=fdir, dirmap=dirmap,
+                               xytype='coordinate')
+```
+
+<details>
+<summary>Plotting code...</summary>
+<p>
+
+```python
+fig, ax = plt.subplots(figsize=(8,6))
+fig.patch.set_alpha(0)
+plt.grid('on', zorder=0)
+im = ax.imshow(dist, extent=grid.extent, zorder=2,
+               cmap='cubehelix_r')
+plt.colorbar(im, ax=ax, label='Distance to outlet (cells)')
+plt.xlabel('Longitude')
+plt.ylabel('Latitude')
+plt.title('Flow Distance', size=14)
+\```
+
+</p>
+</details>
+
+![Example 5](https://pysheds.s3.us-east-2.amazonaws.com/img/dist.png)
 
 ### Add land cover data
 
 ```python
 # Combine with land cover data
 # ---------------------
-grid.read_raster('nlcd_2011_impervious_2011_edition_2014_10_10.img',
-                  data_name='terrain', window=grid.bbox, window_crs=grid.crs)
-grid.view('terrain')
+terrain = grid.read_raster('impervious_area.tiff', window=grid.bbox,
+                           window_crs=grid.crs)
+# Reproject data to grid's coordinate reference system
+projected_terrain = terrain.to_crs(grid.crs)
+# View data in catchment's spatial extent
+catchment_terrain = grid.view(projected_terrain, nodata=np.nan)
 ```
 
-![Example 7](examples/img/impervious_area.png)
+<details>
+<summary>Plotting code...</summary>
+<p>
+
+```python
+fig, ax = plt.subplots(figsize=(8,6))
+fig.patch.set_alpha(0)
+plt.grid('on', zorder=0)
+im = ax.imshow(catchment_terrain, extent=grid.extent, zorder=2,
+               cmap='bone')
+plt.colorbar(im, ax=ax, label='Percent impervious area')
+plt.xlabel('Longitude')
+plt.ylabel('Latitude')
+plt.title('Percent impervious area', size=14)
+\```
+
+</p>
+</details>
+
+![Example 7](https://pysheds.s3.us-east-2.amazonaws.com/img/terrain.png)
 
 ### Add vector data
 
@@ -130,82 +288,110 @@ grid.view('terrain')
 # Convert catchment raster to vector and combine with soils shapefile
 # ---------------------
 # Read soils shapefile
+import pandas as pd
 import geopandas as gpd
 from shapely import geometry, ops
-soils = gpd.read_file('nrcs-soils-tarrant_439.shp')
+soils = gpd.read_file('soils.shp')
+soil_id = 'MUKEY'
 # Convert catchment raster to vector geometry and find intersection
 shapes = grid.polygonize()
 catchment_polygon = ops.unary_union([geometry.shape(shape)
                                      for shape, value in shapes])
 soils = soils[soils.intersects(catchment_polygon)]
-catchment_soils = soils.intersection(catchment_polygon)
+catchment_soils = gpd.GeoDataFrame(soils[soil_id], 
+                                   geometry=soils.intersection(catchment_polygon))
+# Convert soil types to simple integer values
+soil_types = np.unique(catchment_soils[soil_id])
+soil_types = pd.Series(np.arange(soil_types.size), index=soil_types)
+catchment_soils[soil_id] = catchment_soils[soil_id].map(soil_types)
 ```
 
-![Example 8](examples/img/vector_soil.png)
+<details>
+<summary>Plotting code...</summary>
+<p>
+
+```python
+fig, ax = plt.subplots(figsize=(8, 6))
+catchment_soils.plot(ax=ax, column=soil_id, categorical=True, cmap='terrain',
+                     linewidth=0.5, edgecolor='k', alpha=1, aspect='equal')
+ax.set_xlim(grid.bbox[0], grid.bbox[2])
+ax.set_ylim(grid.bbox[1], grid.bbox[3])
+plt.xlabel('Longitude')
+plt.ylabel('Latitude')
+ax.set_title('Soil types (vector)', size=14)
+\```
+
+</p>
+</details>
+
+![Example 8](https://pysheds.s3.us-east-2.amazonaws.com/img/poly.png)
 
 ### Convert from vector to raster
 
 ```python
-# Convert soils polygons to raster
-# ---------------------
-soil_polygons = zip(catchment_soils.geometry.values,
-                    catchment_soils['soil_type'].values)
+soil_polygons = zip(catchment_soils.geometry.values, catchment_soils[soil_id].values)
 soil_raster = grid.rasterize(soil_polygons, fill=np.nan)
 ```
 
-![Example 9](examples/img/raster_soil.png)
-
-### Estimate inundation using the Rapid Flood Spilling Method
+<details>
+<summary>Plotting code...</summary>
+<p>
 
 ```python
-# Estimate inundation extent
-# ---------------------
-from pysheds.rfsm import RFSM
-grid = Grid.from_raster('roi.tif', data_name='dem')
-grid.clip_to('dem')
-dem = grid.view('dem')
-cell_area = np.abs(grid.affine.a * grid.affine.e)
-# Create RFSM instance
-rfsm = RFSM(dem)
-# Apply uniform rainfall to DEM
-input_vol = 0.1 * cell_area * np.ones(dem.shape)
-waterlevel = rfsm.compute_waterlevel(input_vol)
-```
+fig, ax = plt.subplots(figsize=(8, 6))
+plt.imshow(soil_raster, cmap='terrain', extent=grid.extent, zorder=1)
+boundaries = np.unique(soil_raster[~np.isnan(soil_raster)]).astype(int)
+plt.colorbar(boundaries=boundaries,
+             values=boundaries)
+ax.set_xlim(grid.bbox[0], grid.bbox[2])
+ax.set_ylim(grid.bbox[1], grid.bbox[3])
+plt.xlabel('Longitude')
+plt.ylabel('Latitude')
+ax.set_title('Soil types (raster)', size=14)
+\```
 
-<img src="https://s3.us-east-2.amazonaws.com/pysheds/img/rfsm_3d.png" alt="Example 10" width="500">
+</p>
+</details>
+
+![Example 9](https://pysheds.s3.us-east-2.amazonaws.com/img/rasterize.png)
 
 ## Features
 
 - Hydrologic Functions:
-  - `flowdir`: DEM to flow direction.
-  - `catchment`: Delineate catchment from flow direction.
-  - `accumulation`: Flow direction to flow accumulation.
-  - `flow_distance`: Compute flow distance to outlet.
-  - `extract_river_network`: Extract river network at a given accumulation threshold.
-  - `cell_area`: Compute (projected) area of cells.
-  - `cell_distances`: Compute (projected) channel length within cells.
-  - `cell_dh`: Compute the elevation change between cells.
-  - `cell_slopes`: Compute the slopes of cells.
-  - `fill_pits`: Fill simple pits in a DEM (single cells lower than their surrounding neighbors).
-  - `fill_depressions`: Fill depressions in a DEM (regions of cells lower than their surrounding neighbors).
-  - `resolve_flats`: Resolve drainable flats in a DEM using the modified method of Garbrecht and Martz (1997).
-  - `compute_hand` : Compute the height above nearest drainage (HAND) as described in Nobre et al. (2011).
-- Utilities:
-  - `view`: Returns a view of a dataset at a given bounding box and resolution.
-  - `clip_to`: Clip the current view to the extent of nonzero values in a given dataset.
-  - `set_bbox`: Set the current view to a rectangular bounding box.
-  - `snap_to_mask`: Snap a set of coordinates to the nearest masked cells (e.g. cells with high accumulation).
-  - `resize`: Resize a dataset to a new resolution.
-  - `rasterize`: Convert a vector dataset to a raster dataset.
-  - `polygonize`: Convert a raster dataset to a vector dataset.
-  - `detect_pits`: Return boolean array indicating locations of simple pits in a DEM.
-  - `detect_flats`: Return boolean array indicating locations of flats in a DEM.
-  - `detect_depressions`: Return boolean array indicating locations of depressions in a DEM.
-  - `check_cycles`: Check for cycles in a flow direction grid.
-  - `set_nodata`: Set nodata value for a dataset.
-- I/O:
+  - `flowdir` : Generate a flow direction grid from a given digital elevation dataset.
+  - `catchment` : Delineate the watershed for a given pour point (x, y).
+  - `accumulation` : Compute the number of cells upstream of each cell; if weights are
+                given, compute the sum of weighted cells upstream of each cell.
+  - `distance_to_outlet` : Compute the (weighted) distance from each cell to a given
+                      pour point, moving downstream.
+  - `distance_to_ridge` : Compute the (weighted) distance from each cell to its originating
+                    drainage divide, moving upstream.
+  - `compute_hand` : Compute the height above nearest drainage (HAND).
+  - `stream_order` : Compute the (strahler) stream order.
+  - `extract_river_network` : Extract river segments from a catchment and return a geojson
+                        object.
+  - `cell_dh` : Compute the drop in elevation from each cell to its downstream neighbor.
+  - `cell_distances` : Compute the distance from each cell to its downstream neighbor.
+  - `cell_slopes` : Compute the slope between each cell and its downstream neighbor.
+  - `fill_pits` : Fill single-celled pits in a digital elevation dataset.
+  - `fill_depressions` : Fill multi-celled depressions in a digital elevation dataset.
+  - `resolve_flats` : Remove flats from a digital elevation dataset.
+  - `detect_pits` : Detect single-celled pits in a digital elevation dataset.
+  - `detect_depressions` : Detect multi-celled depressions in a digital elevation dataset.
+  - `detect_flats` : Detect flats in a digital elevation dataset.
+- Viewing Functions:
+  - `view` : Returns a "view" of a dataset defined by the grid's viewfinder.
+  - `clip_to` : Clip the viewfinder to the smallest area containing all non-
+          null gridcells for a provided dataset.
+  - `nearest_cell` : Returns the index (column, row) of the cell closest
+                to a given geographical coordinate (x, y).
+  - `snap_to_mask` : Snaps a set of points to the nearest nonzero cell in a boolean mask;
+                useful for finding pour points from an accumulation raster.
+- I/O Functions:
   - `read_ascii`: Reads ascii gridded data.
   - `read_raster`: Reads raster gridded data.
+  - `from_ascii` : Instantiates a grid from an ascii file.
+  - `from_raster` : Instantiates a grid from a raster file or Raster object.
   - `to_ascii`: Write grids to delimited ascii files.
   - `to_raster`: Write grids to raster files (e.g. geotiff).
 

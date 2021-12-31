@@ -50,7 +50,7 @@ plt.title('Digital elevation map', size=14)
 plt.xlabel('Longitude')
 plt.ylabel('Latitude')
 plt.tight_layout()
-\```
+```
 
 </p>
 </details>  
@@ -102,7 +102,7 @@ plt.ylabel('Latitude')
 plt.title('Flow direction grid', size=14)
 plt.grid(zorder=-1)
 plt.tight_layout()
-\```
+```
 
 </p>
 </details>
@@ -134,7 +134,7 @@ plt.title('Flow Accumulation', size=14)
 plt.xlabel('Longitude')
 plt.ylabel('Latitude')
 plt.tight_layout()
-\```
+```
 
 </p>
 </details>
@@ -179,7 +179,7 @@ im = ax.imshow(np.where(clipped_catch, clipped_catch, np.nan), extent=grid.exten
 plt.xlabel('Longitude')
 plt.ylabel('Latitude')
 plt.title('Delineated Catchment', size=14)
-\```
+```
 
 </p>
 </details>
@@ -211,7 +211,7 @@ for branch in branches['features']:
     plt.plot(line[:, 0], line[:, 1])
     
 _ = plt.title('D8 channels', size=14)
-\```
+```
 
 </p>
 </details>
@@ -241,7 +241,7 @@ plt.colorbar(im, ax=ax, label='Distance to outlet (cells)')
 plt.xlabel('Longitude')
 plt.ylabel('Latitude')
 plt.title('Flow Distance', size=14)
-\```
+```
 
 </p>
 </details>
@@ -275,7 +275,7 @@ plt.colorbar(im, ax=ax, label='Percent impervious area')
 plt.xlabel('Longitude')
 plt.ylabel('Latitude')
 plt.title('Percent impervious area', size=14)
-\```
+```
 
 </p>
 </details>
@@ -319,7 +319,7 @@ ax.set_ylim(grid.bbox[1], grid.bbox[3])
 plt.xlabel('Longitude')
 plt.ylabel('Latitude')
 ax.set_title('Soil types (vector)', size=14)
-\```
+```
 
 </p>
 </details>
@@ -348,7 +348,7 @@ ax.set_ylim(grid.bbox[1], grid.bbox[3])
 plt.xlabel('Longitude')
 plt.ylabel('Latitude')
 ax.set_title('Soil types (raster)', size=14)
-\```
+```
 
 </p>
 </details>

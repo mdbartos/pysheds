@@ -12,16 +12,17 @@ Note that for most use cases, DEMs should be conditioned before computing flow d
 
 ```python
 # Import modules
->>> from pysheds.grid import Grid
+from pysheds.grid import Grid
 
 # Read raw DEM
->>> grid = Grid.from_raster('../data/roi_10m', data_name='dem')
+grid = Grid.from_raster('./data/roi_10m')
+dem = grid.read_raster('./data/roi_10m')
 
 # Fill depressions
->>> grid.fill_depressions(data='dem', out_name='flooded_dem')
+flooded_dem = grid.fill_depressions(dem)
 
 # Resolve flats
->>> grid.resolve_flats(data='flooded_dem', out_name='inflated_dem')
+inflated_dem = grid.resolve_flats(flooded_dem)
 ```
 
 ### Computing D8 flow directions
@@ -29,8 +30,17 @@ Note that for most use cases, DEMs should be conditioned before computing flow d
 After filling depressions, the flow directions can be computed using the `grid.flowdir` method:
 
 ```python
->>> grid.flowdir(data='inflated_dem', out_name='dir')
->>> grid.dir
+fdir = grid.flowdir(inflated_dem)
+```
+
+<details>
+<summary>Output...</summary>
+<p>
+
+```python
+fdir
+```
+```
 Raster([[  0,   0,   0, ...,   0,   0,   0],
         [  0,   2,   2, ...,   4,   1,   0],
         [  0,   1,   2, ...,   4,   2,   0],
@@ -39,6 +49,11 @@ Raster([[  0,   0,   0, ...,   0,   0,   0],
         [  0,  64,  32, ...,  16, 128,   0],
         [  0,   0,   0, ...,   0,   0,   0]])
 ```
+
+</p>
+</details>
+
+
 
 ### Directional mappings
 
@@ -56,9 +71,18 @@ Cardinal and intercardinal directions are represented by numeric values in the o
 An alternative directional mapping can be specified using the `dirmap` keyword argument:
 
 ```python
->>> dirmap = (1, 2, 3, 4, 5, 6, 7, 8)
->>> grid.flowdir(data='inflated_dem', out_name='dir', dirmap=dirmap)
->>> grid.dir
+dirmap = (1, 2, 3, 4, 5, 6, 7, 8)
+fdir = grid.flowdir(inflated_dem, dirmap=dirmap)
+```
+
+<details>
+<summary>Output...</summary>
+<p>
+
+```python
+fdir
+```
+```
 Raster([[0, 0, 0, ..., 0, 0, 0],
         [0, 4, 4, ..., 5, 3, 0],
         [0, 3, 4, ..., 5, 4, 0],
@@ -68,13 +92,8 @@ Raster([[0, 0, 0, ..., 0, 0, 0],
         [0, 0, 0, ..., 0, 0, 0]])
 ```
 
-### Labeling pits and flats
-
-If pits or flats are present in the originating DEM, these cells can be labeled in the output array using the `pits` and `flats` keyword arguments:
-
-```python
->>> grid.flowdir(data='inflated_dem', out_name='dir', pits=0, flats=-1)
-```
+</p>
+</details>
 
 ## D-infinity flow directions
 
@@ -83,8 +102,17 @@ While the D8 routing scheme allows each cell to be routed to only one of its nea
 D-infinity routing can be selected by using the keyword argument `routing='dinf'`.
 
 ```python
->>> grid.flowdir(data='inflated_dem', out_name='dir', routing='dinf')
->>> grid.dir
+fdir = grid.flowdir(inflated_dem, routing='dinf')
+```
+
+<details>
+<summary>Output...</summary>
+<p>
+
+```python
+fdir
+```
+```python
 Raster([[  nan,   nan,   nan, ...,   nan,   nan,   nan],
         [  nan, 5.498, 5.3  , ..., 4.712, 0.   ,   nan],
         [  nan, 0.   , 5.498, ..., 4.712, 5.176,   nan],
@@ -94,15 +122,26 @@ Raster([[  nan,   nan,   nan, ...,   nan,   nan,   nan],
         [  nan,   nan,   nan, ...,   nan,   nan,   nan]])
 ```
 
+</p>
+</details>
+
 Note that each entry takes a value between 0 and 2π, with `np.nan` representing unknown flow directions.
 
 Note that you must also specify `routing=dinf` when using `grid.catchment` or `grid.accumulation` with a D-infinity output grid.
 
 ## Effect of map projections on routing
 
-The choice of map projection affects the slopes between neighboring cells. The map projection can be specified using the `as_crs` keyword argument.
+The choice of map projection affects the slopes between neighboring cells.
 
 ```python
->>> new_crs = pyproj.Proj('+init=epsg:3083')
->>> grid.flowdir(data='inflated_dem', out_name='proj_dir', as_crs=new_crs)
+# Specify new map projection
+import pyproj
+new_crs = pyproj.Proj('epsg:3083')
+
+# Convert CRS of dataset and grid
+proj_dem = inflated_dem.to_crs(new_crs)
+grid.viewfinder = proj_dem.viewfinder
+
+# Compute flow directions on projected grid
+proj_fdir = grid.flowdir(proj_dem)
 ```

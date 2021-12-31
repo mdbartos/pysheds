@@ -427,10 +427,12 @@ class sGrid():
              affine=None, shape=None, crs=None, mask=None, nodata=None,
              dtype=None, inherit_metadata=True, new_metadata={}, **kwargs):
         """
-        Return a copy of a gridded dataset clipped to the current "view". The view is determined by
-        a ViewFinder instance, and is completely defined by an affine transformation matrix (affine),
-        a desired shape (shape), a coordinate reference system (crs), a boolean mask (mask),
-        and a sentinel value indicating `no data` (nodata).
+        Return a copy of a gridded dataset transformed to a new spatial reference system. The
+        spatial reference system is determined by a ViewFinder instance, and is completely
+        defined by an affine transformation matrix (affine), a desired shape (shape),
+        a coordinate reference system (crs), a boolean mask (mask), and a sentinel value
+        indicating `no data` (nodata). The target spatial reference system defaults to the
+        `viewfinder` attribute of the Grid instance.
 
         Parameters
         ----------

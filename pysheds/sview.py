@@ -10,6 +10,39 @@ _pyproj_init = '+init=epsg:4326' if _OLD_PYPROJ else 'epsg:4326'
 
 # TODO: Need to make sure this can handle Raster inputs as well
 class Raster(np.ndarray):
+    """
+    Array-like data structure with a coordinate reference system. A Raster is instantiated
+    from an array-like object and a ViewFinder. Optional metadata may also be provided
+    as a keyword argument.
+
+    Attributes
+    ==========
+    viewfinder : Class containing all information about the coordinate system
+                 of the Raster object. Includes the `affine`, `shape`, `crs`,
+                 `nodata` and `mask` attributes.
+    affine : Affine transformation matrix (uses affine module).
+    shape : The shape of the raster (number of rows, number of columns).
+    crs : The coordinate reference system.
+    nodata : The value indicating `no data`.
+    mask : A boolean array used to mask raster cells; may be used to indicate
+           which cells lie inside a catchment.
+    metadata : A dictionary containing optional metadata about the Raster.
+    bbox : The bounding box of the raster (xmin, ymin, xmax, ymax).
+    extent : The extent of the raster (xmin, xmax, ymin, ymax).
+    size : The number of cells in the raster.
+    coords : An (N, 2) array indicating the coordinates of the top-left corner
+             of each cell in the Raster. Coordinates of cells are list in C order.
+    properties : A dict containing the names and values of the essential properties
+                 that define the coordinate reference system, including `affine`,
+                 `shape`, `mask`, `crs`, and `nodata`.
+    dy_dx : Tuple describing the cell size in the y and x directions.
+
+    Methods
+    =======
+    to_crs : Transforms the Raster to a new coordinate reference system defined
+             by a pyproj.Proj object.
+    """
+
     def __new__(cls, input_array, viewfinder=None, metadata={}):
         obj = np.asarray(input_array).view(cls)
         if viewfinder is None:
@@ -75,9 +108,26 @@ class Raster(np.ndarray):
         return property_dict
     @property
     def dy_dx(self):
-        return (-self.affine.e, self.affine.a)
+        return (abs(self.affine.e), abs(self.affine.a))
 
     def to_crs(self, new_crs, **kwargs):
+        """
+        Transforms and resamples the Raster in a new coordinate reference system.
+        A new ViewFinder is generated such that all points in the old Raster are
+        contained within the new transformed Raster.
+
+        Parameters
+        ----------
+        new_crs : pyproj.Proj
+                  New coordinate reference system.
+
+        Additional keyword arguments (**kwargs) are passed to View.view.
+
+        Returns
+        -------
+        new_raster : Raster
+                     Raster transformed to the new coordinate reference system
+        """
         old_crs = self.crs
         dx = self.affine.a
         dy = self.affine.e
@@ -105,6 +155,32 @@ class Raster(np.ndarray):
         return new_raster
 
 class ViewFinder():
+    """
+    Class that defines a spatial reference system for a Raster or Grid instance.
+    The spatial reference is completely defined by an affine transformation matrix (affine),
+    a desired shape (shape), a coordinate reference system (crs), a boolean mask (mask),
+    and a sentinel value indicating `no data` (nodata).
+
+    Attributes
+    ==========
+    affine : Affine transformation matrix (uses affine module).
+    shape : The shape of the raster (number of rows, number of columns).
+    crs : The coordinate reference system.
+    nodata : The value indicating `no data`.
+    mask : A boolean array used to mask raster cells; may be used to indicate
+           which cells lie inside a catchment.
+    bbox : The bounding box of the raster (xmin, ymin, xmax, ymax).
+    extent : The extent of the raster (xmin, xmax, ymin, ymax).
+    size : The number of cells in the raster.
+    coords : An (N, 2) array indicating the coordinates of the top-left corner
+             of each cell in the Raster. Coordinates of cells are list in C order.
+    axes : Tuple of arrays indicating the y and x axes (i.e. the coordinates of the
+           top-left corners of the leftmost and upper edges of the dataset, respectively).
+    properties : A dict containing the names and values of the essential properties
+                 that define the coordinate reference system, including `affine`,
+                 `shape`, `mask`, `crs`, and `nodata`.
+    dy_dx : Tuple describing the cell size in the y and x directions.
+    """
     def __init__(self, affine=Affine(1., 0., 0., 0., 1., 0.), shape=(1,1),
                  nodata=0, mask=None, crs=pyproj.Proj(_pyproj_init)):
         self.affine = affine
@@ -184,7 +260,7 @@ class ViewFinder():
         return extent
     @property
     def coords(self):
-        coordinates = np.meshgrid(*self.grid_indices(), indexing='ij')
+        coordinates = np.meshgrid(*self.axes, indexing='ij')
         return np.vstack(np.dstack(coordinates))
     @property
     def dy_dx(self):
@@ -201,14 +277,14 @@ class ViewFinder():
         return property_dict
     @property
     def axes(self):
-        return self.grid_indices()
+        return self._grid_indices()
 
-    def view(raster):
+    def view(raster, **kwargs):
         data_view = raster.viewfinder
         target_view = self
-        return View.view(raster, data_view, target_view, interpolation='nearest')
+        return View.view(raster, data_view, target_view, **kwargs)
 
-    def grid_indices(self, affine=None, shape=None):
+    def _grid_indices(self, affine=None, shape=None):
         """
         Return row and column coordinates of a bounding box at a
         given cellsize.
@@ -232,14 +308,65 @@ class ViewFinder():
         return y, x
 
 class View():
+    """
+    Class containing methods for manipulating views of gridded datasets.
+
+    Methods
+    ==========
+    view : View a Raster in a different spatial reference system.
+    affine_transform : Apply an affine transformation to a point or set of points.
+    nearest_cell : Find the nearest cell to a set of x, y coordinates.
+    trim_zeros : Clip a raster to the bounding box defined by its non-null values.
+    clip_to_mask : Clip a raster to a pre-defined Raster mask.
+    """
+
     def __init__(self):
-        pass
+        raise NotImplementedError('The View class is used for classmethods '
+                                  'and is not meant to be instantiated.')
 
     @classmethod
     def view(cls, data, target_view, data_view=None, interpolation='nearest',
              apply_input_mask=False, apply_output_mask=True,
              affine=None, shape=None, crs=None, mask=None, nodata=None,
              dtype=None, inherit_metadata=True, new_metadata={}):
+        """
+        Return a copy of a gridded dataset `data` transformed to the spatial reference
+        system defined by `target_view`.
+
+        Parameters
+        ----------
+        data : Raster
+               A Raster object containing the gridded data and its spatial reference system
+               (as defined by its ViewFinder).
+        target_view : ViewFinder
+                      The desired spatial reference system.
+        data_view : ViewFinder
+                    The spatial reference system of the data. Defaults to the Raster dataset's
+                    `viewfinder` attribute.
+        interpolation : 'nearest', 'linear'
+                        Interpolation method to be used if spatial reference systems
+                        are not congruent.
+        apply_input_mask : bool
+                           If True, mask the input Raster according to data.mask.
+        apply_output_mask : bool
+                           If True, mask the output Raster according to grid.mask.
+        affine : affine.Affine
+                 Affine transformation matrix (overrides target_view.affine)
+        shape : tuple of ints (length 2)
+                Shape of desired Raster (overrides target_view.shape)
+        crs : pyproj.Proj
+              Coordinate reference system (overrides target_view.crs)
+        mask : np.ndarray or Raster
+               Boolean array to mask output (overrides target_view.mask)
+        nodata : int or float
+                 Value indicating no data in output Raster (overrides target_view.nodata)
+        dtype : numpy datatype
+                Desired datatype of the output array.
+        inherit_metadata : bool
+                           If True, output Raster inherits metadata from input data.
+        new_metadata : dict
+                       Optional metadata to add to output Raster.
+        """
         # If no data view given, use data's view
         if data_view is None:
             try:
@@ -279,6 +406,23 @@ class View():
 
     @classmethod
     def affine_transform(cls, affine, x, y):
+        """
+        Basic affine transformation of a point (x, y) or set of points (x, y).
+
+        Parameters
+        ----------
+        affine : affine.Affine
+                 An affine transformation.
+        x : float or np.ndarray
+            An x-coordinate or array of x-coordinates.
+        y : float or np.ndarray
+            A y-coordinate or array of y-coordinates.
+
+        Returns
+        -------
+        x_t, y_t : tuple
+                   A set of transformed x and y coordinates
+        """
         # Check affine input type
         try:
             assert isinstance(affine, Affine)
@@ -301,11 +445,11 @@ class View():
         return x_t, y_t
 
     @classmethod
-    def nearest_cell(cls, x, y, affine=None, snap='corner'):
+    def nearest_cell(cls, x, y, affine, snap='corner'):
         """
         Returns the index of the cell (column, row) closest
         to a given geographical coordinate.
- 
+
         Parameters
         ----------
         x : int or float
@@ -315,7 +459,6 @@ class View():
         affine : affine.Affine
                  Affine transformation that defines the translation between
                  geographic x/y coordinate and array row/column coordinate.
-                 Defaults to self.affine.
         snap : str
                Indicates the cell indexing method. If "corner", will resolve to
                snapping the (x,y) geometry to the index of the nearest top-left
@@ -337,6 +480,22 @@ class View():
 
     @classmethod
     def trim_zeros(cls, data, pad=(0,0,0,0)):
+        """
+        Clip a Raster to the smallest area that contains all non-null data.
+
+        Parameters
+        ----------
+        data : Raster
+               A Raster dataset.
+        pad : tuple of int (length 4)
+              Apply padding to edges of new view (left, bottom, right, top). A pad of
+              (1,1,1,1), for instance, will add a one-cell rim around the new view.
+
+        Returns
+        -------
+        out : Raster
+              A Raster dataset clipped to the bounding box of its non-null values.
+        """
         try:
             for value in pad:
                 assert (isinstance(value, int))
@@ -356,24 +515,24 @@ class View():
     @classmethod
     def clip_to_mask(cls, data, mask=None, pad=(0,0,0,0)):
         """
-        Clip grid to bbox representing the smallest area that contains all
-        non-null data for a given dataset. If inplace is True, will set
-        self.bbox to the bbox generated by this method.
- 
+        Clip a Raster to the smallest area that contains all nonzero entries for a
+        given boolean mask.
+
         Parameters
         ----------
-        data_name : str
-                    Name of attribute to base the clip on.
-        precision : int
-                    Precision to use when matching geographic coordinates.
-        inplace : bool
-                  If True, update current view (self.affine and self.shape) to
-                  conform to clip.
-        apply_mask : bool
-                     If True, update self.mask based on nonzero values of <data_name>.
+        data : Raster
+               A Raster dataset.
+        mask : Raster
+               A Raster dataset representing a boolean mask. Defaults to data.mask.
         pad : tuple of int (length 4)
               Apply padding to edges of new view (left, bottom, right, top). A pad of
               (1,1,1,1), for instance, will add a one-cell rim around the new view.
+
+        Returns
+        -------
+        out : Raster
+              A Raster dataset clipped to the bounding box of the non-null entries
+              in the given mask.
         """
         try:
             for value in pad:

@@ -15,6 +15,7 @@ except:
     _HAS_SCIPY = False
 try:
     import skimage.measure
+    import skimage.morphology
     _HAS_SKIMAGE = True
 except:
     _HAS_SKIMAGE = False
@@ -42,58 +43,75 @@ import pysheds._sgrid as _self
 
 class sGrid():
     """
-    Container class for holding and manipulating gridded data.
+    Container class for holding, aligning, and manipulating gridded data.
 
     Attributes
     ==========
-    affine : Affine transformation matrix (uses affine module)
+    viewfinder : Class containing all information about the coordinate system
+                 of the grid object. Includes the `affine`, `shape`, `crs`,
+                 `nodata` and `mask` attributes.
+    affine : Affine transformation matrix (uses affine module).
     shape : The shape of the grid (number of rows, number of columns).
-    bbox : The geographical bounding box of the current view of the gridded data
-           (xmin, ymin, xmax, ymax).
-    mask : A boolean array used to mask certain grid cells in the bbox;
-           may be used to indicate which cells lie inside a catchment.
+    crs : The coordinate reference system.
+    nodata : The value indicating `no data`.
+    mask : A boolean array used to mask grid cells; may be used to indicate
+           which cells lie inside a catchment.
+    bbox : The bounding box of the grid (xmin, ymin, xmax, ymax).
+    extent : The extent of the grid (xmin, xmax, ymin, ymax).
+    size : The number of cells in the grid.
 
     Methods
     =======
         --------
         File I/O
         --------
-        add_gridded_data : Add a gridded dataset (dem, flowdir, accumulation)
-                           to Grid instance (generic method).
-        read_ascii : Read an ascii grid from a file and add it to a
-                     Grid instance.
-        read_raster : Read a raster file and add the data to a Grid
-                      instance.
-        from_ascii : Initializes Grid from an ascii file.
-        from_raster : Initializes Grid from a raster file.
-        to_ascii : Writes current "view" of gridded dataset(s) to ascii file.
+        read_ascii : Read an ascii grid from a file and return a Raster object.
+        read_raster : Read a raster image file and return a Raster object.
+        from_ascii : Initializes Grid from an ascii file and return a new Grid instance.
+        from_raster : Initializes Grid from a raster image file or Raster object and
+                      return a new Grid instance.
+        to_ascii : Writes current "view" of a gridded dataset to an ascii file.
+        to_raster : Writes current "view" of a gridded dataset to a raster image file.
         ----------
         Hydrologic
         ----------
-        flowdir : Generate a flow direction grid from a given digital elevation
-                  dataset (dem). Does not currently handle flats.
-        catchment : Delineate the watershed for a given pour point (x, y)
-                    or (column, row).
-        accumulation : Compute the number of cells upstream of each cell.
-        flow_distance : Compute the distance (in cells) from each cell to the
-                        outlet.
-        extract_river_network : Extract river segments from a catchment.
-        fraction : Generate the fractional contributing area for a coarse
-                   scale flow direction grid based on a fine-scale flow
-                   direction grid.
+        flowdir : Generate a flow direction grid from a given digital elevation dataset.
+        catchment : Delineate the watershed for a given pour point (x, y).
+        accumulation : Compute the number of cells upstream of each cell; if weights are
+                       given, compute the sum of weighted cells upstream of each cell.
+        distance_to_outlet : Compute the (weighted) distance from each cell to a given
+                             pour point, moving downstream.
+        distance_to_ridge : Compute the (weighted) distance from each cell to its originating
+                            drainage divide, moving upstream.
+        compute_hand : Compute the height above nearest drainage (HAND).
+        stream_order : Compute the (strahler) stream order.
+        extract_river_network : Extract river segments from a catchment and return a geojson
+                                object.
+        cell_dh : Compute the drop in elevation from each cell to its downstream neighbor.
+        cell_distances : Compute the distance from each cell to its downstream neighbor.
+        cell_slopes : Compute the slope between each cell and its downstream neighbor.
+        fill_pits : Fill single-celled pits in a digital elevation dataset.
+        fill_depressions : Fill multi-celled depressions in a digital elevation dataset.
+        resolve_flats : Remove flats from a digital elevation dataset.
+        detect_pits : Detect single-celled pits in a digital elevation dataset.
+        detect_depressions : Detect multi-celled depressions in a digital elevation dataset.
+        detect_flats : Detect flats in a digital elevation dataset.
         ---------------
         Data Processing
         ---------------
-        view : Returns a "view" of a dataset defined by an affine transformation
-               self.affine (can optionally be masked with self.mask).
-        set_bbox : Sets the bbox of the current "view" (self.bbox).
-        set_nodata : Sets the nodata value for a given dataset.
-        grid_indices : Returns arrays containing the geographic coordinates
-                       of the grid's rows and columns for the current "view".
+        view : Returns a "view" of a dataset defined by the grid's viewfinder.
+        clip_to : Clip the viewfinder to the smallest area containing all non-
+                  null gridcells for a provided dataset.
         nearest_cell : Returns the index (column, row) of the cell closest
                        to a given geographical coordinate (x, y).
-        clip_to : Clip the bbox to the smallest area containing all non-
-                  null gridcells for a provided dataset.
+        snap_to_mask : Snaps a set of points to the nearest nonzero cell in a boolean mask;
+                       useful for finding pour points from an accumulation raster.
+
+    ========
+    Examples
+    ========
+    # Create empty grid
+    grid = Grid()
     """
 
     def __init__(self, viewfinder=None):
@@ -247,48 +265,44 @@ class sGrid():
              dtype=None, inherit_metadata=True, new_metadata={}, **kwargs):
         """
         Return a copy of a gridded dataset clipped to the current "view". The view is determined by
-        an affine transformation which describes the bounding box and cellsize of the grid.
-        The view will also optionally mask grid cells according to the boolean array self.mask.
+        a ViewFinder instance, and is completely defined by an affine transformation matrix (affine),
+        a desired shape (shape), a coordinate reference system (crs), a boolean mask (mask),
+        and a sentinel value indicating `no data` (nodata).
 
         Parameters
         ----------
-        data : str or Raster
-               If str: name of the dataset to be viewed.
-               If Raster: a Raster instance (see pysheds.view.Raster)
-        data_view : RegularViewFinder or IrregularViewFinder
-                    The view at which the data is defined (based on an affine
-                    transformation and shape). Defaults to the Raster dataset's
-                    viewfinder attribute.
-        target_view : RegularViewFinder or IrregularViewFinder
-                      The desired view (based on an affine transformation and shape)
-                      Defaults to a viewfinder based on self.affine and self.shape.
-        apply_mask : bool
-               If True, "mask" the view using self.mask.
+        data : Raster
+               A Raster object containing the gridded data and its spatial reference system
+               (as defined by its ViewFinder).
+        data_view : ViewFinder
+                    The spatial reference system of the data. Defaults to the Raster dataset's
+                    `viewfinder` attribute.
+        target_view : ViewFinder
+                      The desired spatial reference system. Defaults the the Grid instance's
+                      `viewfinder` attribute.
+        interpolation : 'nearest', 'linear'
+                        Interpolation method to be used if spatial reference systems
+                        are not congruent.
+        apply_input_mask : bool
+                           If True, mask the input Raster according to data.mask.
+        apply_output_mask : bool
+                           If True, mask the output Raster according to grid.mask.
+        affine : affine.Affine
+                 Affine transformation matrix (overrides target_view.affine)
+        shape : tuple of ints (length 2)
+                Shape of desired Raster (overrides target_view.shape)
+        crs : pyproj.Proj
+              Coordinate reference system (overrides target_view.crs)
+        mask : np.ndarray or Raster
+               Boolean array to mask output (overrides target_view.mask)
         nodata : int or float
-                 Value indicating no data in output array.
-                 Defaults to the `nodata` attribute of the input dataset.
-        interpolation: 'nearest', 'linear', 'cubic', 'spline'
-                       Interpolation method to be used. If both the input data
-                       view and output data view can be defined on a regular grid,
-                       all interpolation methods are available. If one
-                       of the datasets cannot be defined on a regular grid, or the
-                       datasets use a different CRS, only 'nearest', 'linear' and
-                       'cubic' are available.
-        as_crs: pyproj.Proj
-                Projection at which to view the data (overrides self.crs).
-        return_coords: bool
-                       If True, return the coordinates corresponding to each value
-                       in the output array.
-        kx, ky: int
-                Degrees of the bivariate spline, if 'spline' interpolation is desired.
-        s : float
-            Smoothing factor of the bivariate spline, if 'spline' interpolation is desired.
-        tolerance: float
-                   Maximum tolerance when matching coordinates. Data coordinates
-                   that cannot be matched to a target coordinate within this
-                   tolerance will be masked with the nodata value in the output array.
-        dtype: numpy datatype
-               Desired datatype of the output array.
+                 Value indicating no data in output Raster (overrides target_view.nodata)
+        dtype : numpy datatype
+                Desired datatype of the output array.
+        inherit_metadata : bool
+                           If True, output Raster inherits metadata from input data.
+        new_metadata : dict
+                       Optional metadata to add to output Raster.
         """
         # Check input type
         try:
@@ -321,7 +335,7 @@ class sGrid():
         """
         Returns the index of the cell (column, row) closest
         to a given geographical coordinate.
- 
+
         Parameters
         ----------
         x : int or float
@@ -333,9 +347,9 @@ class sGrid():
                  geographic x/y coordinate and array row/column coordinate.
                  Defaults to self.affine.
         snap : str
-               Indicates the cell indexing method. If "corner", will resolve to 
-               snapping the (x,y) geometry to the index of the nearest top-left 
-               cell corner. If "center", will return the index of the cell that 
+               Indicates the cell indexing method. If "corner", will resolve to
+               snapping the (x,y) geometry to the index of the nearest top-left
+               cell corner. If "center", will return the index of the cell that
                the geometry falls within.
         Returns
         -------
@@ -349,21 +363,13 @@ class sGrid():
     def clip_to(self, data, pad=(0,0,0,0)):
         """
         Clip grid to bbox representing the smallest area that contains all
-        non-null data for a given dataset. If inplace is True, will set
-        self.bbox to the bbox generated by this method.
- 
+        non-null data for a given dataset.
+
         Parameters
         ----------
-        data_name : str
-                    Name of attribute to base the clip on.
-        precision : int
-                    Precision to use when matching geographic coordinates.
-        inplace : bool
-                  If True, update current view (self.affine and self.shape) to
-                  conform to clip.
-        apply_mask : bool
-                     If True, update self.mask based on nonzero values of <data_name>.
-        pad : tuple of int (length 4)
+        data : Raster
+               Raster dataset to clip to.
+        pad : tuple of ints (length 4)
               Apply padding to edges of new view (left, bottom, right, top). A pad of
               (1,1,1,1), for instance, will add a one-cell rim around the new view.
         """
@@ -374,24 +380,21 @@ class sGrid():
     def flowdir(self, dem, routing='d8', flats=-1, pits=-2, nodata_out=None,
                 dirmap=(64, 128, 1, 2, 4, 8, 16, 32), **kwargs):
         """
-        Generates a flow direction grid from a DEM grid.
+        Generates a flow direction raster from a DEM grid. Both d8 and d-infinity routing
+        are supported.
 
         Parameters
         ----------
-        data : str or Raster
-               DEM data.
-               If str: name of the dataset to be viewed.
-               If Raster: a Raster instance (see pysheds.view.Raster)
-        out_name : string
-                   Name of attribute containing new flow direction array.
-        nodata_in : int or float
-                     Value to indicate nodata in input array.
-        nodata_out : int or float
-                     Value to indicate nodata in output array.
-        pits : int
-               Value to indicate pits in output array.
+        dem : Raster
+              Digital elevation model data.
         flats : int
                 Value to indicate flat areas in output array.
+        pits : int
+               Value to indicate pits in output array.
+        nodata_out : int or float
+                     Value to indicate nodata in output array.
+                       - If d8 routing is used, defaults to 0
+                       - If dinf routing is used, defaults to np.nan
         dirmap : list or tuple (length 8)
                  List of integer values representing the following
                  cardinal and intercardinal directions (in order):
@@ -400,15 +403,17 @@ class sGrid():
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
                   'dinf' : D-infinity flow directions
-        inplace : bool
-                  If True, write output array to self.<out_name>.
-                  Otherwise, return the output array.
-        as_crs : pyproj.Proj instance
-                 CRS projection to use when computing slopes.
-        apply_mask : bool
-               If True, "mask" the output using self.mask.
-        ignore_metadata : bool
-                          If False, require a valid affine transform and crs.
+
+        Additional keyword arguments (**kwargs) are passed to self.view.
+
+        Returns
+        -------
+        fdir : Raster
+               Raster indicating flow directions.
+               - If d8 routing is used, dtype is int64. Each cell indicates the flow
+                 direction defined by dirmap.
+               - If dinf routing is used, dtype is float64. Each cell indicates the flow
+                 angle (from 0 to 2 pi radians).
         """
         default_metadata = {'dirmap' : dirmap, 'flats' : flats, 'pits' : pits}
         input_overrides = {'dtype' : np.float64, 'nodata' : dem.nodata}
@@ -460,54 +465,47 @@ class sGrid():
                   nodata_out=False, xytype='coordinate', routing='d8', snap='corner', **kwargs):
         """
         Delineates a watershed from a given pour point (x, y).
- 
+
         Parameters
         ----------
-        x : int or float
-            x coordinate of pour point
-        y : int or float
-            y coordinate of pour point
-        data : str or Raster
+        x : float or int
+            x coordinate (or index) of pour point
+        y : float or int
+            y coordinate (or index) of pour point
+        fdir : Raster
                Flow direction data.
-               If str: name of the dataset to be viewed.
-               If Raster: a Raster instance (see pysheds.view.Raster)
         pour_value : int or None
                      If not None, value to represent pour point in catchment
-                     grid (required by some programs).
-        out_name : string
-                   Name of attribute containing new catchment array.
+                     grid.
         dirmap : list or tuple (length 8)
                  List of integer values representing the following
                  cardinal and intercardinal directions (in order):
                  [N, NE, E, SE, S, SW, W, NW]
-        nodata_in : int or float
-                    Value to indicate nodata in input array.
         nodata_out : int or float
-                     Value to indicate nodata in output array.
-        xytype : 'index' or 'label'
+                     Value to indicate `no data` in output array.
+        xytype : 'coordinate' or 'index'
                  How to interpret parameters 'x' and 'y'.
+                     'coordinate' : x and y represent geographic coordinates
+                                    (will be passed to self.nearest_cell).
                      'index' : x and y represent the column and row
                                indices of the pour point.
-                     'label' : x and y represent geographic coordinates
-                               (will be passed to self.nearest_cell).
         routing : str
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
                   'dinf' : D-infinity flow directions
-        recursionlimit : int
-                         Recursion limit--may need to be raised if
-                         recursion limit is reached.
-        inplace : bool
-                  If True, write output array to self.<out_name>.
-                  Otherwise, return the output array.
-        apply_mask : bool
-               If True, "mask" the output using self.mask.
-        ignore_metadata : bool
-                          If False, require a valid affine transform and crs.
         snap : str
-               Function to use on array for indexing:
+               Function to use for self.nearest_cell:
                'corner' : numpy.around()
                'center' : numpy.floor()
+
+        Additional keyword arguments (**kwargs) are passed to self.view.
+
+        Returns
+        -------
+        catch : Raster
+                Raster indicating cells that lie in the catchment. The dtype will be
+                np.bool8, unless `pour_value` is specified, in which case the dtype will
+                be the smallest dtype capable of representing the pour value.
         """
         if routing.lower() == 'd8':
             input_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
@@ -574,49 +572,42 @@ class sGrid():
     def accumulation(self, fdir, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
                      nodata_out=0., efficiency=None, routing='d8', cycle_size=1, **kwargs):
         """
-        Generates an array of flow accumulation, where cell values represent
-        the number of upstream cells.
- 
+        Generates a flow accumulation raster. If no weights are provided, the value of each cell
+        is equal to the number of upstream cells. If weights are provided, the value of each cell
+        is the sum of upstream weights.
+
         Parameters
         ----------
-        data : str or Raster
+        fdir : Raster
                Flow direction data.
-               If str: name of the dataset to be viewed.
-               If Raster: a Raster instance (see pysheds.view.Raster)
-        weights: numpy ndarray
--                 Array of weights to be applied to each accumulation cell. Must
--                 be same size as data.
+        weights: Raster
+                 Weights to be applied to each accumulation cell. Defaults to the
+                 vector of all ones.
         dirmap : list or tuple (length 8)
                  List of integer values representing the following
                  cardinal and intercardinal directions (in order):
                  [N, NE, E, SE, S, SW, W, NW]
-        efficiency: numpy ndarray
-                 transport efficiency, relative correction factor applied to the
-                 outflow of each cell
-                 nodata will be set to 1, i.e. no correction
-                 Must be same size as data.
-        nodata_in : int or float
-                    Value to indicate nodata in input array. If using a named dataset, will
-                    default to the 'nodata' value of the named dataset. If using an ndarray,
-                    will default to 0.
+        efficiency: Raster
+                    Transport efficiency, relative correction factor applied to the
+                    outflow of each cell. Nodata will be set to 1, i.e. no correction.
         nodata_out : int or float
-                     Value to indicate nodata in output array.
-        out_name : string
-                   Name of attribute containing new accumulation array.
+                     Value to indicate nodata in output raster.
         routing : str
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
                   'dinf' : D-infinity flow directions
-        inplace : bool
-                  If True, write output array to self.<out_name>.
-                  Otherwise, return the output array.
-        pad : bool
-              If True, pad the rim of the input array with zeros. Else, ignore
-              the outer rim of cells in the computation.
-        apply_mask : bool
-               If True, "mask" the output using self.mask.
-        ignore_metadata : bool
-                          If False, require a valid affine transform and crs.
+        cycle_size : int
+                     Maximum length of cycles to check for in d-infinity grids. (Note
+                     that d-infinity routing can generate cycles that will cause
+                     the accumulation algorithm to abort. These cycles are removed prior
+                     to running the d-infinity accumulation algorithm.)
+
+        Additional keyword arguments (**kwargs) are passed to self.view.
+
+        Returns
+        --------
+        acc : Raster
+              Raster indicating the (weighted) accumulation at each cell.
         """
         if routing.lower() == 'd8':
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
@@ -715,56 +706,54 @@ class sGrid():
                                    metadata=fdir.metadata, nodata=nodata_out)
         return acc
 
-    def flow_distance(self, x, y, fdir, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                      nodata_out=np.nan, routing='d8', method='shortest',
-                      xytype='coordinate', snap='corner', **kwargs):
+    def distance_to_outlet(self, x, y, fdir, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                           nodata_out=np.nan, routing='d8', method='shortest',
+                           xytype='coordinate', snap='corner', **kwargs):
         """
-        Generates an array representing the topological distance from each cell
-        to the outlet.
+        Generates a raster representing the (weighted) topological distance from each cell
+        to the outlet, moving downstream.
 
         Parameters
         ----------
-        x : int or float
-            x coordinate of pour point
-        y : int or float
-            y coordinate of pour point
-        data : str or Raster
+        x : float or int
+            x coordinate (or index) of pour point
+        y : float or int
+            y coordinate (or index) of pour point
+        fdir : Raster
                Flow direction data.
-               If str: name of the dataset to be viewed.
-               If Raster: a Raster instance (see pysheds.view.Raster)
-        weights: numpy ndarray
-                 Weights (distances) to apply to link edges.
+        weights: Raster
+                 Weights (distances) to apply to link edges. Defaults to the vector of
+                 all ones.
         dirmap : list or tuple (length 8)
                  List of integer values representing the following
                  cardinal and intercardinal directions (in order):
                  [N, NE, E, SE, S, SW, W, NW]
-        nodata_in : int or float
-                    Value to indicate nodata in input array.
         nodata_out : int or float
                      Value to indicate nodata in output array.
-        out_name : string
-                   Name of attribute containing new flow distance array.
         routing : str
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
                   'dinf' : D-infinity flow directions
-        inplace : bool
-                  If True, write output array to self.<out_name>.
-                  Otherwise, return the output array.
-        xytype : 'index' or 'label'
+        xytype : 'coordinate' or 'index'
                  How to interpret parameters 'x' and 'y'.
+                     'coordinate' : x and y represent geographic coordinates
+                                    (will be passed to self.nearest_cell).
                      'index' : x and y represent the column and row
                                indices of the pour point.
-                     'label' : x and y represent geographic coordinates
-                               (will be passed to self.nearest_cell).
-        apply_mask : bool
-               If True, "mask" the output using self.mask.
-        ignore_metadata : bool
-                          If False, require a valid affine transform and CRS.
+        method : str
+                 Method to use for distance calculation when multiple paths exist.
+                 Currently, only shortest path distance is supported.
         snap : str
                Function to use on array for indexing:
                'corner' : numpy.around()
                'center' : numpy.floor()
+
+        Additional keyword arguments (**kwargs) are passed to self.view.
+
+        Returns
+        --------
+        dist : Raster
+               Raster indicating the (possibly weighted) distance from each cell to the outlet.
         """
         if routing.lower() == 'd8':
             input_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
@@ -852,45 +841,37 @@ class sGrid():
 
         Parameters
         ----------
-        fdir : str or Raster
+        fdir : Raster
                Flow direction data.
-               If str: name of the dataset to be viewed.
-               If Raster: a Raster instance (see pysheds.view.Raster)
-        dem : str or Raster
+        dem : Raster
               Digital elevation data.
-              If str: name of the dataset to be viewed.
-              If Raster: a Raster instance (see pysheds.view.Raster)
-        drainage_mask : str or Raster
-                        Boolean raster or ndarray with nonzero elements indicating
-                        locations of drainage channels.
-                        If str: name of the dataset to be viewed.
-                        If Raster: a Raster instance (see pysheds.view.Raster)
-        out_name : string
-                   Name of attribute containing new catchment array.
+        mask : Raster
+               Boolean raster with nonzero elements indicating
+               locations of drainage channels.
         dirmap : list or tuple (length 8)
                  List of integer values representing the following
                  cardinal and intercardinal directions (in order):
                  [N, NE, E, SE, S, SW, W, NW]
-        nodata_in_fdir : int or float
-                         Value to indicate nodata in flow direction input array.
-        nodata_in_dem : int or float
-                        Value to indicate nodata in digital elevation input array.
         nodata_out : int or float
                      Value to indicate nodata in output array.
         routing : str
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
                   'dinf' : D-infinity flow directions (not implemented)
-        recursionlimit : int
-                         Recursion limit--may need to be raised if
-                         recursion limit is reached.
-        inplace : bool
-                  If True, write output array to self.<out_name>.
-                  Otherwise, return the output array.
-        apply_mask : bool
-               If True, "mask" the output using self.mask.
-        ignore_metadata : bool
-                          If False, require a valid affine transform and crs.
+        return_index : bool
+                       Boolean value indicating desired output.
+                       - If True, return a Raster where each cell indicates the index
+                         of the (topologically) nearest channel cell.
+                       - If False, return a Raster where each cell indicates the elevation
+                         above the (topologically) nearest channel cell.
+
+        Additional keyword arguments (**kwargs) are passed to self.view.
+
+        Returns
+        -------
+        hand : Raster
+               Raster indicating either the index of the nearest channel cell, or the height
+               above nearest drainage, depending on the value of the `return_index` parameter.
         """
         if routing.lower() == 'd8':
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
@@ -957,61 +938,6 @@ class sGrid():
                                     metadata=fdir.metadata, nodata=nodata_out)
         return hand
 
-    def resolve_flats(self, data, nodata_out=None, eps=1e-5, max_iter=1000, **kwargs):
-        """
-        Resolve flats in a DEM using the modified method of Barnes et al. (2015).
-        See: https://arxiv.org/abs/1511.04433
-
-        Parameters
-        ----------
-        data : str or Raster
-               DEM data.
-               If str: name of the dataset to be viewed.
-               If Raster: a Raster instance (see pysheds.view.Raster)
-        out_name : string
-                   Name of attribute containing new flow direction array.
-        nodata_in : int or float
-                     Value to indicate nodata in input array.
-        nodata_out : int or float
-                     Value to indicate nodata in output array.
-        inplace : bool
-                  If True, write output array to self.<out_name>.
-                  Otherwise, return the output array.
-        apply_mask : bool
-               If True, "mask" the output using self.mask.
-        ignore_metadata : bool
-                          If False, require a valid affine transform and CRS.
-        """
-        input_overrides = {'dtype' : np.float64}
-        kwargs.update(input_overrides)
-        dem = self._input_handler(data, **kwargs)
-        # Find no data cells
-        # TODO: Should these be used?
-        nodata_cells = self._get_nodata_cells(dem)
-        # Get inside indices
-        inside = np.arange(dem.size, dtype=np.int64).reshape(dem.shape)[1:-1, 1:-1].ravel()
-        # Find (i) cells in flats, (ii) cells with flow directions defined
-        # and (iii) cells with at least one higher neighbor
-        flats, fdirs_defined, higher_cells = _self._par_get_candidates_numba(dem, inside)
-        # Label all flats
-        labels, numlabels = skimage.measure.label(flats, return_num=True)
-        # Get high-edge cells
-        hec = _self._par_get_high_edge_cells_numba(inside, fdirs_defined, higher_cells, labels)
-        # Get low-edge cells
-        lec = _self._par_get_low_edge_cells_numba(inside, dem, fdirs_defined, labels, numlabels)
-        # Construct gradient from higher terrain
-        grad_from_higher = _self._grad_from_higher_numba(hec, flats, labels, numlabels, max_iter)
-        # Construct gradient towards lower terrain
-        grad_towards_lower = _self._grad_towards_lower_numba(lec, flats, dem, max_iter)
-        # Construct a gradient that is guaranteed to drain
-        new_drainage_grad = (2 * grad_towards_lower + grad_from_higher)
-        # Create a flat-removed DEM by applying drainage gradient
-        inflated_dem = dem + eps * new_drainage_grad
-        inflated_dem = self._output_handler(data=inflated_dem,
-                                            viewfinder=dem.viewfinder,
-                                            metadata=dem.metadata)
-        return inflated_dem
-
     def extract_river_network(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
                               routing='d8', **kwargs):
         """
@@ -1019,25 +945,19 @@ class sGrid():
 
         Parameters
         ----------
-        fdir : str or Raster
+        fdir : Raster
                Flow direction data.
-               If str: name of the dataset to be viewed.
-               If Raster: a Raster instance (see pysheds.view.Raster)
-        mask : np.ndarray or Raster
-               Boolean array indicating channelized regions
+        mask : Raster
+               Boolean raster indicating channelized regions
         dirmap : list or tuple (length 8)
                  List of integer values representing the following
                  cardinal and intercardinal directions (in order):
                  [N, NE, E, SE, S, SW, W, NW]
-        nodata_in : int or float
-                     Value to indicate nodata in input array.
         routing : str
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
-        apply_mask : bool
-               If True, "mask" the output using self.mask.
-        ignore_metadata : bool
-                          If False, require a valid affine transform and CRS.
+
+        Additional keyword arguments (**kwargs) are passed to self.view.
 
         Returns
         -------
@@ -1075,41 +995,36 @@ class sGrid():
             x, y = self.affine * (xi, yi)
             line = geojson.LineString(np.column_stack([x, y]).tolist())
             featurelist.append(geojson.Feature(geometry=line, id=index))
-            geo = geojson.FeatureCollection(featurelist)
+        geo = geojson.FeatureCollection(featurelist)
         return geo
 
     def stream_order(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
                      nodata_out=0, routing='d8', **kwargs):
         """
-        Generates river segments from accumulation and flow_direction arrays.
+        Computes the Strahler stream order.
 
         Parameters
         ----------
-        fdir : str or Raster
+        fdir : Raster
                Flow direction data.
-               If str: name of the dataset to be viewed.
-               If Raster: a Raster instance (see pysheds.view.Raster)
-        mask : np.ndarray or Raster
-               Boolean array indicating channelized regions
+        mask : Raster
+               Boolean Raster indicating channelized regions
         dirmap : list or tuple (length 8)
                  List of integer values representing the following
                  cardinal and intercardinal directions (in order):
                  [N, NE, E, SE, S, SW, W, NW]
-        nodata_in : int or float
-                     Value to indicate nodata in input array.
+        nodata_out : int or float
+                     Value to indicate nodata in output Raster.
         routing : str
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
-        apply_mask : bool
-               If True, "mask" the output using self.mask.
-        ignore_metadata : bool
-                          If False, require a valid affine transform and CRS.
+
+        Additional keyword arguments (**kwargs) are passed to self.view.
 
         Returns
         -------
-        geo : geojson.FeatureCollection
-              A geojson feature collection of river segments. Each array contains the cell
-              indices of junctions in the segment.
+        order : Raster
+                Raster indicating Strahler stream order of each cell
         """
         if routing.lower() == 'd8':
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
@@ -1142,38 +1057,35 @@ class sGrid():
                                      metadata=fdir.metadata, nodata=nodata_out)
         return order
 
-    def reverse_distance(self, fdir, mask, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                         nodata_out=0, routing='d8', **kwargs):
+    def distance_to_ridge(self, fdir, mask, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                          nodata_out=0, routing='d8', **kwargs):
         """
-        Generates river segments from accumulation and flow_direction arrays.
+        Generates a raster representing the (weighted) topological distance from each cell
+        to its originating drainage divide, moving upstream.
 
         Parameters
         ----------
-        fdir : str or Raster
+        fdir : Raster
                Flow direction data.
-               If str: name of the dataset to be viewed.
-               If Raster: a Raster instance (see pysheds.view.Raster)
-        mask : np.ndarray or Raster
-               Boolean array indicating channelized regions
+        mask : Raster
+               Boolean raster indicating channelized regions
         dirmap : list or tuple (length 8)
                  List of integer values representing the following
                  cardinal and intercardinal directions (in order):
                  [N, NE, E, SE, S, SW, W, NW]
-        nodata_in : int or float
-                     Value to indicate nodata in input array.
+        nodata_out : int or float
+                     Value to indicate nodata in output raster.
         routing : str
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
-        apply_mask : bool
-               If True, "mask" the output using self.mask.
-        ignore_metadata : bool
-                          If False, require a valid affine transform and CRS.
+
+        Additional keyword arguments (**kwargs) are passed to self.view.
 
         Returns
         -------
-        geo : geojson.FeatureCollection
-              A geojson feature collection of river segments. Each array contains the cell
-              indices of junctions in the segment.
+        rdist : Raster
+                Raster indicating the (weighted) distance from each cell to its furthest
+                upstream parent.
         """
         if routing.lower() == 'd8':
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
@@ -1216,38 +1128,31 @@ class sGrid():
                 nodata_out=np.nan, routing='d8', **kwargs):
         """
         Generates an array representing the elevation difference from each cell to its
-        downstream neighbor.
- 
+        downstream neighbor(s).
+
         Parameters
         ----------
-        fdir : str or Raster
+        dem : Raster
+              Digital elevation dataset.
+        fdir : Raster
                Flow direction data.
-               If str: name of the dataset to be viewed.
-               If Raster: a Raster instance (see pysheds.view.Raster)
-        dem : str or Raster
-              DEM data.
-              If str: name of the dataset to be viewed.
-              If Raster: a Raster instance (see pysheds.view.Raster)
-        out_name : string
-                   Name of attribute containing new cell elevation difference array.
         dirmap : list or tuple (length 8)
                  List of integer values representing the following
                  cardinal and intercardinal directions (in order):
                  [N, NE, E, SE, S, SW, W, NW]
-        nodata_in : int or float
-                     Value to indicate nodata in input array.
         nodata_out : int or float
-                     Value to indicate nodata in output array.
+                     Value to indicate nodata in output raster.
         routing : str
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
-        inplace : bool
-                  If True, write output array to self.<out_name>.
-                  Otherwise, return the output array.
-        apply_mask : bool
-               If True, "mask" the output using self.mask.
-        ignore_metadata : bool
-                          If False, require a valid affine transform and CRS.
+                  'dinf' : D-infinity flow directions (not implemented)
+
+        Additional keyword arguments (**kwargs) are passed to self.view.
+
+        Returns
+        -------
+        dh : Raster
+             Raster indicating elevation drop from each cell to its downstream neighbor(s).
         """
         if routing.lower() == 'd8':
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
@@ -1306,36 +1211,30 @@ class sGrid():
     def cell_distances(self, fdir, dirmap=(64, 128, 1, 2, 4, 8, 16, 32), nodata_out=np.nan,
                        routing='d8', **kwargs):
         """
-        Generates an array representing the distance from each cell to its downstream neighbor.
- 
+        Generates an array representing the distance from each cell to its downstream neighbor(s).
+
         Parameters
         ----------
-        data : str or Raster
+        fdir : Raster
                Flow direction data.
-               If str: name of the dataset to be viewed.
-               If Raster: a Raster instance (see pysheds.view.Raster)
-        out_name : string
-                   Name of attribute containing new cell distance array.
         dirmap : list or tuple (length 8)
                  List of integer values representing the following
                  cardinal and intercardinal directions (in order):
                  [N, NE, E, SE, S, SW, W, NW]
-        nodata_in : int or float
-                     Value to indicate nodata in input array.
         nodata_out : int or float
-                     Value to indicate nodata in output array.
+                     Value to indicate nodata in output raster.
         routing : str
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
-        inplace : bool
-                  If True, write output array to self.<out_name>.
-                  Otherwise, return the output array.
-        as_crs : pyproj.Proj
-                 CRS at which to compute the distance from each cell to its downstream neighbor.
-        apply_mask : bool
-               If True, "mask" the output using self.mask.
-        ignore_metadata : bool
-                          If False, require a valid affine transform and CRS.
+                  'dinf' : D-infinity flow directions (not implemented)
+
+        Additional keyword arguments (**kwargs) are passed to self.view.
+
+        Returns
+        -------
+        cdist : Raster
+                Raster indicating the distance from each cell to its downstream neighbor(s).
+
         """
         if routing.lower() == 'd8':
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
@@ -1390,36 +1289,33 @@ class sGrid():
     def cell_slopes(self, dem, fdir, dirmap=(64, 128, 1, 2, 4, 8, 16, 32), nodata_out=np.nan,
                     routing='d8', **kwargs):
         """
-        Generates an array representing the distance from each cell to its downstream neighbor.
- 
+        Generates an array representing the slope between each cell and
+        its downstream neighbor(s).
+
         Parameters
         ----------
-        data : str or Raster
+        dem : Raster
+              Digital elevation data.
+        fdir : Raster
                Flow direction data.
-               If str: name of the dataset to be viewed.
-               If Raster: a Raster instance (see pysheds.view.Raster)
-        out_name : string
-                   Name of attribute containing new cell distance array.
         dirmap : list or tuple (length 8)
                  List of integer values representing the following
                  cardinal and intercardinal directions (in order):
                  [N, NE, E, SE, S, SW, W, NW]
-        nodata_in : int or float
-                     Value to indicate nodata in input array.
         nodata_out : int or float
-                     Value to indicate nodata in output array.
+                     Value to indicate nodata in output raster.
         routing : str
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
-        inplace : bool
-                  If True, write output array to self.<out_name>.
-                  Otherwise, return the output array.
-        as_crs : pyproj.Proj
-                 CRS at which to compute the distance from each cell to its downstream neighbor.
-        apply_mask : bool
-               If True, "mask" the output using self.mask.
-        ignore_metadata : bool
-                          If False, require a valid affine transform and CRS.
+                  'dinf' : D-infinity flow directions (not implemented)
+
+        Additional keyword arguments (**kwargs) are passed to self.view.
+
+        Returns
+        -------
+        slopes : Raster
+                 Raster indicating the slope between each cell and
+                 its downstream neighbor(s).
         """
         if routing.lower() == 'd8':
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
@@ -1439,84 +1335,21 @@ class sGrid():
         slopes = _self._cell_slopes_numba(dh, cdist)
         return slopes
 
-    def fill_pits(self, dem, nodata_out=None, **kwargs):
-        """
-        Fill pits in a DEM. Raises pits to same elevation as lowest neighbor.
-
-        Parameters
-        ----------
-        data : str or Raster
-               DEM data.
-               If str: name of the dataset to be viewed.
-               If Raster: a Raster instance (see pysheds.view.Raster)
-        out_name : string
-                   Name of attribute containing new filled pit array.
-        nodata_in : int or float
-                     Value to indicate nodata in input array.
-        nodata_out : int or float
-                     Value indicating no data in output array.
-        inplace : bool
-                  If True, write output array to self.<out_name>.
-                  Otherwise, return the output array.
-        apply_mask : bool
-               If True, "mask" the output using self.mask.
-        ignore_metadata : bool
-                          If False, require a valid affine transform and CRS.
-        """
-        input_overrides = {'dtype' : np.float64, 'nodata' : dem.nodata}
-        kwargs.update(input_overrides)
-        dem = self._input_handler(dem, **kwargs)
-        # Find no data cells
-        nodata_cells = self._get_nodata_cells(dem)
-        # Make sure nothing flows to the nodata cells
-        dem[nodata_cells] = dem.max() + 1
-        # Get indices of inner cells
-        inside = np.arange(dem.size, dtype=np.int64).reshape(dem.shape)[1:-1, 1:-1].ravel()
-        # Find pits in input DEM
-        pits = _self._find_pits_numba(dem, inside)
-        pit_indices = np.flatnonzero(pits).astype(np.int64)
-        # Create new array to hold pit-filled dem
-        pit_filled_dem = dem.copy().astype(np.float64)
-        # Fill pits
-        _self._fill_pits_numba(pit_filled_dem, pit_indices)
-        # Set output nodata value
-        if nodata_out is None:
-            nodata_out = dem.nodata
-        # Ensure nodata cells propagate to pit-filled dem
-        pit_filled_dem[nodata_cells] = nodata_out
-        pit_filled_dem = self._output_handler(data=pit_filled_dem,
-                                              viewfinder=dem.viewfinder,
-                                              metadata=dem.metadata)
-        return pit_filled_dem
-
     def detect_pits(self, dem, **kwargs):
         """
-        Detect pits in a DEM.
+        Detect single-celled pits in a digital elevation model.
 
         Parameters
         ----------
-        data : str or Raster
-               DEM data.
-               If str: name of the dataset to be viewed.
-               If Raster: a Raster instance (see pysheds.view.Raster)
-        out_name : string
-                   Name of attribute containing new filled pit array.
-        nodata_in : int or float
-                     Value to indicate nodata in input array.
-        nodata_out : int or float
-                     Value indicating no data in output array.
-        inplace : bool
-                  If True, write output array to self.<out_name>.
-                  Otherwise, return the output array.
-        apply_mask : bool
-               If True, "mask" the output using self.mask.
-        ignore_metadata : bool
-                          If False, require a valid affine transform and CRS.
+        dem : Raster
+              Digital elevation data.
+
+        Additional keyword arguments (**kwargs) are passed to self.view.
 
         Returns
         -------
-        pits : numpy ndarray
-               Boolean array indicating locations of pits.
+        pits : Raster
+               Boolean Raster indicating locations of pits.
         """
         input_overrides = {'dtype' : np.float64, 'nodata' : dem.nodata}
         kwargs.update(input_overrides)
@@ -1533,29 +1366,66 @@ class sGrid():
                                     metadata=dem.metadata, nodata=None)
         return pits
 
-    def detect_depressions(self, dem, **kwargs):
+    def fill_pits(self, dem, nodata_out=None, **kwargs):
         """
-        Fill depressions in a DEM. Raises depressions to same elevation as lowest neighbor.
+        Fill single-celled pits in a digital elevation model. Raises pits to same elevation
+        as lowest neighbor.
 
         Parameters
         ----------
-        data : str or Raster
-               DEM data.
-               If str: name of the dataset to be viewed.
-               If Raster: a Raster instance (see pysheds.view.Raster)
-        out_name : string
-                   Name of attribute containing new filled depressions array.
-        nodata_in : int or float
-                     Value to indicate nodata in input array.
+        dem : Raster
+              Digital elevation data.
         nodata_out : int or float
-                     Value indicating no data in output array.
-        inplace : bool
-                  If True, write output array to self.<out_name>.
-                  Otherwise, return the output array.
-        apply_mask : bool
-               If True, "mask" the output using self.mask.
-        ignore_metadata : bool
-                          If False, require a valid affine transform and CRS.
+                     Value indicating no data in output raster.
+
+        Additional keyword arguments (**kwargs) are passed to self.view.
+
+        Returns
+        -------
+        pit_filled_dem : Raster
+                         Raster of digital elevation data with pits removed.
+        """
+        input_overrides = {'dtype' : np.float64, 'nodata' : dem.nodata}
+        kwargs.update(input_overrides)
+        dem = self._input_handler(dem, **kwargs)
+        # Find no data cells
+        nodata_cells = self._get_nodata_cells(dem)
+        # Make sure nothing flows to the nodata cells
+        dem[nodata_cells] = dem.max() + 1
+        # Get indices of inner cells
+        inside = np.arange(dem.size, dtype=np.int64).reshape(dem.shape)[1:-1, 1:-1].ravel()
+        # Find pits in input DEM
+        pits = _self._find_pits_numba(dem, inside)
+        pit_indices = np.flatnonzero(pits).astype(np.int64)
+        # Create new array to hold pit-filled dem
+        pit_filled_dem = dem.copy().astype(np.float64)
+        # Fill pits
+        pit_filled_dem = _self._fill_pits_numba(pit_filled_dem, pit_indices)
+        # Set output nodata value
+        if nodata_out is None:
+            nodata_out = dem.nodata
+        # Ensure nodata cells propagate to pit-filled dem
+        pit_filled_dem[nodata_cells] = nodata_out
+        pit_filled_dem = self._output_handler(data=pit_filled_dem,
+                                              viewfinder=dem.viewfinder,
+                                              metadata=dem.metadata)
+        return pit_filled_dem
+
+    def detect_depressions(self, dem, **kwargs):
+        """
+        Detect multi-celled depressions in a DEM.
+
+        Parameters
+        ----------
+        dem : Raster
+              Digital elevation data
+
+        Additional keyword arguments (**kwargs) are passed to self.view.
+
+        Returns
+        -------
+        depressions : Raster
+                      Boolean Raster indicating locations of depressions.
         """
         if not _HAS_SKIMAGE:
             raise ImportError('detect_depressions requires skimage.morphology module')
@@ -1574,27 +1444,23 @@ class sGrid():
 
     def fill_depressions(self, dem, nodata_out=np.nan, **kwargs):
         """
-        Fill depressions in a DEM. Raises depressions to same elevation as lowest neighbor.
+        Fill multi-celled depressions in a DEM. Raises depressions to same elevation
+        as lowest neighbor.
 
         Parameters
         ----------
-        data : str or Raster
-               DEM data.
-               If str: name of the dataset to be viewed.
-               If Raster: a Raster instance (see pysheds.view.Raster)
-        out_name : string
-                   Name of attribute containing new filled depressions array.
-        nodata_in : int or float
-                     Value to indicate nodata in input array.
+        dem : Raster
+              Digital elevation data
         nodata_out : int or float
-                     Value indicating no data in output array.
-        inplace : bool
-                  If True, write output array to self.<out_name>.
-                  Otherwise, return the output array.
-        apply_mask : bool
-               If True, "mask" the output using self.mask.
-        ignore_metadata : bool
-                          If False, require a valid affine transform and CRS.
+                     Value indicating no data in output raster.
+
+        Additional keyword arguments (**kwargs) are passed to self.view.
+
+        Returns
+        -------
+        flooded_dem : Raster
+                      Raster representing digital elevation data with multi-celled
+                      depressions removed.
         """
         if not _HAS_SKIMAGE:
             raise ImportError('resolve_flats requires skimage.morphology module')
@@ -1616,32 +1482,19 @@ class sGrid():
 
     def detect_flats(self, dem, **kwargs):
         """
-        Detect flats in a DEM.
+        Detect flats in a digital elevation dataset.
 
         Parameters
         ----------
-        data : str or Raster
-               DEM data.
-               If str: name of the dataset to be viewed.
-               If Raster: a Raster instance (see pysheds.view.Raster)
-        out_name : string
-                   Name of attribute containing new flow direction array.
-        nodata_in : int or float
-                     Value to indicate nodata in input array.
-        nodata_out : int or float
-                     Value to indicate nodata in output array.
-        inplace : bool
-                  If True, write output array to self.<out_name>.
-                  Otherwise, return the output array.
-        apply_mask : bool
-               If True, "mask" the output using self.mask.
-        ignore_metadata : bool
-                          If False, require a valid affine transform and CRS.
+        dem : Raster
+              Digital elevation data
+
+        Additional keyword arguments (**kwargs) are passed to self.view.
 
         Returns
         -------
-        flats : numpy ndarray
-                Boolean array indicating locations of flats.
+        flats : Raster
+                Boolean Raster indicating locations of flats.
         """
         input_overrides = {'dtype' : np.float64, 'nodata' : dem.nodata}
         kwargs.update(input_overrides)
@@ -1658,6 +1511,63 @@ class sGrid():
                                      metadata=dem.metadata, nodata=None)
         return flats
 
+    def resolve_flats(self, dem, nodata_out=None, eps=1e-5, max_iter=1000, **kwargs):
+        """
+        Resolve flats in a DEM using the modified method of Barnes et al. (2015).
+        See: https://arxiv.org/abs/1511.04433
+
+        Parameters
+        ----------
+        dem : Raster
+              Digital elevation dataset.
+        nodata_out : int or float
+                     Value to indicate nodata in output array.
+        eps : float
+              Step size to use when inflating flats. The inflated output digital elevation
+              dataset will be equal to `dem + eps * drainage_gradient`, where the
+              `drainage_gradient` is defined in Barnes et al. (2015).
+        max_iter: int
+                  Maximum number of iterations to use when computing the gradients from
+                  higher and lower terrain, as defined in Barnes et al. (2015).
+
+
+        Additional keyword arguments (**kwargs) are passed to self.view.
+
+        Returns
+        -------
+        inflated_dem : Raster
+                       Raster representing digital elevation data with flats removed.
+        """
+        input_overrides = {'dtype' : np.float64}
+        kwargs.update(input_overrides)
+        dem = self._input_handler(dem, **kwargs)
+        # Find no data cells
+        # TODO: Should these be used?
+        nodata_cells = self._get_nodata_cells(dem)
+        # Get inside indices
+        inside = np.arange(dem.size, dtype=np.int64).reshape(dem.shape)[1:-1, 1:-1].ravel()
+        # Find (i) cells in flats, (ii) cells with flow directions defined
+        # and (iii) cells with at least one higher neighbor
+        flats, fdirs_defined, higher_cells = _self._par_get_candidates_numba(dem, inside)
+        # Label all flats
+        labels, numlabels = skimage.measure.label(flats, return_num=True)
+        # Get high-edge cells
+        hec = _self._par_get_high_edge_cells_numba(inside, fdirs_defined, higher_cells, labels)
+        # Get low-edge cells
+        lec = _self._par_get_low_edge_cells_numba(inside, dem, fdirs_defined, labels, numlabels)
+        # Construct gradient from higher terrain
+        grad_from_higher = _self._grad_from_higher_numba(hec, flats, labels, numlabels, max_iter)
+        # Construct gradient towards lower terrain
+        grad_towards_lower = _self._grad_towards_lower_numba(lec, flats, dem, max_iter)
+        # Construct a gradient that is guaranteed to drain
+        drainage_gradient = (2 * grad_towards_lower + grad_from_higher)
+        # Create a flat-removed DEM by applying drainage gradient
+        inflated_dem = dem + eps * drainage_gradient
+        inflated_dem = self._output_handler(data=inflated_dem,
+                                            viewfinder=dem.viewfinder,
+                                            metadata=dem.metadata)
+        return inflated_dem
+
     def polygonize(self, data=None, mask=None, connectivity=4, transform=None):
         """
         Yield (polygon, value) for each set of adjacent pixels of the same value.
@@ -1667,8 +1577,8 @@ class sGrid():
 
         Parameters
         ----------
-        data : numpy ndarray
-        mask : numpy ndarray
+        data : Raster or np.ndarray
+        mask : Raster or np.ndarray
                Values of False or 0 will be excluded from feature generation.
         connectivity : 4 or 8 (int)
                        Use 4 or 8 pixel connectivity.
@@ -1733,17 +1643,27 @@ class sGrid():
 
     def snap_to_mask(self, mask, xy, return_dist=False, **kwargs):
         """
-        Snap a set of xy coordinates (xy) to the nearest nonzero cells in a raster (mask)
-        TODO: Behavior has changed here---now coerces to grid's viewfinder
+        Snap a set of coordinates (given by `xy`) to the nearest nonzero cells in a
+        boolean raster (given by `mask`). (Note that the mask raster is first mapped to the
+        grid's ViewFinder using self.view).
 
         Parameters
         ----------
-        mask: numpy ndarray-like with shape (M, K)
-              A raster dataset with nonzero elements indicating cells to match to (e.g:
-              a flow accumulation grid with ones indicating cells above a certain threshold).
-        xy: numpy ndarray-like with shape (N, 2)
-            Points to match (example: gage location coordinates).
-        return_dist: If true, return the distances from xy to the nearest matched point in mask.
+        mask : Raster
+               A Raster dataset with nonzero elements indicating cells to match to (e.g:
+               a flow accumulation grid with ones indicating cells above a certain threshold).
+        xy : np.ndarray-like with shape (N, 2)
+             Points to match (example: gage location coordinates).
+        return_dist : If true, return the distances from xy to the nearest matched point in mask.
+
+        Additional keyword arguments (**kwargs) are passed to self.view.
+
+        Returns
+        -------
+        xy_new : np.ndarray with shape (N, 2)
+                 Coordinates of nearest points where mask is nonzero.
+        dist : np.ndarray with shape (N,), (optional)
+               Distances from points in xy to xy_new
         """
 
         if not _HAS_SCIPY:

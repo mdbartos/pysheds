@@ -202,22 +202,22 @@ def test_hand():
     hand_d8 = grid.compute_hand(fdir, dem, acc > 100, routing='d8')
     hand_dinf = grid.compute_hand(fdir_dinf, dem, acc > 100, routing='dinf')
 
-def test_flow_distance():
+def test_distance_to_outlet():
     fdir = d.fdir
     catch = d.catch
     fdir_dinf = d.fdir_dinf
     grid.clip_to(catch)
-    dist = grid.flow_distance(x, y, fdir, dirmap=dirmap, xytype='coordinate')
+    dist = grid.distance_to_outlet(x, y, fdir, dirmap=dirmap, xytype='coordinate')
     assert(dist[np.isfinite(dist)].max() == max_distance_d8)
     col, row = grid.nearest_cell(x, y)
-    dist = grid.flow_distance(col, row, fdir, dirmap=dirmap, xytype='index')
+    dist = grid.distance_to_outlet(col, row, fdir, dirmap=dirmap, xytype='index')
     assert(dist[np.isfinite(dist)].max() == max_distance_d8)
     weights = Raster(2 * np.ones(grid.shape), grid.viewfinder)
-    grid.flow_distance(x, y, fdir_dinf, dirmap=dirmap, routing='dinf',
+    grid.distance_to_outlet(x, y, fdir_dinf, dirmap=dirmap, routing='dinf',
                        xytype='coordinate')
-    grid.flow_distance(x, y, fdir, weights=weights,
+    grid.distance_to_outlet(x, y, fdir, weights=weights,
                        dirmap=dirmap, xytype='label')
-    grid.flow_distance(x, y, fdir_dinf, dirmap=dirmap, weights=weights,
+    grid.distance_to_outlet(x, y, fdir_dinf, dirmap=dirmap, weights=weights,
                        routing='dinf', xytype='label')
 
 def test_stream_order():
@@ -225,10 +225,10 @@ def test_stream_order():
     acc = d.acc
     order = grid.stream_order(fdir, acc > 100)
 
-def test_reverse_distance():
+def test_distance_to_ridge():
     fdir = d.fdir
     acc = d.acc
-    order = grid.reverse_distance(fdir, acc > 100)
+    order = grid.distance_to_ridge(fdir, acc > 100)
 
 def test_cell_dh():
     fdir = d.fdir

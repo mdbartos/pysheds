@@ -15,31 +15,32 @@ _pyproj_init = '+init=epsg:4326' if _OLD_PYPROJ else 'epsg:4326'
 def read_ascii(data, skiprows=6, mask=None, crs=pyproj.Proj(_pyproj_init),
                xll='lower', yll='lower', metadata={}, **kwargs):
     """
-    Reads data from an ascii file into a named attribute of Grid
-    instance (name of attribute determined by 'data_name').
+    Reads data from an ascii file and returns a Raster.
 
     Parameters
     ----------
     data : str
-            File name or path.
-    data_name : str
-                Name of dataset. Will determine the name of the attribute
-                representing the gridded data.
+           File name or path.
     skiprows : int (optional)
                 The number of rows taken up by the header (defaults to 6).
     crs : pyroj.Proj
-            Coordinate reference system of ascii data.
+          Coordinate reference system of ascii data.
     xll : 'lower' or 'center' (str)
-            Whether XLLCORNER or XLLCENTER is used.
+          Whether XLLCORNER or XLLCENTER is used.
     yll : 'lower' or 'center' (str)
-            Whether YLLCORNER or YLLCENTER is used.
+          Whether YLLCORNER or YLLCENTER is used.
     metadata : dict
                 Other attributes describing dataset, such as direction
                 mapping for flow direction files. e.g.:
                 metadata={'dirmap' : (64, 128, 1, 2, 4, 8, 16, 32),
                             'routing' : 'd8'}
 
-    Additional keyword arguments are passed to numpy.loadtxt()
+    Additional keyword arguments (**kwargs) are passed to numpy.loadtxt()
+
+    Returns
+    -------
+    out : Raster
+          Raster object containing loaded data.
     """
     with open(data) as header:
         ncols = int(header.readline().split()[1])
@@ -59,25 +60,22 @@ def read_ascii(data, skiprows=6, mask=None, crs=pyproj.Proj(_pyproj_init),
 def read_raster(data, band=1, window=None, window_crs=None,
                 metadata={}, mask_geometry=False, **kwargs):
     """
-    Reads data from a raster file into a named attribute of Grid
-    (name of attribute determined by keyword 'data_name').
+    Reads data from a raster file and returns a Raster object.
 
     Parameters
     ----------
     data : str
-            File name or path.
-    data_name : str
-                Name of dataset. Will determine the name of the attribute
-                representing the gridded data.
+           File name or path.
     band : int
-            The band number to read if multiband.
+           The band number to read if multiband.
     window : tuple
-                If using windowed reading, specify window (xmin, ymin, xmax, ymax).
+             If using windowed reading, specify window (xmin, ymin, xmax, ymax).
     window_crs : pyproj.Proj instance
-                    Coordinate reference system of window. If None, assume it's in raster's crs.
+                 Coordinate reference system of window. If None, use the raster file's crs.
     mask_geometry : iterable object
-                    The values must be a GeoJSON-like dict or an object that implements
-                    the Python geo interface protocol (such as a Shapely Polygon).
+                    Geometries indicating where data should be read. The values must be a
+                    GeoJSON-like dict or an object that implements the Python geo interface
+                    protocol (such as a Shapely Polygon).
     metadata : dict
                 Other attributes describing dataset, such as direction
                 mapping for flow direction files. e.g.:
@@ -85,6 +83,11 @@ def read_raster(data, band=1, window=None, window_crs=None,
                             'routing' : 'd8'}
 
     Additional keyword arguments are passed to rasterio.open()
+
+    Returns
+    -------
+    out : Raster
+          Raster object containing loaded data.
     """
     mask = None
     with rasterio.open(data, **kwargs) as f:
@@ -137,47 +140,41 @@ def to_ascii(data, file_name, target_view=None, delimiter=' ', fmt=None,
              apply_output_mask=True, affine=None, shape=None, crs=None,
              mask=None, nodata=None, dtype=None, **kwargs):
     """
-    Writes gridded data to ascii grid files.
+    Writes a Raster object to a formatted ascii text file.
 
     Parameters
     ----------
-    data_name : str
-                Attribute name of dataset to write.
+    data: Raster
+          Raster dataset to write.
     file_name : str
-                Name of file to write to.
-    view : bool
-            If True, writes the "view" of the dataset. Otherwise, writes the
-            entire dataset.
+                Name of file or path to write to.
+    target_view : ViewFinder
+                  ViewFinder to use when writing data. Defaults to data.viewfinder.
     delimiter : string (optional)
                 Delimiter to use in output file (defaults to ' ')
     fmt : str
             Formatting for numeric data. Passed to np.savetxt.
-    apply_mask : bool
-            If True, write the "masked" view of the dataset.
+    interpolation : 'nearest', 'linear'
+                    Interpolation method to be used if spatial reference systems
+                    are not congruent.
+    apply_input_mask : bool
+                        If True, mask the input Raster according to data.mask.
+    apply_output_mask : bool
+                        If True, mask the output Raster according to target_view.mask.
+    affine : affine.Affine
+                Affine transformation matrix (overrides target_view.affine)
+    shape : tuple of ints (length 2)
+            Shape of desired Raster (overrides target_view.shape)
+    crs : pyproj.Proj
+            Coordinate reference system (overrides target_view.crs)
+    mask : np.ndarray or Raster
+            Boolean array to mask output (overrides target_view.mask)
     nodata : int or float
-                Value indicating no data in output array.
-                Defaults to the `nodata` attribute of the input dataset.
-    interpolation: 'nearest', 'linear', 'cubic', 'spline'
-                    Interpolation method to be used. If both the input data
-                    view and output data view can be defined on a regular grid,
-                    all interpolation methods are available. If one
-                    of the datasets cannot be defined on a regular grid, or the
-                    datasets use a different CRS, only 'nearest', 'linear' and
-                    'cubic' are available.
-    as_crs: pyproj.Proj
-            Projection at which to view the data (overrides self.crs).
-    kx, ky: int
-            Degrees of the bivariate spline, if 'spline' interpolation is desired.
-    s : float
-        Smoothing factor of the bivariate spline, if 'spline' interpolation is desired.
-    tolerance: float
-                Maximum tolerance when matching coordinates. Data coordinates
-                that cannot be matched to a target coordinate within this
-                tolerance will be masked with the nodata value in the output array.
-    dtype: numpy datatype
+                Value indicating no data in output Raster (overrides target_view.nodata)
+    dtype : numpy datatype
             Desired datatype of the output array.
 
-    **kwargs are passed to np.savetxt
+    Additional keyword arguments (**kwargs) are passed to np.savetxt
     """
     if target_view is None:
         target_view = data.viewfinder
@@ -213,52 +210,45 @@ def to_ascii(data, file_name, target_view=None, delimiter=' ', fmt=None,
     np.savetxt(file_name, data, fmt=fmt, delimiter=delimiter,
                header=header, comments='', **kwargs)
 
-def to_raster(data, file_name, target_view=None, profile=None, view=True,
-              blockxsize=256, blockysize=256, interpolation='nearest',
-              apply_input_mask=False, apply_output_mask=True, affine=None,
-              shape=None, crs=None, mask=None, nodata=None, dtype=None,
-              **kwargs):
+def to_raster(data, file_name, target_view=None, profile=None, blockxsize=256,
+              blockysize=256, interpolation='nearest', apply_input_mask=False,
+              apply_output_mask=True, affine=None, shape=None, crs=None,
+              mask=None, nodata=None, dtype=None, **kwargs):
     """
     Writes gridded data to a raster.
 
     Parameters
     ----------
-    data_name : str
-                Attribute name of dataset to write.
+    data: Raster
+          Raster dataset to write.
     file_name : str
-                Name of file to write to.
+                Name of file or path to write to.
+    target_view : ViewFinder
+                  ViewFinder to use when writing data. Defaults to data.viewfinder.
     profile : dict
                 Profile of driver for writing data. See rasterio documentation.
-    view : bool
-            If True, writes the "view" of the dataset. Otherwise, writes the
-            entire dataset.
     blockxsize : int
                     Size of blocks in horizontal direction. See rasterio documentation.
     blockysize : int
                     Size of blocks in vertical direction. See rasterio documentation.
-    apply_mask : bool
-            If True, write the "masked" view of the dataset.
+    interpolation : 'nearest', 'linear'
+                    Interpolation method to be used if spatial reference systems
+                    are not congruent.
+    apply_input_mask : bool
+                        If True, mask the input Raster according to data.mask.
+    apply_output_mask : bool
+                        If True, mask the output Raster according to target_view.mask.
+    affine : affine.Affine
+                Affine transformation matrix (overrides target_view.affine)
+    shape : tuple of ints (length 2)
+            Shape of desired Raster (overrides target_view.shape)
+    crs : pyproj.Proj
+            Coordinate reference system (overrides target_view.crs)
+    mask : np.ndarray or Raster
+            Boolean array to mask output (overrides target_view.mask)
     nodata : int or float
-                Value indicating no data in output array.
-                Defaults to the `nodata` attribute of the input dataset.
-    interpolation: 'nearest', 'linear', 'cubic', 'spline'
-                    Interpolation method to be used. If both the input data
-                    view and output data view can be defined on a regular grid,
-                    all interpolation methods are available. If one
-                    of the datasets cannot be defined on a regular grid, or the
-                    datasets use a different CRS, only 'nearest', 'linear' and
-                    'cubic' are available.
-    as_crs: pyproj.Proj
-            Projection at which to view the data (overrides self.crs).
-    kx, ky: int
-            Degrees of the bivariate spline, if 'spline' interpolation is desired.
-    s : float
-        Smoothing factor of the bivariate spline, if 'spline' interpolation is desired.
-    tolerance: float
-                Maximum tolerance when matching coordinates. Data coordinates
-                that cannot be matched to a target coordinate within this
-                tolerance will be masked with the nodata value in the output array.
-    dtype: numpy datatype
+                Value indicating no data in output Raster (overrides target_view.nodata)
+    dtype : numpy datatype
             Desired datatype of the output array.
     """
     if target_view is None:

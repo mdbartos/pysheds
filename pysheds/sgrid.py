@@ -106,12 +106,6 @@ class sGrid():
                        to a given geographical coordinate (x, y).
         snap_to_mask : Snaps a set of points to the nearest nonzero cell in a boolean mask;
                        useful for finding pour points from an accumulation raster.
-
-    ========
-    Examples
-    ========
-    # Create empty grid
-    grid = Grid()
     """
 
     def __init__(self, viewfinder=None):
@@ -203,12 +197,70 @@ class sGrid():
     def read_ascii(self, data, skiprows=6, mask=None,
                    crs=pyproj.Proj(_pyproj_init), xll='lower', yll='lower',
                    metadata={}, **kwargs):
+        """
+        Reads data from an ascii file and returns a Raster.
+
+        Parameters
+        ----------
+        data : str
+            File name or path.
+        skiprows : int (optional)
+                    The number of rows taken up by the header (defaults to 6).
+        crs : pyroj.Proj
+            Coordinate reference system of ascii data.
+        xll : 'lower' or 'center' (str)
+            Whether XLLCORNER or XLLCENTER is used.
+        yll : 'lower' or 'center' (str)
+            Whether YLLCORNER or YLLCENTER is used.
+        metadata : dict
+                    Other attributes describing dataset, such as direction
+                    mapping for flow direction files. e.g.:
+                    metadata={'dirmap' : (64, 128, 1, 2, 4, 8, 16, 32),
+                                'routing' : 'd8'}
+
+        Additional keyword arguments (**kwargs) are passed to numpy.loadtxt()
+
+        Returns
+        -------
+        out : Raster
+            Raster object containing loaded data.
+        """
         return pysheds.io.read_ascii(data, skiprows=skiprows, mask=mask,
                                      crs=crs, xll=xll, yll=yll, metadata=metadata,
                                      **kwargs)
 
     def read_raster(self, data, band=1, window=None, window_crs=None,
                     metadata={}, mask_geometry=False, **kwargs):
+        """
+        Reads data from a raster file and returns a Raster object.
+
+        Parameters
+        ----------
+        data : str
+            File name or path.
+        band : int
+            The band number to read if multiband.
+        window : tuple
+                If using windowed reading, specify window (xmin, ymin, xmax, ymax).
+        window_crs : pyproj.Proj instance
+                    Coordinate reference system of window. If None, use the raster file's crs.
+        mask_geometry : iterable object
+                        Geometries indicating where data should be read. The values must be a
+                        GeoJSON-like dict or an object that implements the Python geo interface
+                        protocol (such as a Shapely Polygon).
+        metadata : dict
+                    Other attributes describing dataset, such as direction
+                    mapping for flow direction files. e.g.:
+                    metadata={'dirmap' : (64, 128, 1, 2, 4, 8, 16, 32),
+                                'routing' : 'd8'}
+
+        Additional keyword arguments are passed to rasterio.open()
+
+        Returns
+        -------
+        out : Raster
+            Raster object containing loaded data.
+        """
         return pysheds.io.read_raster(data=data, band=band, window=window,
                                       window_crs=window_crs, metadata=metadata,
                                       mask_geometry=mask_geometry, **kwargs)
@@ -217,6 +269,43 @@ class sGrid():
                 interpolation='nearest', apply_input_mask=False,
                 apply_output_mask=True, affine=None, shape=None, crs=None,
                 mask=None, nodata=None, dtype=None, **kwargs):
+        """
+        Writes a Raster object to a formatted ascii text file.
+
+        Parameters
+        ----------
+        data: Raster
+            Raster dataset to write.
+        file_name : str
+                    Name of file or path to write to.
+        target_view : ViewFinder
+                    ViewFinder to use when writing data. Defaults to self.viewfinder.
+        delimiter : string (optional)
+                    Delimiter to use in output file (defaults to ' ')
+        fmt : str
+                Formatting for numeric data. Passed to np.savetxt.
+        interpolation : 'nearest', 'linear'
+                        Interpolation method to be used if spatial reference systems
+                        are not congruent.
+        apply_input_mask : bool
+                            If True, mask the input Raster according to self.mask.
+        apply_output_mask : bool
+                            If True, mask the output Raster according to target_view.mask.
+        affine : affine.Affine
+                    Affine transformation matrix (overrides target_view.affine)
+        shape : tuple of ints (length 2)
+                Shape of desired Raster (overrides target_view.shape)
+        crs : pyproj.Proj
+                Coordinate reference system (overrides target_view.crs)
+        mask : np.ndarray or Raster
+                Boolean array to mask output (overrides target_view.mask)
+        nodata : int or float
+                    Value indicating no data in output Raster (overrides target_view.nodata)
+        dtype : numpy datatype
+                Desired datatype of the output array.
+
+        Additional keyword arguments (**kwargs) are passed to np.savetxt
+        """
         if target_view is None:
             target_view = self.viewfinder
         return pysheds.io.to_ascii(data, file_name, target_view=target_view,
@@ -232,6 +321,43 @@ class sGrid():
                 apply_input_mask=False, apply_output_mask=True, affine=None,
                 shape=None, crs=None, mask=None, nodata=None, dtype=None,
                 **kwargs):
+        """
+        Writes gridded data to a raster.
+
+        Parameters
+        ----------
+        data: Raster
+            Raster dataset to write.
+        file_name : str
+                    Name of file or path to write to.
+        target_view : ViewFinder
+                    ViewFinder to use when writing data. Defaults to self.viewfinder.
+        profile : dict
+                    Profile of driver for writing data. See rasterio documentation.
+        blockxsize : int
+                        Size of blocks in horizontal direction. See rasterio documentation.
+        blockysize : int
+                        Size of blocks in vertical direction. See rasterio documentation.
+        interpolation : 'nearest', 'linear'
+                        Interpolation method to be used if spatial reference systems
+                        are not congruent.
+        apply_input_mask : bool
+                            If True, mask the input Raster according to self.mask.
+        apply_output_mask : bool
+                            If True, mask the output Raster according to target_view.mask.
+        affine : affine.Affine
+                    Affine transformation matrix (overrides target_view.affine)
+        shape : tuple of ints (length 2)
+                Shape of desired Raster (overrides target_view.shape)
+        crs : pyproj.Proj
+                Coordinate reference system (overrides target_view.crs)
+        mask : np.ndarray or Raster
+                Boolean array to mask output (overrides target_view.mask)
+        nodata : int or float
+                    Value indicating no data in output Raster (overrides target_view.nodata)
+        dtype : numpy datatype
+                Desired datatype of the output array.
+        """
         if target_view is None:
             target_view = self.viewfinder
         return pysheds.io.to_raster(data, file_name, target_view=target_view,
@@ -246,18 +372,55 @@ class sGrid():
                                     **kwargs)
 
     @classmethod
-    def from_ascii(cls, path, **kwargs):
+    def from_ascii(cls, data, **kwargs):
+        """
+        Instantiates grid from an ascii text file.
+
+        Parameters
+        ----------
+        data: str
+              File path of ascii text file.
+
+        Additional keyword arguments (**kwargs) are passed to self.read_ascii.
+
+        Returns
+        -------
+        new_grid : Grid
+                   A new Grid instance with its ViewFinder defined by the ascii file.
+        """
         newinstance = cls()
-        data = newinstance.read_ascii(path, **kwargs)
+        data = newinstance.read_ascii(data, **kwargs)
         newinstance.viewfinder = data.viewfinder
         return newinstance
 
     @classmethod
-    def from_raster(cls, path, **kwargs):
+    def from_raster(cls, data, **kwargs):
+        """
+        Instantiates grid from a raster object or raster file.
+
+        Parameters
+        ----------
+        data: Raster or str representing file path
+              Raster data to use for instantiation.
+
+        Additional keyword arguments (**kwargs) are passed to self.read_raster if
+        data is a file path.
+
+        Returns
+        -------
+        new_grid : Grid
+                   A new Grid instance with its ViewFinder defined by the input raster.
+        """
         newinstance = cls()
-        data = newinstance.read_raster(path, **kwargs)
-        newinstance.viewfinder = data.viewfinder
-        return newinstance
+        if isinstance(data, Raster):
+            newinstance.viewfinder = data.viewfinder
+            return newinstance
+        elif isinstance(data, str):
+            data = newinstance.read_raster(data, **kwargs)
+            newinstance.viewfinder = data.viewfinder
+            return newinstance
+        else:
+            raise TypeError('`data` must be a Raster or str.')
 
     def view(self, data, data_view=None, target_view=None, interpolation='nearest',
              apply_input_mask=False, apply_output_mask=True,

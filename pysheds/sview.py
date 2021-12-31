@@ -551,6 +551,8 @@ class View():
                 assert (data.shape == mask.shape)
             except:
                 raise ValueError('Shape of `data` and `mask` must be the same')
+        vert_pad = (pad[3], pad[1])
+        horiz_pad = (pad[0], pad[2])
         nz_r, nz_c = np.nonzero(mask)
         yi_min = nz_r.min()
         yi_max = nz_r.max()
@@ -560,12 +562,14 @@ class View():
         new_affine = Affine(data.affine.a, data.affine.b, xul,
                             data.affine.d, data.affine.e, yul)
         out = data[yi_min:yi_max + 1, xi_min:xi_max + 1]
-        vert_pad = (pad[3], pad[1])
-        horiz_pad = (pad[0], pad[2])
         out = np.pad(out, (vert_pad, horiz_pad),
                     mode='constant', constant_values=data.nodata)
+        out_mask = mask[yi_min:yi_max + 1, xi_min:xi_max + 1]
+        out_mask = np.pad(out_mask, (vert_pad, horiz_pad),
+                          mode='constant', constant_values=False)
         new_viewfinder = ViewFinder(affine=new_affine, shape=out.shape,
-                                    nodata=data.nodata, crs=data.crs)
+                                    nodata=data.nodata, crs=data.crs,
+                                    mask=out_mask)
         out = Raster(out, viewfinder=new_viewfinder, metadata=data.metadata)
         return out
 

@@ -168,14 +168,29 @@ fdir = grid.flowdir(inflated_dem)
 x, y = -97.294167, 32.73750
 
 # Delineate the catchment
-catch = grid.catchment(x=x, y=y, fdir=fdir, xytype='label')
+catch = grid.catchment(x=x, y=y, fdir=fdir, xytype='coordinate')
 
 # Get the current view and plot
 catch_view = grid.view(catch)
-plt.imshow(catch_view, zorder=1)
 ```
 
-![Catchment view](https://s3.us-east-2.amazonaws.com/pysheds/img/catchment_view.png)
+<details>
+<summary>Plotting code...</summary>
+<p>
+
+```python
+fig, ax = plt.subplots(figsize=(8,6))
+fig.patch.set_alpha(0)
+plt.imshow(catch_view, cmap='Greys_r', zorder=1)
+plt.title('Catchment', size=14)
+plt.tight_layout()
+```
+
+</p>
+</details>
+
+
+![Catchment view](https://s3.us-east-2.amazonaws.com/pysheds/img/views_catch.png)
 
 Note that in this case, the original raster and its view are the same:
 
@@ -205,18 +220,50 @@ grid.clip_to(catch)
 
 # Get the current view and plot
 catch_view = grid.view(catch)
-plt.imshow(catch_view, zorder=1)
 ```
+
+<details>
+<summary>Plotting code...</summary>
+<p>
+
+```python
+fig, ax = plt.subplots(figsize=(8,6))
+fig.patch.set_alpha(0)
+plt.imshow(catch_view, cmap='Greys_r', zorder=1)
+plt.title('Clipped catchment', size=14)
+plt.tight_layout()
+```
+
+</p>
+</details>
+
+
+![Clipped view](https://s3.us-east-2.amazonaws.com/pysheds/img/views_catch_clipped.png)
 
 We can also now use the `view` method to view other datasets within the current catchment boundaries:
 
 ```python
 # Get the current view of flow directions
 fdir_view = grid.view(fdir)
-plt.imshow(fdir_view, cmap='viridis', zorder=1)
 ```
 
-![Clipped view](https://s3.us-east-2.amazonaws.com/pysheds/img/catchment_view_clipped.png)
+<details>
+<summary>Plotting code...</summary>
+<p>
+
+```python
+fig, ax = plt.subplots(figsize=(8,6))
+fig.patch.set_alpha(0)
+plt.imshow(fdir_view, cmap='viridis', zorder=1)
+plt.title('Clipped flow directions', size=14)
+plt.tight_layout()
+```
+
+</p>
+</details>
+
+
+![Other views](https://s3.us-east-2.amazonaws.com/pysheds/img/views_fdir_clipped.png)
 
 ## Tweaking the view using keyword arguments
 
@@ -226,10 +273,25 @@ The "no data" value in the output array can be specified using the `nodata` keyw
 
 ```python
 dem_view = grid.view(dem, nodata=np.nan)
-plt.imshow(dem_view, cmap='terrain', zorder=1)
 ```
 
-![Setting nodata](https://s3.us-east-2.amazonaws.com/pysheds/img/dem_view_clipped_nodata.png)
+<details>
+<summary>Plotting code...</summary>
+<p>
+
+```python
+fig, ax = plt.subplots(figsize=(8,6))
+fig.patch.set_alpha(0)
+plt.imshow(dem_view, cmap='terrain', zorder=1)
+plt.title('Clipped DEM with mask', size=14)
+plt.tight_layout()
+```
+
+</p>
+</details>
+
+
+![Setting nodata](https://s3.us-east-2.amazonaws.com/pysheds/img/views_dem_clipped.png)
 
 ### Toggling the mask
 
@@ -238,10 +300,25 @@ The mask can be turned off by setting `apply_output_mask=False`.
 ```python
 dem_view = grid.view(dem, nodata=np.nan,
                      apply_output_mask=False)
-plt.imshow(dem_view, cmap='terrain', zorder=1)
 ```
 
-![Setting nodata](https://s3.us-east-2.amazonaws.com/pysheds/img/dem_view_nomask.png)
+<details>
+<summary>Plotting code...</summary>
+<p>
+
+```python
+fig, ax = plt.subplots(figsize=(8,6))
+fig.patch.set_alpha(0)
+plt.imshow(dem_view, cmap='terrain', zorder=1)
+plt.title('Clipped DEM without mask', size=14)
+plt.tight_layout()
+```
+
+</p>
+</details>
+
+
+![Setting nodata](https://s3.us-east-2.amazonaws.com/pysheds/img/views_dem_nomask.png)
 
 ### Setting the interpolation method
 
@@ -258,20 +335,50 @@ terrain = grid.read_raster('./data/impervious_area.tiff', window=grid.bbox,
 ```python
 # View the new dataset with nearest neighbor interpolation
 nn_interpolation = grid.view(terrain, nodata=np.nan)
-plt.imshow(nn_interpolation, zorder=1, cmap='bone')
 ```
 
-![Nearest neighbors](https://s3.us-east-2.amazonaws.com/pysheds/img/nn_interpolation.png)
+<details>
+<summary>Plotting code...</summary>
+<p>
+
+```python
+fig, ax = plt.subplots(figsize=(8,6))
+fig.patch.set_alpha(0)
+plt.imshow(nn_interpolation, cmap='bone', zorder=1)
+plt.title('Nearest neighbor interpolation', size=14)
+plt.tight_layout()
+```
+
+</p>
+</details>
+
+
+![Nearest neighbors](https://s3.us-east-2.amazonaws.com/pysheds/img/views_nn_interp.png)
 
 #### Linear interpolation
 
 ```python
 # View the new dataset with linear interpolation
 lin_interpolation = grid.view(terrain, nodata=np.nan, interpolation='linear')
-plt.imshow(lin_interpolation, zorder=1, cmap='bone')
 ```
 
-![Linear interpolation](https://s3.us-east-2.amazonaws.com/pysheds/img/linear_interpolation.png)
+<details>
+<summary>Plotting code...</summary>
+<p>
+
+```python
+fig, ax = plt.subplots(figsize=(8,6))
+fig.patch.set_alpha(0)
+plt.imshow(lin_interpolation, cmap='bone', zorder=1)
+plt.title('Linear interpolation', size=14)
+plt.tight_layout()
+```
+
+</p>
+</details>
+
+
+![Linear interpolation](https://s3.us-east-2.amazonaws.com/pysheds/img/views_lin_interp.png)
 
 ## Setting the view manually
 
@@ -283,7 +390,22 @@ grid.viewfinder = dem.viewfinder
 
 # Plot the new view
 dem_view = grid.view(dem)
-plt.imshow(dem_view, zorder=1, cmap='terrain')
 ```
 
-![Set bbox](https://s3.us-east-2.amazonaws.com/pysheds/img/full_dem.png)
+<details>
+<summary>Plotting code...</summary>
+<p>
+
+```python
+fig, ax = plt.subplots(figsize=(8,6))
+fig.patch.set_alpha(0)
+plt.imshow(dem_view, cmap='terrain', zorder=1)
+plt.title('DEM with original view restored', size=14)
+plt.tight_layout()
+```
+
+</p>
+</details>
+
+
+![Set bbox](https://s3.us-east-2.amazonaws.com/pysheds/img/views_full_dem.png)

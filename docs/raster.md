@@ -5,14 +5,18 @@
 When a dataset is read from a file, it will automatically be saved as a `Raster` object.
 
 ```python
->>> from pysheds.grid import Grid
+from pysheds.grid import Grid
 
->>> grid = Grid.from_raster('../data/dem.tif', data_name='dem')
->>> dem = grid.dem
+grid = Grid.from_raster('./data/dem.tif')
+dem = grid.read_raster('./data/dem.tif')
 ```
 
+Here, `grid` is the `Grid` instance, and `dem` is a `Raster` object. If we call the `Raster` object, we will see that it looks much like a numpy array.
+
 ```python
->>> dem
+dem
+```
+```
 Raster([[214, 212, 210, ..., 177, 177, 175],
         [214, 210, 207, ..., 176, 176, 174],
         [211, 209, 204, ..., 174, 174, 174],
@@ -24,20 +28,16 @@ Raster([[214, 212, 210, ..., 177, 177, 175],
 
 ## Calling methods on rasters
 
-Primary `Grid` methods (such as flow direction determination and catchment delineation) can be called directly on `Raster objects`:
+Hydrologic functions (such as flow direction determination and catchment delineation) accept and return `Raster objects`:
 
 ```python
->>> grid.resolve_flats(dem, out_name='inflated_dem')
+inflated_dem = grid.resolve_flats(dem)
+fdir = grid.flowdir(inflated_dem)
 ```
-
-Grid methods can also return `Raster` objects by specifying `inplace=False`:
-
 ```python
->>> fdir = grid.flowdir(grid.inflated_dem, inplace=False)
+fdir
 ```
-
-```python
->>> fdir
+```
 Raster([[  0,   0,   0, ...,   0,   0,   0],
         [  0,   2,   2, ...,   4,   1,   0],
         [  0,   1,   2, ...,   4,   2,   0],
@@ -49,12 +49,33 @@ Raster([[  0,   0,   0, ...,   0,   0,   0],
 
 ## Raster attributes
 
-### Affine transform
+### Viewfinder
 
-An affine transform uniquely specifies the spatial location of each cell in a gridded dataset.
+The viewfinder attribute contains all the information needed to specify the Raster's spatial reference system. It can be accessed using the `viewfinder` attribute.
 
 ```python
->>> dem.affine
+dem.viewfinder
+```
+```
+<pysheds.sview.ViewFinder at 0x13222f908>
+```
+
+The viewfinder contains five necessary elements that completely define the spatial reference system.
+
+  - `affine`: An affine transformation matrix.
+  - `shape`: The desired shape (rows, columns).
+  - `crs` : The coordinate reference system.
+  - `mask` : A boolean array indicating which cells are masked.
+  - `nodata` : A sentinel value indicating 'no data'.
+
+### Affine transformation matrix
+
+An affine transform uniquely specifies the spatial location of each cell in a gridded dataset. In a `Raster`, the affine transform is given by the `affine` attribute.
+
+```python
+dem.affine
+```
+```
 Affine(0.0008333333333333, 0.0, -100.0,
        0.0, -0.0008333333333333, 34.9999999999998)
 ```
@@ -70,32 +91,59 @@ The elements of the affine transform `(a, b, c, d, e, f)` are:
 
 The affine transform uses the [affine](https://pypi.org/project/affine/) module.
 
-### Coordinate reference system
+### Shape
 
-The coordinate reference system (CRS) defines a map projection for the gridded dataset. For datasets read from a raster file, the CRS will be detected and populated automaticaally.
+The shape is equal to the shape of the underlying array (i.e. number of rows, number of columns).
 
 ```python
->>> dem.crs
-<pyproj.Proj at 0x12363dd68>
+dem.shape
+```
+```
+(359, 367)
 ```
 
-A human-readable representation of the CRS can also be obtained as follows:
+### Coordinate reference system
+
+The coordinate reference system (CRS) defines a map projection for the gridded
+dataset. The `crs` attribute is a `pyproj.Proj` object. For datasets read from a
+raster file, the CRS will be detected and populated automaticaally.
 
 ```python
->>> dem.crs.srs
-'+init=epsg:4326 '
+dem.crs
+```
+```
+Proj('+proj=longlat +datum=WGS84 +no_defs', preserve_units=True)
 ```
 
 This example dataset has a geographic projection (meaning that coordinates are defined in terms of latitudes and longitudes).
 
 The coordinate reference system uses the [pyproj](https://pypi.org/project/pyproj/) module.
 
+### Mask
+
+The mask is a boolean array indicating which cells in the dataset should be masked in the output view.
+
+```python
+dem.mask
+```
+```
+array([[ True,  True,  True, ...,  True,  True,  True],
+       [ True,  True,  True, ...,  True,  True,  True],
+       [ True,  True,  True, ...,  True,  True,  True],
+       ...,
+       [ True,  True,  True, ...,  True,  True,  True],
+       [ True,  True,  True, ...,  True,  True,  True],
+       [ True,  True,  True, ...,  True,  True,  True]])
+```
+
 ### "No data" value
 
 The `nodata` attribute specifies the value that indicates missing or invalid data.
 
 ```python
->>> dem.nodata
+dem.nodata
+```
+```
 -32768
 ```
 
@@ -106,21 +154,27 @@ Other attributes are derived from these primary attributes:
 #### Bounding box
 
 ```python
->>> dem.bbox
+dem.bbox
+```
+```
 (-97.4849999999961, 32.52166666666537, -97.17833333332945, 32.82166666666536)
 ```
 
 #### Extent
 
 ```python
->>> dem.extent
+dem.extent
+```
+```
 (-97.4849999999961, -97.17833333332945, 32.52166666666537, 32.82166666666536)
 ```
 
 #### Coordinates
 
 ```python
->>> dem.coords
+dem.coords
+```
+```
 array([[ 32.82166667, -97.485     ],
        [ 32.82166667, -97.48416667],
        [ 32.82166667, -97.48333333],
@@ -130,11 +184,3 @@ array([[ 32.82166667, -97.485     ],
        [ 32.52333333, -97.18      ]])
 ```
 
-### Numpy attributes
-
-A `Raster` object also inherits all attributes and methods from numpy ndarrays.
-
-```python
->>> dem.shape
-(359, 367)
-```

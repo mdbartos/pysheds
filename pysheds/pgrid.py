@@ -35,9 +35,9 @@ _pyproj_crs = lambda Proj: Proj.crs if not _OLD_PYPROJ else Proj
 _pyproj_crs_is_geographic = 'is_latlong' if _OLD_PYPROJ else 'is_geographic'
 _pyproj_init = '+init=epsg:4326' if _OLD_PYPROJ else 'epsg:4326'
 
-from pysheds.view import Raster
-from pysheds.view import BaseViewFinder, RegularViewFinder, IrregularViewFinder
-from pysheds.view import RegularGridViewer, IrregularGridViewer
+from pysheds.pview import Raster
+from pysheds.pview import BaseViewFinder, RegularViewFinder, IrregularViewFinder
+from pysheds.pview import RegularGridViewer, IrregularGridViewer
 
 class Grid(object):
     """
@@ -109,7 +109,7 @@ class Grid(object):
     @property
     def defaults(self):
         props = {
-            'affine' : Affine(1.,0.,0.,0.,-1.,0.),
+            'affine' : Affine(1.,0.,0.,0.,1.,0.),
             'shape' : (1,1),
             'nodata' : 0,
             'crs' : pyproj.Proj(_pyproj_init),
@@ -3542,7 +3542,7 @@ class Grid(object):
             raise ImportError('Requires scipy.spatial module')
         if isinstance(mask, Raster):
             affine = mask.viewfinder.affine
-        elif isinstance(mask, 'str'):
+        elif isinstance(mask, str):
             affine = getattr(self, mask).viewfinder.affine
         mask_ix = np.where(mask.ravel())[0]
         yi, xi = np.unravel_index(mask_ix, mask.shape)

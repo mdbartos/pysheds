@@ -423,6 +423,11 @@ class View():
                            If True, output Raster inherits metadata from input data.
         new_metadata : dict
                        Optional metadata to add to output Raster.
+
+        Returns
+        -------
+        out : Raster
+              View of the input Raster at the provided target view.
         """
         # If no data view given, use data's view
         if data_view is None:
@@ -521,6 +526,7 @@ class View():
                snapping the (x,y) geometry to the index of the nearest top-left
                cell corner. If "center", will return the index of the cell that
                the geometry falls within.
+
         Returns
         -------
         col, row : tuple of ints

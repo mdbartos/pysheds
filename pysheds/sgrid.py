@@ -462,6 +462,11 @@ class sGrid():
                            If True, output Raster inherits metadata from input data.
         new_metadata : dict
                        Optional metadata to add to output Raster.
+
+        Returns
+        -------
+        out : Raster
+              View of the input Raster at the provided target view.
         """
         # Check input type
         try:
@@ -1744,6 +1749,12 @@ class sGrid():
         transform : affine.Affine
                     Transformation from pixel coordinates of `image` to the
                     coordinate system of the input `shapes`.
+
+        Returns
+        -------
+        shapes : generator
+                 Iterable generator of polygons (see documentation for
+                 rasterio.features.shapes)
         """
         if not _HAS_RASTERIO:
             raise ImportError('Requires rasterio module')
@@ -1787,6 +1798,11 @@ class sGrid():
                         Used as value for all geometries, if not provided in `shapes`.
         dtype : numpy data type
                 Used as data type for results, if `out` is not provided.
+
+        Returns
+        -------
+        raster : np.ndarray
+                 Array representing rasterized input geometries.
         """
         if not _HAS_RASTERIO:
             raise ImportError('Requires rasterio module')

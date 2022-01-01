@@ -230,6 +230,11 @@ class ViewFinder():
         else:
             return False
 
+    def __repr__(self):
+        repr_str = '\n'.join([repr(k) + ' : ' + repr(v)
+                              for k, v in self.properties.items()])
+        return repr_str
+
     @property
     def affine(self):
         return self._affine

@@ -3,6 +3,11 @@ import numpy as np
 import pyproj
 from affine import Affine
 from distutils.version import LooseVersion
+try:
+    import scipy.spatial
+    _HAS_SCIPY = True
+except:
+    _HAS_SCIPY = False
 
 import pysheds._sview as _self
 
@@ -348,7 +353,7 @@ class ViewFinder():
 
     @property
     def axes(self):
-        return self._grid_indices()
+        return View.axes(self.affine, self.shape)
 
     def copy(self):
         new_view = copy.deepcopy(self)
@@ -358,29 +363,6 @@ class ViewFinder():
         data_view = raster.viewfinder
         target_view = self
         return View.view(raster, data_view, target_view, **kwargs)
-
-    def _grid_indices(self, affine=None, shape=None):
-        """
-        Return row and column coordinates of a bounding box at a
-        given cellsize.
-
-        Parameters
-        ----------
-        shape : tuple of ints (length 2)
-                The shape of the 2D array (rows, columns). Defaults
-                to instance shape.
-        precision : int
-                    Precision to use when matching geographic coordinates.
-        """
-        if affine is None:
-            affine = self.affine
-        if shape is None:
-            shape = self.shape
-        y_ix = np.arange(shape[0])
-        x_ix = np.arange(shape[1])
-        x, _ = affine * np.vstack([x_ix, np.zeros(shape[1])])
-        _, y = affine * np.vstack([np.zeros(shape[0]), y_ix])
-        return y, x
 
 class View():
     """
@@ -552,6 +534,76 @@ class View():
         xi, yi = cls.affine_transform(~affine, x, y)
         col, row = snap_dict[snap]((xi, yi)).astype(int)
         return col, row
+
+    @classmethod
+    def axes(cls, affine, shape):
+        """
+        Return row and column coordinates of axes, such that the cartesian product
+        of the two axis vectors uniquely addresses each grid cell.
+
+        Parameters
+        ----------
+        affine : affine.Affine
+                 Affine transformation
+        shape : tuple of ints (length 2)
+                The shape of the 2D array (rows, columns).
+
+        Returns
+        -------
+        y, x : tuple
+               y- and x-coordinates of axes
+        """
+        y_ix = np.arange(shape[0])
+        x_ix = np.arange(shape[1])
+        x, _ = affine * np.vstack([x_ix, np.zeros(shape[1])])
+        _, y = affine * np.vstack([np.zeros(shape[0]), y_ix])
+        return y, x
+
+    @classmethod
+    def snap_to_mask(cls, mask, xy, affine=None, return_dist=False, **kwargs):
+        """
+        Snap a set of coordinates (given by `xy`) to the nearest nonzero cells in a
+        boolean raster (given by `mask`). (Note that the mask raster is first mapped to the
+        grid's ViewFinder using self.view).
+
+        Parameters
+        ----------
+        mask : Raster or np.ndarray
+               A Raster or array dataset with nonzero elements indicating cells to match to (e.g:
+               a flow accumulation grid with ones indicating cells above a certain threshold).
+        xy : np.ndarray-like with shape (N, 2)
+             Points to match (example: gage location coordinates).
+        affine : affine.Affine
+                 Affine transformation. If None given, defaults to `mask.affine`
+                 if mask is a Raster.
+        return_dist : If true, return the distances from xy to the nearest matched point in mask.
+
+        Additional keyword arguments (**kwargs) are passed to self.view.
+
+        Returns
+        -------
+        xy_new : np.ndarray with shape (N, 2)
+                 Coordinates of nearest points where mask is nonzero.
+        dist : np.ndarray with shape (N,), (optional)
+               Distances from points in xy to xy_new
+        """
+        if not _HAS_SCIPY:
+            raise ImportError('Requires scipy.spatial module')
+        if affine is None:
+            try:
+                assert isinstance(mask, Raster)
+            except:
+                raise TypeError('If no affine transform given, mask must be a raster')
+            affine = mask.affine
+        yi, xi = np.where(mask)
+        x, y = cls.affine_transform(affine, xi, yi)
+        tree_xy = np.column_stack([x, y])
+        tree = scipy.spatial.cKDTree(tree_xy)
+        dist, ix = tree.query(xy)
+        if return_dist:
+            return tree_xy[ix], dist
+        else:
+            return tree_xy[ix]
 
     @classmethod
     def trim_zeros(cls, data, pad=(0,0,0,0)):

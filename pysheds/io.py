@@ -24,6 +24,8 @@ def read_ascii(data, skiprows=6, mask=None, crs=pyproj.Proj(_pyproj_init),
            File name or path.
     skiprows : int (optional)
                 The number of rows taken up by the header (defaults to 6).
+    mask : np.ndarray or Raster
+            Boolean array to mask dataset.
     crs : pyroj.Proj
           Coordinate reference system of ascii data.
     xll : 'lower' or 'center' (str)

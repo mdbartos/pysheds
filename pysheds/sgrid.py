@@ -8,11 +8,6 @@ import geojson
 from affine import Affine
 from distutils.version import LooseVersion
 try:
-    import scipy.spatial
-    _HAS_SCIPY = True
-except:
-    _HAS_SCIPY = False
-try:
     import skimage.measure
     import skimage.morphology
     _HAS_SKIMAGE = True
@@ -1829,9 +1824,6 @@ class sGrid():
         dist : np.ndarray with shape (N,), (optional)
                Distances from points in xy to xy_new
         """
-
-        if not _HAS_SCIPY:
-            raise ImportError('Requires scipy.spatial module')
         try:
             assert isinstance(mask, Raster)
         except:
@@ -1840,16 +1832,8 @@ class sGrid():
         kwargs.update(mask_overrides)
         mask = self._input_handler(mask, **kwargs)
         affine = mask.affine
-        yi, xi = np.where(mask)
-        xiyi = np.vstack([xi, yi])
-        x, y = affine * xiyi
-        tree_xy = np.column_stack([x, y])
-        tree = scipy.spatial.cKDTree(tree_xy)
-        dist, ix = tree.query(xy)
-        if return_dist:
-            return tree_xy[ix], dist
-        else:
-            return tree_xy[ix]
+        return View.snap_to_mask(mask, xy, affine=affine,
+                                 return_dist=return_dist)
 
     def _input_handler(self, data, **kwargs):
         try:

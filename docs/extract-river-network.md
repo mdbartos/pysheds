@@ -5,29 +5,27 @@
 The `grid.extract_river_network` method requires both a catchment grid and an accumulation grid. The catchment grid can be obtained from a flow direction grid, as shown in [catchments](https://mdbartos.github.io/pysheds/catchment.html). The accumulation grid can also be obtained from a flow direction grid, as shown in [accumulation](https://mdbartos.github.io/pysheds/accumulation.html).
 
 ```python
->>> import numpy as np
->>> from matplotlib import pyplot as plt
->>> from pysheds.grid import Grid
+from pysheds.grid import Grid
 
 # Instantiate grid from raster
->>> grid = Grid.from_raster('../data/dem.tif', data_name='dem')
+grid = Grid.from_raster('./data/dem.tif')
+dem = grid.read_raster('./data/dem.tif')
 
 # Resolve flats and compute flow directions
->>> grid.resolve_flats(data='dem', out_name='inflated_dem')
->>> grid.flowdir('inflated_dem', out_name='dir')
+inflated_dem = grid.resolve_flats(dem)
+fdir = grid.flowdir(inflated_dem)
 
 # Specify outlet
->>> x, y = -97.294167, 32.73750
+x, y = -97.294167, 32.73750
 
 # Delineate a catchment
->>> grid.catchment(data='dir', x=x, y=y, out_name='catch',
-                   recursionlimit=15000, xytype='label')
+catch = grid.catchment(x=x, y=y, fdir=fdir, xytype='coordinate')
 
 # Clip the view to the catchment
->>> grid.clip_to('catch')
+grid.clip_to(catch)
 
 # Compute accumulation
->>> grid.accumulation(data='catch', out_name='acc')
+acc = grid.accumulation(fdir, apply_output_mask=False)
 ```
 
 ## Extracting the river network
@@ -36,29 +34,112 @@ To extract the river network at a given accumulation threshold, we can call the 
 
 ```python
 # Extract river network
->>> branches = grid.extract_river_network('catch', 'acc')
+branches = grid.extract_river_network(fdir, acc > 100)
 ```
+
+<details>
+<summary>Plotting code...</summary>
+<p>
+
+```python
+import numpy as np
+from matplotlib import pyplot as plt
+import seaborn as sns
+
+sns.set_palette('husl')
+fig, ax = plt.subplots(figsize=(8.5,6.5))
+
+plt.xlim(grid.bbox[0], grid.bbox[2])
+plt.ylim(grid.bbox[1], grid.bbox[3])
+ax.set_aspect('equal')
+
+for branch in branches['features']:
+    line = np.asarray(branch['geometry']['coordinates'])
+    plt.plot(line[:, 0], line[:, 1])
+    
+_ = plt.title('Channel network (>100 accumulation)', size=14)
+```
+
+</p>
+</details>
+
 
 The `grid.extract_river_network` method returns a dictionary in the geojson format. The branches can be plotted by iterating through the features:
 
+
+![River network](https://s3.us-east-2.amazonaws.com/pysheds/img/extract_100_acc.png)
+
 ```python
-# Plot branches
->>> for branch in branches['features']:
->>>     line = np.asarray(branch['geometry']['coordinates'])
->>>     plt.plot(line[:, 0], line[:, 1])
+branches = grid.extract_river_network(fdir, acc > 100, apply_output_mask=False)
 ```
 
-![River network](https://s3.us-east-2.amazonaws.com/pysheds/img/river_network_100.png)
+<details>
+<summary>Plotting code...</summary>
+<p>
+
+```python
+sns.set_palette('husl')
+fig, ax = plt.subplots(figsize=(8.5,6.5))
+plt.xlim(grid.bbox[0], grid.bbox[2])
+plt.ylim(grid.bbox[1], grid.bbox[3])
+ax.set_aspect('equal')
+
+for branch in branches['features']:
+    line = np.asarray(branch['geometry']['coordinates'])
+    plt.plot(line[:, 0], line[:, 1])
+    
+_ = plt.title('Channel network (no mask)', size=14)
+```
+
+</p>
+</details>
+
+![River network (no mask)](https://s3.us-east-2.amazonaws.com/pysheds/img/extract_100_acc_nomask.png)
 
 ## Specifying the accumulation threshold
 
 We can change the geometry of the returned river network by specifying different accumulation thresholds:
 
 ```python
->>> branches_50 = grid.extract_river_network('catch', 'acc', threshold=50)
->>> branches_2 = grid.extract_river_network('catch', 'acc', threshold=2)
+branches_50 = grid.extract_river_network(fdir, acc > 50)
+branches_2 = grid.extract_river_network(fdir, acc > 2)
 ```
 
-![River network 50](https://s3.us-east-2.amazonaws.com/pysheds/img/river_network.png)
-![River network 2](https://s3.us-east-2.amazonaws.com/pysheds/img/river_network_2.png)
+<details>
+<summary>Plotting code...</summary>
+<p>
+
+```python
+fig, ax = plt.subplots(figsize=(8.5,6.5))
+
+plt.xlim(grid.bbox[0], grid.bbox[2])
+plt.ylim(grid.bbox[1], grid.bbox[3])
+ax.set_aspect('equal')
+
+for branch in branches_50['features']:
+    line = np.asarray(branch['geometry']['coordinates'])
+    plt.plot(line[:, 0], line[:, 1])
+    
+_ = plt.title('Channel network (>50 accumulation)', size=14)
+
+sns.set_palette('husl')
+fig, ax = plt.subplots(figsize=(8.5,6.5))
+
+plt.xlim(grid.bbox[0], grid.bbox[2])
+plt.ylim(grid.bbox[1], grid.bbox[3])
+ax.set_aspect('equal')
+
+for branch in branches_2['features']:
+    line = np.asarray(branch['geometry']['coordinates'])
+    plt.plot(line[:, 0], line[:, 1])
+    
+_ = plt.title('Channel network (>2 accumulation)', size=14)
+```
+
+</p>
+</details>
+
+
+![River network 50](https://s3.us-east-2.amazonaws.com/pysheds/img/extract_50_acc.png)
+![River network 2](https://s3.us-east-2.amazonaws.com/pysheds/img/extract_2_acc.png)
 

@@ -447,10 +447,34 @@ $ pip install .
 ```
 
 # Performance
-Performance benchmarks on a 2015 MacBook Pro:
+Performance benchmarks on a 2015 MacBook Pro (M: million, K: thousand):
 
-- Flow Direction to Flow Accumulation: 36 million grid cells in 15 seconds.
-- Flow Direction to Catchment: 9.8 million grid cells in 4.55 seconds.
+| Function                | Routing | Number of cells          | Run time |
+| ----------------------- | ------- | ------------------------ | -------- |
+| `flowdir`               | D8      |  36M                     | 1.09 [s] |
+| `flowdir`               | DINF    |  36M                     | 6.64 [s] |
+| `accumulation`          | D8      |  36M                     | 3.65 [s] |
+| `accumulation`          | DINF    |  36M                     | 16.2 [s] |
+| `catchment`             | D8      |  9.76M                   | 3.43 [s] |
+| `catchment`             | DINF    |  9.76M                   | 5.41 [s] |
+| `distance_to_outlet`    | D8      |  9.76M                   | 4.74 [s] |
+| `distance_to_outlet`    | DINF    |  9.76M                   | 1 [m] 13 [s] |
+| `distance_to_ridge`     | D8      |  36M                     | 6.83 [s] |
+| `hand`                  | D8      |  36M total, 730K channel | 12.9 [s] |
+| `hand`                  | DINF    |  36M total, 770K channel | 18.7 [s] |
+| `stream_order`          | D8      |  36M total, 1M channel   | 3.99 [s] |
+| `extract_river_network` | D8      |  36M total, 345K channel | 4.07 [s] |
+| `detect_pits`           | N/A     |  36M                     | 1.80 [s] |
+| `detect_flats`          | N/A     |  36M                     | 1.84 [s] |
+| `fill_pits`             | N/A     |  36M                     | 2.52 [s] |
+| `fill_depressions`      | N/A     |  36M                     | 27.1 [s] |
+| `resolve_flats`         | N/A     |  36M                     | 9.56 [s] |
+| `cell_dh`               | D8      |  36M                     | 2.34 [s] |
+| `cell_dh`               | DINF    |  36M                     | 4.92 [s] |
+| `cell_distances`        | D8      |  36M                     | 1.11 [s] |
+| `cell_distances`        | DINF    |  36M                     | 2.16 [s] |
+| `cell_slopes`           | D8      |  36M                     | 4.01 [s] |
+| `cell_slopes`           | DINF    |  36M                     | 10.2 [s] |
 
 # Citing
 

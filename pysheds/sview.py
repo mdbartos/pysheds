@@ -1,3 +1,4 @@
+import copy
 import numpy as np
 import pyproj
 from affine import Affine
@@ -44,21 +45,28 @@ class Raster(np.ndarray):
     """
 
     def __new__(cls, input_array, viewfinder=None, metadata={}):
-        try:
-            assert not np.issubdtype(input_array.dtype, np.object_)
-            assert not np.issubdtype(input_array.dtype, np.flexible)
-        except:
-            raise TypeError('`object` and `flexible` dtypes not allowed.')
-        obj = np.asarray(input_array).view(cls)
-        if viewfinder is None:
-            affine = Affine(1., 0., 0., 0., 1., 0.)
-            shape = input_array.shape
-            viewfinder = Viewfinder(affine=affine, shape=shape)
+        # Handle case where input is a Raster itself
+        if isinstance(input_array, Raster):
+            if viewfinder is None:
+                viewfinder = input_array.viewfinder.copy()
+            if not metadata:
+                metadata = input_array.metadata.copy()
+        # Handle case where input is an array-like
         else:
             try:
-                assert(isinstance(viewfinder, ViewFinder))
+                assert not np.issubdtype(input_array.dtype, np.object_)
+                assert not np.issubdtype(input_array.dtype, np.flexible)
             except:
-                raise ValueError("Must initialize with a ViewFinder")
+                raise TypeError('`object` and `flexible` dtypes not allowed.')
+            if viewfinder is None:
+                shape = input_array.shape
+                viewfinder = ViewFinder(shape=shape)
+            else:
+                try:
+                    assert(isinstance(viewfinder, ViewFinder))
+                except:
+                    raise ValueError("Must initialize with a ViewFinder")
+        obj = np.asarray(input_array).view(cls)
         try:
             assert np.min_scalar_type(viewfinder.nodata) <= obj.dtype
         except:
@@ -204,7 +212,6 @@ class ViewFinder():
             self.mask = np.ones(shape, dtype=np.bool8)
         else:
             self.mask = mask
-        # TODO: Removed x_coord_ix and y_coord_ix---need to double-check
 
     def __eq__(self, other):
         if isinstance(other, ViewFinder):
@@ -213,7 +220,7 @@ class ViewFinder():
             is_eq &= (self.shape[0] == other.shape[0])
             is_eq &= (self.shape[1] == other.shape[1])
             is_eq &= (self.crs == other.crs)
-            # TODO: May want to double-check this...
+            # TODO: May want to redefine this as `congruent_with`
             # is_eq &= (self.mask == other.mask).all()
             # if np.isnan(self.nodata):
             #     is_eq &= np.isnan(other.nodata)
@@ -310,6 +317,10 @@ class ViewFinder():
     @property
     def axes(self):
         return self._grid_indices()
+
+    def copy(self):
+        new_view = copy.deepcopy(self)
+        return new_view
 
     def view(raster, **kwargs):
         data_view = raster.viewfinder

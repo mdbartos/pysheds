@@ -1077,7 +1077,6 @@ class sGrid():
         # Set nodata cells to zero
         fdir[nodata_cells] = 0
         fdir[invalid_cells] = 0
-        # TODO: Need to check validity of fdir
         dirleft, dirright, dirtop, dirbottom = self._pop_rim(fdir, nodata=0)
         maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=False)
         hand = _self._d8_hand_iter_numba(fdir, mask, dirmap)

@@ -9,7 +9,6 @@ import pysheds._sview as _self
 _OLD_PYPROJ = LooseVersion(pyproj.__version__) < LooseVersion('2.2')
 _pyproj_init = '+init=epsg:4326' if _OLD_PYPROJ else 'epsg:4326'
 
-# TODO: Need to make sure this can handle Raster inputs as well
 class Raster(np.ndarray):
     """
     Array-like data structure with a coordinate reference system. A Raster is instantiated
@@ -84,38 +83,49 @@ class Raster(np.ndarray):
     @property
     def bbox(self):
         return self.viewfinder.bbox
+
     @property
     def coords(self):
         return self.viewfinder.coords
+
     @property
     def axes(self):
         return self.viewfinder.axes
+
     @property
     def view_shape(self):
         return self.viewfinder.shape
+
     @property
     def mask(self):
         return self.viewfinder.mask
+
     @property
     def nodata(self):
         return self.viewfinder.nodata
+
     @nodata.setter
     def nodata(self, new_nodata):
         self.viewfinder.nodata = new_nodata
+
     @property
     def crs(self):
         return self.viewfinder.crs
+
     @property
     def view_size(self):
         return np.prod(self.viewfinder.shape)
+
     @property
     def extent(self):
         bbox = self.viewfinder.bbox
         extent = (bbox[0], bbox[2], bbox[1], bbox[3])
         return extent
+
     @property
     def affine(self):
         return self.viewfinder.affine
+
     @property
     def properties(self):
         property_dict = {
@@ -126,6 +136,7 @@ class Raster(np.ndarray):
             'mask' : self.viewfinder.mask
         }
         return property_dict
+
     @property
     def dy_dx(self):
         return (abs(self.affine.e), abs(self.affine.a))
@@ -238,13 +249,16 @@ class ViewFinder():
     @property
     def affine(self):
         return self._affine
+
     @affine.setter
     def affine(self, new_affine):
         assert(isinstance(new_affine, Affine))
         self._affine = new_affine
+
     @property
     def shape(self):
         return self._shape
+
     @shape.setter
     def shape(self, new_shape):
         try:
@@ -255,9 +269,11 @@ class ViewFinder():
             raise ValueError('`shape` must be a sequence of length 2.')
         new_shape = tuple(new_shape)
         self._shape = new_shape
+
     @property
     def mask(self):
         return self._mask
+
     @mask.setter
     def mask(self, new_mask):
         try:
@@ -270,9 +286,11 @@ class ViewFinder():
             raise TypeError('`mask` must be of boolean type')
         new_mask = new_mask.astype(np.bool8)
         self._mask = new_mask
+
     @property
     def nodata(self):
         return self._nodata
+
     @nodata.setter
     def nodata(self, new_nodata):
         try:
@@ -280,16 +298,20 @@ class ViewFinder():
         except:
             raise TypeError('`nodata` value must be a numeric type.')
         self._nodata = new_nodata
+
     @property
     def crs(self):
         return self._crs
+
     @crs.setter
     def crs(self, new_crs):
         assert (isinstance(new_crs, pyproj.Proj))
         self._crs = new_crs
+
     @property
     def size(self):
         return np.prod(self.shape)
+
     @property
     def bbox(self):
         shape = self.shape
@@ -297,18 +319,22 @@ class ViewFinder():
         xmax, ymin = self.affine * (shape[1], shape[0])
         _bbox = (xmin, ymin, xmax, ymax)
         return _bbox
+
     @property
     def extent(self):
         bbox = self.bbox
         extent = (bbox[0], bbox[2], bbox[1], bbox[3])
         return extent
+
     @property
     def coords(self):
         coordinates = np.meshgrid(*self.axes, indexing='ij')
         return np.vstack(np.dstack(coordinates))
+
     @property
     def dy_dx(self):
         return (-self.affine.e, self.affine.a)
+
     @property
     def properties(self):
         property_dict = {
@@ -319,6 +345,7 @@ class ViewFinder():
             'mask' : self.mask
         }
         return property_dict
+
     @property
     def axes(self):
         return self._grid_indices()

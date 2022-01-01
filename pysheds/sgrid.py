@@ -1155,7 +1155,7 @@ class sGrid():
         featurelist = []
         for index, profile in enumerate(profiles):
             yi, xi = np.unravel_index(list(profile), fdir.shape)
-            x, y = self.affine * (xi, yi)
+            x, y = View.affine_transform(self.affine, xi, yi)
             line = geojson.LineString(np.column_stack([x, y]).tolist())
             featurelist.append(geojson.Feature(geometry=line, id=index))
         geo = geojson.FeatureCollection(featurelist)

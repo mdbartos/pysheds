@@ -174,7 +174,8 @@ class Raster(np.ndarray):
         left = np.column_stack([X[:, 0], Y[:, 0]])
         right = np.column_stack([X[:, -1], Y[:, -1]])
         boundary = np.vstack([top, bottom, left, right])
-        xb, yb = self.affine * boundary.T
+        xi, yi = boundary[:,0], boundary[:,1]
+        xb, yb = View.affine_transform(self.affine, xi, yi)
         xb_p, yb_p = pyproj.transform(old_crs, new_crs, xb, yb,
                                     errcheck=True, always_xy=True)
         x0_p = xb_p.min() if (dx > 0) else xb_p.max()
@@ -320,8 +321,8 @@ class ViewFinder():
     @property
     def bbox(self):
         shape = self.shape
-        xmin, ymax = self.affine * (0,0)
-        xmax, ymin = self.affine * (shape[1], shape[0])
+        xmin, ymax = View.affine_transform(self.affine, 0, 0)
+        xmax, ymin = View.affine_transform(self.affine, shape[1], shape[0])
         _bbox = (xmin, ymin, xmax, ymax)
         return _bbox
 
@@ -561,8 +562,10 @@ class View():
         """
         y_ix = np.arange(shape[0])
         x_ix = np.arange(shape[1])
-        x, _ = affine * np.vstack([x_ix, np.zeros(shape[1])])
-        _, y = affine * np.vstack([np.zeros(shape[0]), y_ix])
+        x_null = np.zeros(shape[0])
+        y_null = np.zeros(shape[1])
+        x, _ = cls.affine_transform(affine, x_ix, y_null)
+        _, y = cls.affine_transform(affine, x_null, y_ix)
         return y, x
 
     @classmethod
@@ -691,7 +694,9 @@ class View():
         yi_max = nz_r.max()
         xi_min = nz_c.min()
         xi_max = nz_c.max()
-        xul, yul = data.affine * (xi_min - pad[0], yi_min - pad[3])
+        xul, yul = View.affine_transform(data.affine,
+                                         xi_min - pad[0],
+                                         yi_min - pad[3])
         new_affine = Affine(data.affine.a, data.affine.b, xul,
                             data.affine.d, data.affine.e, yul)
         out = data[yi_min:yi_max + 1, xi_min:xi_max + 1]

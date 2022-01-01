@@ -1732,7 +1732,7 @@ class sGrid():
                                             metadata=dem.metadata)
         return inflated_dem
 
-    def polygonize(self, data=None, mask=None, connectivity=4, transform=None):
+    def polygonize(self, data=None, mask=None, connectivity=4, transform=None, **kwargs):
         """
         Yield (polygon, value) for each set of adjacent pixels of the same value.
         Wrapper around rasterio.features.shapes
@@ -1741,7 +1741,8 @@ class sGrid():
 
         Parameters
         ----------
-        data : Raster or np.ndarray
+        data : Raster
+               Data to polygonize. Defaults to `self.mask`.
         mask : Raster or np.ndarray
                Values of False or 0 will be excluded from feature generation.
         connectivity : 4 or 8 (int)
@@ -1749,6 +1750,8 @@ class sGrid():
         transform : affine.Affine
                     Transformation from pixel coordinates of `image` to the
                     coordinate system of the input `shapes`.
+
+        Additional keyword arguments (**kwargs) are passed to `self.view`.
 
         Returns
         -------
@@ -1759,17 +1762,18 @@ class sGrid():
         if not _HAS_RASTERIO:
             raise ImportError('Requires rasterio module')
         if data is None:
-            data = self.mask.astype(np.uint8)
-        if mask is None:
-            mask = self.mask
-        if transform is None:
-            transform = self.affine
+            data = Raster(self.mask.astype(np.uint8),
+                          viewfinder=self.viewfinder)
+        data = self.view(data, affine=transform, mask=mask, **kwargs)
+        mask = data.mask
+        transform = data.affine
         shapes = rasterio.features.shapes(data, mask=mask, connectivity=connectivity,
                                           transform=transform)
         return shapes
 
-    def rasterize(self, shapes, out_shape=None, fill=0, out=None, transform=None,
-                  all_touched=False, default_value=1, dtype=None):
+    def rasterize(self, shapes, out_shape=None, fill=0, transform=None,
+                  all_touched=False, default_value=1, dtype=None, mask=None,
+                  crs=None):
         """
         Return an image array with input geometries burned in.
         Wrapper around rasterio.features.rasterize
@@ -1784,9 +1788,6 @@ class sGrid():
                     Shape of output numpy ndarray.
         fill : int or float, optional
                Fill value for all areas not covered by input geometries.
-        out : numpy ndarray
-              Array of same shape and data type as `image` in which to store
-              results.
         transform : affine.Affine
                     Transformation from pixel coordinates of `image` to the
                     coordinate system of the input `shapes`.
@@ -1798,11 +1799,17 @@ class sGrid():
                         Used as value for all geometries, if not provided in `shapes`.
         dtype : numpy data type
                 Used as data type for results, if `out` is not provided.
+        mask : np.ndarray
+               Boolean mask indicating the mask of the resulting Raster.
+        crs : pyproj.Proj
+              Coordinate reference system of the desired Raster.
+
+        Additional keyword arguments (**kwargs) are passed to `self.view`.
 
         Returns
         -------
-        raster : np.ndarray
-                 Array representing rasterized input geometries.
+        raster : Raster
+                 Raster representing rasterized input geometries.
         """
         if not _HAS_RASTERIO:
             raise ImportError('Requires rasterio module')
@@ -1810,10 +1817,18 @@ class sGrid():
             out_shape = self.shape
         if transform is None:
             transform = self.affine
-        raster = rasterio.features.rasterize(shapes, out_shape=out_shape, fill=fill,
-                                             out=out, transform=transform,
+        if mask is None:
+            mask = self.mask
+        if crs is None:
+            crs = self.crs
+        raster = rasterio.features.rasterize(shapes, out_shape=out_shape,
+                                             fill=fill, transform=transform,
                                              all_touched=all_touched,
-                                             default_value=default_value, dtype=dtype)
+                                             default_value=default_value,
+                                             dtype=dtype)
+        viewfinder = ViewFinder(affine=transform, shape=out_shape,
+                                nodata=fill, mask=mask, crs=crs)
+        raster = Raster(raster, viewfinder=viewfinder)
         return raster
 
     def snap_to_mask(self, mask, xy, return_dist=False, **kwargs):

@@ -1130,7 +1130,7 @@ def _flatten_fdir_no_boundary(fdir, dirmap):
 def _construct_matching(fdir, dirmap):
     n = fdir.size
     startnodes = np.arange(n, dtype=np.int64)
-    endnodes = _flatten_fdir(fdir, dirmap).ravel()
+    endnodes = _flatten_fdir_numba(fdir, dirmap).ravel()
     return startnodes, endnodes
 
 @njit(boolean[:,:](float64[:,:], int64[:]),

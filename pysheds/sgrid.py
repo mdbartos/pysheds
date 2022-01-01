@@ -110,7 +110,7 @@ class sGrid():
     def __init__(self, viewfinder=None):
         if viewfinder is not None:
             try:
-                assert isinstance(new_viewfinder, ViewFinder)
+                assert isinstance(viewfinder, ViewFinder)
             except:
                 raise TypeError('viewfinder must be an instance of ViewFinder.')
             self._viewfinder = viewfinder
@@ -707,7 +707,7 @@ class sGrid():
         # Delineate the catchment
         catch = _self._d8_catchment_numba(fdir, (y, x), dirmap)
         if pour_value is not None:
-            catch[r, c] = pour_value
+            catch[y, x] = pour_value
         catch = self._output_handler(data=catch, viewfinder=fdir.viewfinder,
                                      metadata=fdir.metadata, nodata=nodata_out)
         return catch
@@ -728,7 +728,7 @@ class sGrid():
         catch = _self._dinf_catchment_numba(fdir_0, fdir_1, (y, x), dirmap)
         # if pour point needs to be a special value, set it
         if pour_value is not None:
-            catch[r, c] = pour_value
+            catch[y, x] = pour_value
         catch = self._output_handler(data=catch, viewfinder=fdir.viewfinder,
                                      metadata=fdir.metadata, nodata=nodata_out)
         return catch

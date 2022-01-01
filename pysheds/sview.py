@@ -327,7 +327,7 @@ class ViewFinder():
         new_view = copy.deepcopy(self)
         return new_view
 
-    def view(raster, **kwargs):
+    def view(self, raster, **kwargs):
         data_view = raster.viewfinder
         target_view = self
         return View.view(raster, data_view, target_view, **kwargs)

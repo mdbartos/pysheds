@@ -26,8 +26,8 @@ Data available via the [USGS HydroSHEDS](https://hydrosheds.cr.usgs.gov/datadown
 # ----------------------------
 from pysheds.grid import Grid
 
-grid = Grid.from_raster('dem.tiff')
-dem = grid.read_raster('dem.tiff')
+grid = Grid.from_raster('elevation.tiff')
+dem = grid.read_raster('elevation.tiff')
 ```
 
 <details>
@@ -254,7 +254,7 @@ plt.title('Flow Distance', size=14)
 # Combine with land cover data
 # ---------------------
 terrain = grid.read_raster('impervious_area.tiff', window=grid.bbox,
-                           window_crs=grid.crs)
+                           window_crs=grid.crs, nodata=0)
 # Reproject data to grid's coordinate reference system
 projected_terrain = terrain.to_crs(grid.crs)
 # View data in catchment's spatial extent

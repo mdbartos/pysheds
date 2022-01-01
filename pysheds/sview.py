@@ -44,6 +44,11 @@ class Raster(np.ndarray):
     """
 
     def __new__(cls, input_array, viewfinder=None, metadata={}):
+        try:
+            assert not np.issubdtype(input_array.dtype, np.object_)
+            assert not np.issubdtype(input_array.dtype, np.flexible)
+        except:
+            raise TypeError('`object` and `flexible` dtypes not allowed.')
         obj = np.asarray(input_array).view(cls)
         if viewfinder is None:
             affine = Affine(1., 0., 0., 0., 1., 0.)
@@ -54,6 +59,10 @@ class Raster(np.ndarray):
                 assert(isinstance(viewfinder, ViewFinder))
             except:
                 raise ValueError("Must initialize with a ViewFinder")
+        try:
+            assert np.min_scalar_type(viewfinder.nodata) <= obj.dtype
+        except:
+            raise TypeError('`nodata` value not representable in dtype of array')
         obj.viewfinder = viewfinder
         obj.metadata = metadata
         return obj
@@ -226,19 +235,38 @@ class ViewFinder():
         return self._shape
     @shape.setter
     def shape(self, new_shape):
+        try:
+            assert len(new_shape) == 2
+            assert isinstance(new_shape[0], int)
+            assert isinstance(new_shape[1], int)
+        except:
+            raise ValueError('`shape` must be a sequence of length 2.')
+        new_shape = tuple(new_shape)
         self._shape = new_shape
     @property
     def mask(self):
         return self._mask
     @mask.setter
     def mask(self, new_mask):
-        assert (new_mask.shape == self.shape)
+        try:
+            assert (new_mask.shape == self.shape)
+        except:
+            raise ValueError('`mask` shape must be the same as `self.shape`')
+        try:
+            assert (np.min_scalar_type(new_mask) <= np.dtype(np.bool8))
+        except:
+            raise TypeError('`mask` must be of boolean type')
+        new_mask = new_mask.astype(np.bool8)
         self._mask = new_mask
     @property
     def nodata(self):
         return self._nodata
     @nodata.setter
     def nodata(self, new_nodata):
+        try:
+            assert not (np.min_scalar_type(new_nodata) == np.dtype('O'))
+        except:
+            raise TypeError('`nodata` value must be a numeric type.')
         self._nodata = new_nodata
     @property
     def crs(self):
@@ -599,6 +627,11 @@ class View():
             dtype = np.float64
         else:
             raise ValueError('Interpolation method must be one of: `nearest`, `linear`')
+        try:
+            assert not np.issubdtype(dtype, np.object_)
+            assert not np.issubdtype(dtype, np.flexible)
+        except:
+            raise TypeError('`object` and `flexible` dtypes not allowed.')
         return dtype
 
     @classmethod

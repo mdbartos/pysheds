@@ -1,7 +1,6 @@
 import sys
 import ast
 import copy
-import warnings
 import pyproj
 import numpy as np
 import pandas as pd

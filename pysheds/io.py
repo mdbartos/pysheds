@@ -1,4 +1,5 @@
 import ast
+import warnings
 import numpy as np
 import pyproj
 import rasterio
@@ -57,8 +58,8 @@ def read_ascii(data, skiprows=6, mask=None, crs=pyproj.Proj(_pyproj_init),
     out = Raster(data, viewfinder, metadata=metadata)
     return out
 
-def read_raster(data, band=1, window=None, window_crs=None,
-                metadata={}, mask_geometry=False, **kwargs):
+def read_raster(data, band=1, window=None, window_crs=None, mask_geometry=False,
+                nodata=None, metadata={}, **kwargs):
     """
     Reads data from a raster file and returns a Raster object.
 
@@ -76,6 +77,9 @@ def read_raster(data, band=1, window=None, window_crs=None,
                     Geometries indicating where data should be read. The values must be a
                     GeoJSON-like dict or an object that implements the Python geo interface
                     protocol (such as a Shapely Polygon).
+    nodata : int or float
+             Value indicating 'no data' in raster file. If None, will attempt to read
+             intended 'no data' value from raster file.
     metadata : dict
                 Other attributes describing dataset, such as direction
                 mapping for flow direction files. e.g.:
@@ -126,11 +130,18 @@ def read_raster(data, band=1, window=None, window_crs=None,
             # No mask was applied if all False, out of bounds
             if not mask.any():
                 # Return mask to all True and deliver warning
-                warnings.warn('mask_geometry does not fall within the bounds of the raster!')
+                warnings.warn('`mask_geometry` does not fall within the bounds of the raster.')
                 mask = ~mask
-        nodata = f.nodatavals[0]
-    if nodata is not None:
-        nodata = data.dtype.type(nodata)
+        # If no `nodata` value specified, read intended nodata value from file
+        if nodata is None:
+            nodata = f.nodatavals[0]
+            # If no `nodata` value in file, default to 0
+            if nodata is None:
+                warnings.warn('No `nodata` value detected. Defaulting to 0.')
+                nodata = 0
+            # Otherwise, set nodata to value found in file
+            else:
+                nodata = data.dtype.type(nodata)
     viewfinder = ViewFinder(affine=affine, shape=shape, mask=mask, nodata=nodata, crs=crs)
     out = Raster(data, viewfinder, metadata=metadata)
     return out

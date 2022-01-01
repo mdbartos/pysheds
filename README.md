@@ -476,6 +476,9 @@ Performance benchmarks on a 2015 MacBook Pro (M: million, K: thousand):
 | `cell_slopes`           | D8      |  36M                     | 4.01 [s] |
 | `cell_slopes`           | DINF    |  36M                     | 10.2 [s] |
 
+Speed tests were run on a conditioned DEM from the HYDROSHEDS DEM repository
+(linked above as `elevation.tiff`).
+
 # Citing
 
 If you have used this codebase in a publication and wish to cite it, consider citing the zenodo repository:

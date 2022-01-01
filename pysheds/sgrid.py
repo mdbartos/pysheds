@@ -1527,7 +1527,7 @@ class sGrid():
         # Find pits
         pits = _self._find_pits_numba(dem, inside)
         pits = self._output_handler(data=pits, viewfinder=dem.viewfinder,
-                                    metadata=dem.metadata, nodata=None)
+                                    metadata=dem.metadata, nodata=False)
         return pits
 
     def fill_pits(self, dem, nodata_out=None, **kwargs):
@@ -1672,7 +1672,7 @@ class sGrid():
         # handle nodata values in dem
         flats, _, _ = _self._par_get_candidates_numba(dem, inside)
         flats = self._output_handler(data=flats, viewfinder=dem.viewfinder,
-                                     metadata=dem.metadata, nodata=None)
+                                     metadata=dem.metadata, nodata=False)
         return flats
 
     def resolve_flats(self, dem, nodata_out=None, eps=1e-5, max_iter=1000, **kwargs):

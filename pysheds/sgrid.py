@@ -1714,6 +1714,7 @@ class sGrid():
         flats, fdirs_defined, higher_cells = _self._par_get_candidates_numba(dem, inside)
         # Label all flats
         labels, numlabels = skimage.measure.label(flats, return_num=True)
+        labels = labels.astype(np.int64)
         # Get high-edge cells
         hec = _self._par_get_high_edge_cells_numba(inside, fdirs_defined, higher_cells, labels)
         # Get low-edge cells

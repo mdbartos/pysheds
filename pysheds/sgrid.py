@@ -817,9 +817,11 @@ class sGrid():
         # Otherwise, initialize accumulation array to ones where valid cells exist
         else:
             acc = (~nodata_cells).astype(np.float64).reshape(fdir.shape)
+        acc = np.asarray(acc)
         # If using efficiency, initialize array
         if efficiency is not None:
             eff = efficiency.astype(np.float64).reshape(fdir.shape)
+            eff = np.asarray(eff)
         # Find indegree of all cells
         indegree = np.bincount(endnodes.ravel(), minlength=fdir.size).astype(np.uint8)
         # Set starting nodes to those with no predecessors
@@ -851,8 +853,10 @@ class sGrid():
         # Otherwise, initialize accumulation array to ones where valid cells exist
         else:
             acc = (~nodata_cells).reshape(fdir.shape).astype(np.float64)
+        acc = np.asarray(acc)
         if efficiency is not None:
             eff = efficiency.reshape(fdir.shape).astype(np.float64)
+            eff = np.asarray(eff)
         # Find indegree of all cells
         indegree_0 = np.bincount(endnodes_0.ravel(), minlength=fdir.size)
         indegree_1 = np.bincount(endnodes_1.ravel(), minlength=fdir.size)
@@ -1496,6 +1500,8 @@ class sGrid():
         cdist = self.cell_distances(fdir, dirmap=dirmap, nodata_out=np.nan,
                                     routing=routing, **kwargs)
         slopes = _self._cell_slopes_numba(dh, cdist)
+        slopes = self._output_handler(data=slopes, viewfinder=dem.viewfinder,
+                                      metadata=dem.metadata, nodata=nodata_out)
         return slopes
 
     def detect_pits(self, dem, **kwargs):
@@ -1726,7 +1732,7 @@ class sGrid():
         # Construct a gradient that is guaranteed to drain
         drainage_gradient = (2 * grad_towards_lower + grad_from_higher)
         # Create a flat-removed DEM by applying drainage gradient
-        inflated_dem = dem + eps * drainage_gradient
+        inflated_dem = np.asarray(dem + eps * drainage_gradient)
         inflated_dem = self._output_handler(data=inflated_dem,
                                             viewfinder=dem.viewfinder,
                                             metadata=dem.metadata)

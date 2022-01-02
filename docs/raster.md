@@ -274,7 +274,78 @@ array([[ 32.82166667, -97.485     ],
 </p>
 </details>
 
-## Converting the raster coordinate reference system
+## Instantiating Rasters
+
+Rasters can be instantiated directly using the `pysheds.Raster` class. Both an array-like object and a `ViewFinder` must be provided.
+
+```python
+from pysheds.view import Raster, ViewFinder
+
+array = np.random.randn(*grid.shape)
+raster = Raster(array, viewfinder=grid.viewfinder)
+```
+
+<details>
+<summary>Output...</summary>
+<p>
+
+```
+raster
+
+Raster([[-0.71876505, -0.35747123, -0.3296262 , ..., -0.07522118,
+         -0.86431367, -0.45065405],
+        [-1.12477409,  2.28759514,  0.5855458 , ..., -0.43795955,
+          0.42813309,  0.03900371],
+        [-1.33345727,  1.03254272,  0.0904066 , ...,  0.06465593,
+         -1.09938815,  1.1821455 ],
+        ...,
+        [ 0.67330805,  0.37022934,  0.13783694, ..., -1.59943506,
+          0.65154575, -0.58218991],
+        [ 0.67738517,  0.43696016,  1.09402764, ..., -1.63815592,
+          1.67867785,  0.16609381],
+        [ 1.17302635,  0.31176851,  1.79257942, ..., -0.48385788,
+          1.38478075, -0.76431488]])
+```
+
+</p>
+</details>
+
+We can also instantiate the raster using our own custom `ViewFinder`.
+
+```python
+raster = Raster(array, viewfinder=ViewFinder(shape=array.shape))
+```
+
+Note that the `affine` transformation defaults to the identity matrix, the `nodata` value defaults to zero, the `crs` defaults to geographic coordinates, and the `mask` defaults to a boolean array of ones. If a `shape` is not provided, the shape of the viewfinder defaults to `(1, 1)`. However, when instantiating a `Raster`, the shape of the viewfinder and the shape of the array-like object must be identical.
+
+```python
+raster.viewfinder
+```
+
+<details>
+<summary>Output...</summary>
+<p>
+
+```
+'affine' : Affine(1.0, 0.0, 0.0,
+       0.0, 1.0, 0.0)
+'shape' : (359, 367)
+'nodata' : 0
+'crs' : Proj('+proj=longlat +datum=WGS84 +no_defs', preserve_units=True)
+'mask' : array([[ True,  True,  True, ...,  True,  True,  True],
+       [ True,  True,  True, ...,  True,  True,  True],
+       [ True,  True,  True, ...,  True,  True,  True],
+       ...,
+       [ True,  True,  True, ...,  True,  True,  True],
+       [ True,  True,  True, ...,  True,  True,  True],
+       [ True,  True,  True, ...,  True,  True,  True]])
+```
+
+</p>
+</details>
+
+
+## Converting the Raster coordinate reference system
 
 The Raster can be transformed to a new coordinate reference system using the `to_crs` method:
 

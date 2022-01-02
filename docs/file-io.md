@@ -7,15 +7,14 @@
 ### Instantiating a grid from a raster
 
 ```python
->>> from pysheds.grid import Grid
->>> grid = Grid.from_raster('../data/dem.tif', data_name='dem')
+from pysheds.grid import Grid
+grid = Grid.from_raster('./data/dem.tif')
 ```
 
 ### Reading a raster file
 
 ```python
->>> grid = Grid()
->>> grid.read_raster('../data/dem.tif', data_name='dem')
+dem = grid.read_raster('./data/dem.tif')
 ```
 
 ## Reading from ASCII files
@@ -23,14 +22,13 @@
 ### Instantiating a grid from an ASCII grid
 
 ```python
->>> grid = Grid.from_ascii('../data/dir.asc', data_name='dir')
+grid = Grid.from_ascii('./data/dir.asc')
 ```
 
 ### Reading an ASCII grid
 
 ```python
->>> grid = Grid()
->>> grid.read_ascii('../data/dir.asc', data_name='dir')
+fdir = grid.read_ascii('./data/dir.asc', dtype=np.uint8)
 ```
 
 ## Windowed reading
@@ -39,38 +37,11 @@ If the raster file is very large, you can specify a window to read data from. Th
 
 ```python
 # Instantiate a grid with data
->>> grid = Grid.from_raster('../data/dem.tif', data_name='dem')
+grid = Grid.from_raster('./data/dem.tif')
 
 # Read windowed raster
->>> grid.read_raster('../data/nlcd_2011_impervious_2011_edition_2014_10_10.img',
-                     data_name='terrain', window=grid.bbox, window_crs=grid.crs)
-```
-
-## Adding in-memory datasets
-
-In-memory datasets from a python session can also be added.
-
-```python
-# Instantiate a grid with data
->>> grid = Grid.from_raster('../data/dem.tif', data_name='dem')
-
-# Add another copy of the DEM data as a Raster object
->>> grid.add_gridded_data(grid.dem, data_name='dem_copy')
-```
-
-Raw numpy arrays can also be added.
-
-```python
->>> import numpy as np
-
-# Generate random data
->>> data = np.random.randn(*grid.shape)
-
-# Add data to grid
->>> grid.add_gridded_data(data=data, data_name='random',
-                          affine=grid.affine,
-                          crs=grid.crs,
-                          nodata=0)
+terrain = grid.read_raster('./data/impervious_area.tiff',
+                           window=grid.bbox, window_crs=grid.crs)
 ```
 
 ## Writing to raster files
@@ -78,72 +49,72 @@ Raw numpy arrays can also be added.
 By default, the `grid.to_raster` method will write the grid's current view of the dataset.
 
 ```python
->>> grid = Grid.from_ascii('../data/dir.asc', data_name='dir')
->>> grid.to_raster('dir', 'test_dir.tif', blockxsize=16, blockysize=16)
+grid = Grid.from_ascii('./data/dir.asc')
+fdir = grid.read_ascii('./data/dir.asc', dtype=np.uint8)
+grid.to_raster(fdir, 'test_dir.tif', blockxsize=16, blockysize=16)
 ```
 
-If the full dataset is desired, set `view=False`:
+If the full dataset is desired, set the `target_view` to the dataset's `viewfinder`:
 
 ```python
->>> grid.to_raster('dir', 'test_dir.tif', view=False, 
-                   blockxsize=16, blockysize=16)
+grid.to_raster(fdir, 'test_dir.tif', target_view=fdir.viewfinder,
+               blockxsize=16, blockysize=16)
 ```
 
-If you want the output file to be masked with the grid mask, set `apply_mask=True`:
+If you want the output file to be masked with the grid mask, set `apply_output_mask=True`:
 
 ```python
->>> grid.to_raster('dir', 'test_dir.tif',
-                   view=True, apply_mask=True, 
-                   blockxsize=16, blockysize=16)
+grid.to_raster(fdir, 'test_dir.tif', apply_output_mask=True,
+               blockxsize=16, blockysize=16)
 ```
 
 ## Writing to ASCII files
 
 ```python
->>> grid.to_ascii('dir', 'test_dir.asc')
+grid.to_ascii(fdir, 'test_dir.asc')
 ```
 
 ## Writing to shapefiles
 
-For more detail, see the [jupyter notebook](https://github.com/mdbartos/pysheds/blob/master/recipes/write_shapefile.ipynb).
-
 ```python
->>> import fiona
+import fiona
 
->>> grid = Grid.from_ascii('../data/dir.asc', data_name='dir')
+grid = Grid.from_ascii('./data/dir.asc')
 
 # Specify pour point
->>> x, y = -97.294167, 32.73750
+x, y = -97.294167, 32.73750
 
 # Delineate the catchment
->>> grid.catchment(data='dir', x=x, y=y, out_name='catch',
-                   recursionlimit=15000, xytype='label',
-                   nodata_out=0)
+catch = grid.catchment(x=x, y=y, fdir=fdir,
+                       xytype='coordinate')
 
 # Clip to catchment
->>> grid.clip_to('catch')
+grid.clip_to(catch)
+
+# Create view
+catch_view = grid.view(catch, dtype=np.uint8)
 
 # Create a vector representation of the catchment mask
->>> shapes = grid.polygonize()
+shapes = grid.polygonize(catch_view)
 
 # Specify schema
->>> schema = {
+schema = {
         'geometry': 'Polygon',
         'properties': {'LABEL': 'float:16'}
-    }
+}
 
 # Write shapefile
->>> with fiona.open('catchment.shp', 'w',
-                    driver='ESRI Shapefile',
-                    crs=grid.crs.srs,
-                    schema=schema) as c:
-        i = 0
-        for shape, value in shapes:
-            rec = {}
-            rec['geometry'] = shape
-            rec['properties'] = {'LABEL' : str(value)}
-            rec['id'] = str(i)
-            c.write(rec)
-            i += 1
+with fiona.open('catchment.shp', 'w',
+                driver='ESRI Shapefile',
+                crs=grid.crs.srs,
+                schema=schema) as c:
+    i = 0
+    for shape, value in shapes:
+        rec = {}
+        rec['geometry'] = shape
+        rec['properties'] = {'LABEL' : str(value)}
+        rec['id'] = str(i)
+        c.write(rec)
+        i += 1
 ```
 

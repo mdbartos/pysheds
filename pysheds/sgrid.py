@@ -112,6 +112,9 @@ class sGrid():
         else:
             self._viewfinder = ViewFinder(**self.defaults)
 
+    def __repr__(self):
+        return repr(self.viewfinder)
+
     @property
     def viewfinder(self):
         return self._viewfinder

@@ -1060,7 +1060,7 @@ class sGrid():
             if return_index:
                 nodata_out = -1
             else:
-                nodata_out = dem.nodata
+                nodata_out = np.nan
         # Compute height above nearest drainage
         if routing.lower() == 'd8':
             hand = self._d8_compute_hand(fdir=fdir, mask=mask,
@@ -1071,6 +1071,8 @@ class sGrid():
         # If index is not desired, return heights
         if not return_index:
             hand = _self._assign_hand_heights_numba(hand, dem, nodata_out)
+            hand = self._output_handler(data=hand, viewfinder=fdir.viewfinder,
+                                        metadata=fdir.metadata, nodata=nodata_out)
         return hand
 
     def _d8_compute_hand(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
@@ -1085,7 +1087,7 @@ class sGrid():
         maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=False)
         hand = _self._d8_hand_iter_numba(fdir, mask, dirmap)
         hand = self._output_handler(data=hand, viewfinder=fdir.viewfinder,
-                                    metadata=fdir.metadata, nodata=nodata_out)
+                                    metadata=fdir.metadata, nodata=-1)
         return hand
 
     def _dinf_compute_hand(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
@@ -1102,7 +1104,7 @@ class sGrid():
         maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=False)
         hand = _self._dinf_hand_iter_numba(fdir_0, fdir_1, mask, dirmap)
         hand = self._output_handler(data=hand, viewfinder=fdir.viewfinder,
-                                    metadata=fdir.metadata, nodata=nodata_out)
+                                    metadata=fdir.metadata, nodata=-1)
         return hand
 
     def extract_river_network(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),

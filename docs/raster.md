@@ -1,3 +1,8 @@
+---
+layout: default
+title:  "Raster datasets"
+---
+
 # Raster datasets
 
 `Grid` methods operate on `Raster` objects. You can think of a `Raster` as a numpy array with additional attributes that specify the location, resolution and coordinate reference system of the data.
@@ -20,7 +25,7 @@ dem
 <summary>Output...</summary>
 <p>
 
-```
+<pre>
 Raster([[214, 212, 210, ..., 177, 177, 175],
         [214, 210, 207, ..., 176, 176, 174],
         [211, 209, 204, ..., 174, 174, 174],
@@ -28,10 +33,12 @@ Raster([[214, 212, 210, ..., 177, 177, 175],
         [263, 262, 263, ..., 217, 217, 216],
         [266, 265, 265, ..., 217, 217, 217],
         [268, 267, 266, ..., 216, 217, 216]], dtype=int16)
-```
+</pre>
 
 </p>
 </details>
+
+<br>
 
 ## Calling methods on rasters
 
@@ -50,7 +57,7 @@ fdir
 <summary>Output...</summary>
 <p>
 
-```
+<pre>
 Raster([[  0,   0,   0, ...,   0,   0,   0],
         [  0,   2,   2, ...,   4,   1,   0],
         [  0,   1,   2, ...,   4,   2,   0],
@@ -58,12 +65,12 @@ Raster([[  0,   0,   0, ...,   0,   0,   0],
         [  0,  64,  32, ...,   8,   1,   0],
         [  0,  64,  32, ...,  16, 128,   0],
         [  0,   0,   0, ...,   0,   0,   0]])
-```
+</pre>
 
 </p>
 </details>
 
-
+<br>
 
 ## Raster attributes
 
@@ -79,13 +86,25 @@ dem.viewfinder
 <summary>Output...</summary>
 <p>
 
-```
-<pysheds.sview.ViewFinder at 0x13222f908>
-```
+<pre>
+'affine' : Affine(0.0008333333333333, 0.0, -97.4849999999961,
+       0.0, -0.0008333333333333, 32.82166666666536)
+'shape' : (359, 367)
+'nodata' : -32768
+'crs' : Proj('+proj=longlat +datum=WGS84 +no_defs', preserve_units=True)
+'mask' : array([[ True,  True,  True, ...,  True,  True,  True],
+       [ True,  True,  True, ...,  True,  True,  True],
+       [ True,  True,  True, ...,  True,  True,  True],
+       ...,
+       [ True,  True,  True, ...,  True,  True,  True],
+       [ True,  True,  True, ...,  True,  True,  True],
+       [ True,  True,  True, ...,  True,  True,  True]])
+</pre>
 
 </p>
 </details>
 
+<br>
 
 The viewfinder contains five necessary elements that completely define the spatial reference system.
 
@@ -106,13 +125,15 @@ dem.affine
 <summary>Output...</summary>
 <p>
 
-```
+<pre>
 Affine(0.0008333333333333, 0.0, -100.0,
        0.0, -0.0008333333333333, 34.9999999999998)
-```
+</pre>
 
 </p>
 </details>
+
+<br>
 
 The elements of the affine transform `(a, b, c, d, e, f)` are:
 
@@ -137,12 +158,14 @@ dem.shape
 <summary>Output...</summary>
 <p>
 
-```
+<pre>
 (359, 367)
-```
+</pre>
 
 </p>
 </details>
+
+<br>
 
 ### Coordinate reference system
 
@@ -158,12 +181,14 @@ dem.crs
 <summary>Output...</summary>
 <p>
 
-```
+<pre>
 Proj('+proj=longlat +datum=WGS84 +no_defs', preserve_units=True)
-```
+</pre>
 
 </p>
 </details>
+
+<br>
 
 This example dataset has a geographic projection (meaning that coordinates are defined in terms of latitudes and longitudes).
 
@@ -181,7 +206,7 @@ dem.mask
 <summary>Output...</summary>
 <p>
 
-```
+<pre>
 array([[ True,  True,  True, ...,  True,  True,  True],
        [ True,  True,  True, ...,  True,  True,  True],
        [ True,  True,  True, ...,  True,  True,  True],
@@ -189,10 +214,12 @@ array([[ True,  True,  True, ...,  True,  True,  True],
        [ True,  True,  True, ...,  True,  True,  True],
        [ True,  True,  True, ...,  True,  True,  True],
        [ True,  True,  True, ...,  True,  True,  True]])
-```
+</pre>
 
 </p>
 </details>
+
+<br>
 
 ### "No data" value
 
@@ -206,12 +233,14 @@ dem.nodata
 <summary>Output...</summary>
 <p>
 
-```
+<pre>
 -32768
-```
+</pre>
 
 </p>
 </details>
+
+<br>
 
 ### Derived attributes
 
@@ -227,12 +256,14 @@ dem.bbox
 <summary>Output...</summary>
 <p>
 
-```
+<pre>
 (-97.4849999999961, 32.52166666666537, -97.17833333332945, 32.82166666666536)
-```
+</pre>
 
 </p>
 </details>
+
+<br>
 
 #### Extent
 
@@ -244,12 +275,14 @@ dem.extent
 <summary>Output...</summary>
 <p>
 
-```
+<pre>
 (-97.4849999999961, -97.17833333332945, 32.52166666666537, 32.82166666666536)
-```
+</pre>
 
 </p>
 </details>
+
+<br>
 
 #### Coordinates
 
@@ -261,7 +294,7 @@ dem.coords
 <summary>Output...</summary>
 <p>
 
-```
+<pre>
 array([[ 32.82166667, -97.485     ],
        [ 32.82166667, -97.48416667],
        [ 32.82166667, -97.48333333],
@@ -269,10 +302,12 @@ array([[ 32.82166667, -97.485     ],
        [ 32.52333333, -97.18166667],
        [ 32.52333333, -97.18083333],
        [ 32.52333333, -97.18      ]])
-```
+</pre>
 
 </p>
 </details>
+
+<br>
 
 ## Instantiating Rasters
 
@@ -289,7 +324,7 @@ raster = Raster(array, viewfinder=grid.viewfinder)
 <summary>Output...</summary>
 <p>
 
-```
+<pre>
 raster
 
 Raster([[-0.71876505, -0.35747123, -0.3296262 , ..., -0.07522118,
@@ -305,10 +340,12 @@ Raster([[-0.71876505, -0.35747123, -0.3296262 , ..., -0.07522118,
           1.67867785,  0.16609381],
         [ 1.17302635,  0.31176851,  1.79257942, ..., -0.48385788,
           1.38478075, -0.76431488]])
-```
+</pre>
 
 </p>
 </details>
+
+<br>
 
 We can also instantiate the raster using our own custom `ViewFinder`.
 
@@ -326,7 +363,7 @@ raster.viewfinder
 <summary>Output...</summary>
 <p>
 
-```
+<pre>
 'affine' : Affine(1.0, 0.0, 0.0,
        0.0, 1.0, 0.0)
 'shape' : (359, 367)
@@ -339,11 +376,12 @@ raster.viewfinder
        [ True,  True,  True, ...,  True,  True,  True],
        [ True,  True,  True, ...,  True,  True,  True],
        [ True,  True,  True, ...,  True,  True,  True]])
-```
+</pre>
 
 </p>
 </details>
 
+<br>
 
 ## Converting the Raster coordinate reference system
 
@@ -365,7 +403,7 @@ proj_dem = dem.to_crs(new_crs)
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -376,10 +414,12 @@ ax[1].imshow(proj_dem, cmap='terrain', zorder=1)
 ax[0].set_title('DEM', size=14)
 ax[1].set_title('Projected DEM', size=14)
 plt.tight_layout()
-```
+</pre>
 
 </p>
 </details>
+
+<br>
 
 Note that the projected Raster appears slightly rotated to the counterclockwise direction.
 

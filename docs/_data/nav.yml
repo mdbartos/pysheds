@@ -21,3 +21,5 @@ toc:
         url: /pysheds/flow-distance.html
       - page: Extracting river networks
         url: /pysheds/extract-river-network.html
+      - page: Inundation mapping with HAND
+        url: /pysheds/hand.html

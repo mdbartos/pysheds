@@ -1,3 +1,8 @@
+---
+layout: default
+title:  "Views"
+---
+
 # Views
 
 The `grid.view` method returns a copy of a dataset cropped to the grid's current view. The grid's current view is defined by its `viewfinder` attribute, which contains five properties that fully define the spatial reference system:
@@ -24,14 +29,15 @@ grid.affine
 <summary>Output...</summary>
 <p>
 
-```
+<pre>
 Affine(0.0008333333333333, 0.0, -97.4849999999961,
        0.0, -0.0008333333333333, 32.82166666666536)
-```
+</pre>
 
 </p>
 </details>
 
+<br>
 
 ```python
 grid.crs
@@ -41,13 +47,14 @@ grid.crs
 <summary>Output...</summary>
 <p>
 
-```
+<pre>
 Proj('+proj=longlat +datum=WGS84 +no_defs', preserve_units=True)
-```
+</pre>
 
 </p>
 </details>
 
+<br>
 
 ```python
 grid.shape
@@ -57,12 +64,14 @@ grid.shape
 <summary>Output...</summary>
 <p>
 
-```
+<pre>
 (359, 367)
-```
+</pre>
 
 </p>
 </details>
+
+<br>
 
 ```python
 grid.mask
@@ -72,7 +81,7 @@ grid.mask
 <summary>Output...</summary>
 <p>
 
-```
+<pre>
 array([[ True,  True,  True, ...,  True,  True,  True],
        [ True,  True,  True, ...,  True,  True,  True],
        [ True,  True,  True, ...,  True,  True,  True],
@@ -80,10 +89,12 @@ array([[ True,  True,  True, ...,  True,  True,  True],
        [ True,  True,  True, ...,  True,  True,  True],
        [ True,  True,  True, ...,  True,  True,  True],
        [ True,  True,  True, ...,  True,  True,  True]])
-```
+</pre>
 
 </p>
 </details>
+
+<br>
 
 We can verify that the spatial reference system is the same as that of the originating dataset:
 
@@ -99,12 +110,14 @@ grid.affine == dem.affine
 <summary>Output...</summary>
 <p>
 
-```
+<pre>
 True
-```
+</pre>
 
 </p>
 </details>
+
+<br>
 
 ```python
 grid.crs == dem.crs
@@ -114,12 +127,14 @@ grid.crs == dem.crs
 <summary>Output...</summary>
 <p>
 
-```
+<pre>
 True
-```
+</pre>
 
 </p>
 </details>
+
+<br>
 
 ```python
 grid.shape == dem.shape
@@ -129,13 +144,14 @@ grid.shape == dem.shape
 <summary>Output...</summary>
 <p>
 
-```
+<pre>
 True
-```
+</pre>
 
 </p>
 </details>
 
+<br>
 
 ```python
 (grid.mask == dem.mask).all()
@@ -145,13 +161,14 @@ True
 <summary>Output...</summary>
 <p>
 
-```
+<pre>
 True
-```
+</pre>
 
 </p>
 </details>
 
+<br>
 
 ## Viewing datasets
 
@@ -178,17 +195,18 @@ catch_view = grid.view(catch)
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 fig, ax = plt.subplots(figsize=(8,6))
 fig.patch.set_alpha(0)
 plt.imshow(catch_view, cmap='Greys_r', zorder=1)
 plt.title('Catchment', size=14)
 plt.tight_layout()
-```
+</pre>
 
 </p>
 </details>
 
+<br>
 
 ![Catchment view](https://s3.us-east-2.amazonaws.com/pysheds/img/views_catch.png)
 
@@ -202,13 +220,14 @@ Note that in this case, the original raster and its view are the same:
 <summary>Output...</summary>
 <p>
 
-```
+<pre>
 True
-```
+</pre>
 
 </p>
 </details>
 
+<br>
 
 ## Clipping the view to a dataset
 
@@ -226,17 +245,18 @@ catch_view = grid.view(catch)
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 fig, ax = plt.subplots(figsize=(8,6))
 fig.patch.set_alpha(0)
 plt.imshow(catch_view, cmap='Greys_r', zorder=1)
 plt.title('Clipped catchment', size=14)
 plt.tight_layout()
-```
+</pre>
 
 </p>
 </details>
 
+<br>
 
 ![Clipped view](https://s3.us-east-2.amazonaws.com/pysheds/img/views_catch_clipped.png)
 
@@ -251,17 +271,18 @@ fdir_view = grid.view(fdir)
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 fig, ax = plt.subplots(figsize=(8,6))
 fig.patch.set_alpha(0)
 plt.imshow(fdir_view, cmap='viridis', zorder=1)
 plt.title('Clipped flow directions', size=14)
 plt.tight_layout()
-```
+</pre>
 
 </p>
 </details>
 
+<br>
 
 ![Other views](https://s3.us-east-2.amazonaws.com/pysheds/img/views_fdir_clipped.png)
 
@@ -279,17 +300,18 @@ dem_view = grid.view(dem, nodata=np.nan)
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 fig, ax = plt.subplots(figsize=(8,6))
 fig.patch.set_alpha(0)
 plt.imshow(dem_view, cmap='terrain', zorder=1)
 plt.title('Clipped DEM with mask', size=14)
 plt.tight_layout()
-```
+</pre>
 
 </p>
 </details>
 
+<br>
 
 ![Setting nodata](https://s3.us-east-2.amazonaws.com/pysheds/img/views_dem_clipped.png)
 
@@ -306,17 +328,18 @@ dem_view = grid.view(dem, nodata=np.nan,
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 fig, ax = plt.subplots(figsize=(8,6))
 fig.patch.set_alpha(0)
 plt.imshow(dem_view, cmap='terrain', zorder=1)
 plt.title('Clipped DEM without mask', size=14)
 plt.tight_layout()
-```
+</pre>
 
 </p>
 </details>
 
+<br>
 
 ![Setting nodata](https://s3.us-east-2.amazonaws.com/pysheds/img/views_dem_nomask.png)
 
@@ -341,17 +364,18 @@ nn_interpolation = grid.view(terrain, nodata=np.nan)
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 fig, ax = plt.subplots(figsize=(8,6))
 fig.patch.set_alpha(0)
 plt.imshow(nn_interpolation, cmap='bone', zorder=1)
 plt.title('Nearest neighbor interpolation', size=14)
 plt.tight_layout()
-```
+</pre>
 
 </p>
 </details>
 
+<br>
 
 ![Nearest neighbors](https://s3.us-east-2.amazonaws.com/pysheds/img/views_nn_interp.png)
 
@@ -366,17 +390,18 @@ lin_interpolation = grid.view(terrain, nodata=np.nan, interpolation='linear')
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 fig, ax = plt.subplots(figsize=(8,6))
 fig.patch.set_alpha(0)
 plt.imshow(lin_interpolation, cmap='bone', zorder=1)
 plt.title('Linear interpolation', size=14)
 plt.tight_layout()
-```
+</pre>
 
 </p>
 </details>
 
+<br>
 
 ![Linear interpolation](https://s3.us-east-2.amazonaws.com/pysheds/img/views_lin_interp.png)
 
@@ -396,16 +421,17 @@ dem_view = grid.view(dem)
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 fig, ax = plt.subplots(figsize=(8,6))
 fig.patch.set_alpha(0)
 plt.imshow(dem_view, cmap='terrain', zorder=1)
 plt.title('DEM with original view restored', size=14)
 plt.tight_layout()
-```
+</pre>
 
 </p>
 </details>
 
+<br>
 
 ![Set bbox](https://s3.us-east-2.amazonaws.com/pysheds/img/views_full_dem.png)

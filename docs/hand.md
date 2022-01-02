@@ -1,3 +1,8 @@
+---
+layout: default
+title:  "Inundation mapping with HAND"
+---
+
 # Inundation mapping with HAND
 
 The HAND function can be used to estimate inundation extent.
@@ -49,7 +54,7 @@ hand_view = grid.view(hand, nodata=np.nan)
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 from matplotlib import pyplot as plt
 import seaborn as sns
 fig, ax = plt.subplots(figsize=(8,6))
@@ -62,7 +67,7 @@ plt.title('HAND', size=14)
 plt.xlabel('Longitude')
 plt.ylabel('Latitude')
 plt.tight_layout()
-```
+</pre>
 
 </p>
 </details>
@@ -81,7 +86,7 @@ inundation_extent = np.where(hand_view < 3, 3 - hand_view, np.nan)
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 fig, ax = plt.subplots(figsize=(8,6))
 fig.patch.set_alpha(0)
 dem_view = grid.view(dem, nodata=np.nan)
@@ -93,7 +98,7 @@ plt.title('Inundation depths (constant channel depth)', size=14)
 plt.xlabel('Longitude')
 plt.ylabel('Latitude')
 plt.tight_layout()
-```
+</pre>
 
 </p>
 </details>
@@ -116,7 +121,7 @@ channel_depths = np.where(acc_view > 200, 0.75 * acc_view**0.2, 0)
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 fig, ax = plt.subplots(figsize=(8,6))
 fig.patch.set_alpha(0)
 dem_view = grid.view(dem, nodata=np.nan)
@@ -129,7 +134,7 @@ plt.title('Channel depths', size=14)
 plt.xlabel('Longitude')
 plt.ylabel('Latitude')
 plt.tight_layout()
-```
+</pre>
 
 </p>
 </details>
@@ -151,7 +156,7 @@ inundation_depths = np.where(hand_idx_view, channel_depths.flat[hand_idx_view], 
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 fig, ax = plt.subplots(figsize=(8,6))
 fig.patch.set_alpha(0)
 dem_view = grid.view(dem, nodata=np.nan)
@@ -163,7 +168,7 @@ plt.title('Inundation depths (depths vary along channel)', size=14)
 plt.xlabel('Longitude')
 plt.ylabel('Latitude')
 plt.tight_layout()
-```
+</pre>
 
 </p>
 </details>

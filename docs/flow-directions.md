@@ -1,3 +1,8 @@
+---
+layout: default
+title:  "Flow direction"
+---
+
 # Flow direction
 
 Flow directions are computed from a source DEM. The flow direction grid captures the topology of the drainage network, and is needed for delineating catchments, computing flow accumulation, and computing flow path lengths.
@@ -37,10 +42,9 @@ fdir = grid.flowdir(inflated_dem)
 <summary>Output...</summary>
 <p>
 
-```python
+<pre>
 fdir
-```
-```
+
 Raster([[  0,   0,   0, ...,   0,   0,   0],
         [  0,   2,   2, ...,   4,   1,   0],
         [  0,   1,   2, ...,   4,   2,   0],
@@ -48,11 +52,13 @@ Raster([[  0,   0,   0, ...,   0,   0,   0],
         [  0,  64,  32, ...,   8,   1,   0],
         [  0,  64,  32, ...,  16, 128,   0],
         [  0,   0,   0, ...,   0,   0,   0]])
-```
+
+</pre>
 
 </p>
 </details>
 
+<br>
 
 
 ### Directional mappings
@@ -79,10 +85,9 @@ fdir = grid.flowdir(inflated_dem, dirmap=dirmap)
 <summary>Output...</summary>
 <p>
 
-```python
+<pre>
 fdir
-```
-```
+
 Raster([[0, 0, 0, ..., 0, 0, 0],
         [0, 4, 4, ..., 5, 3, 0],
         [0, 3, 4, ..., 5, 4, 0],
@@ -90,10 +95,12 @@ Raster([[0, 0, 0, ..., 0, 0, 0],
         [0, 1, 8, ..., 6, 3, 0],
         [0, 1, 8, ..., 7, 2, 0],
         [0, 0, 0, ..., 0, 0, 0]])
-```
+</pre>
 
 </p>
 </details>
+
+<br>
 
 ## D-infinity flow directions
 
@@ -109,10 +116,9 @@ fdir = grid.flowdir(inflated_dem, routing='dinf')
 <summary>Output...</summary>
 <p>
 
-```python
+<pre>
 fdir
-```
-```python
+
 Raster([[  nan,   nan,   nan, ...,   nan,   nan,   nan],
         [  nan, 5.498, 5.3  , ..., 4.712, 0.   ,   nan],
         [  nan, 0.   , 5.498, ..., 4.712, 5.176,   nan],
@@ -120,10 +126,12 @@ Raster([[  nan,   nan,   nan, ...,   nan,   nan,   nan],
         [  nan, 1.571, 2.356, ..., 2.356, 0.   ,   nan],
         [  nan, 1.571, 2.034, ..., 3.142, 0.785,   nan],
         [  nan,   nan,   nan, ...,   nan,   nan,   nan]])
-```
+</pre>
 
 </p>
 </details>
+
+<br>
 
 Note that each entry takes a value between 0 and 2π, with `np.nan` representing unknown flow directions.
 

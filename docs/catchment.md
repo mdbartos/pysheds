@@ -1,3 +1,8 @@
+---
+layout: default
+title:  "Catchment delineation"
+---
+
 # Catchment delineation
 
 ## Preliminaries
@@ -36,7 +41,7 @@ catch_view = grid.view(catch)
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 # Plot the catchment
 fig, ax = plt.subplots(figsize=(8,6))
 fig.patch.set_alpha(0)
@@ -47,7 +52,7 @@ im = ax.imshow(np.where(catch_view, catch_view, np.nan), extent=grid.extent,
 plt.xlabel('Longitude')
 plt.ylabel('Latitude')
 plt.title('Delineated Catchment', size=14)
-```
+</pre>
 
 </p>
 </details>
@@ -76,7 +81,7 @@ catch_view = grid.view(catch)
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 # Plot the catchment
 fig, ax = plt.subplots(figsize=(8,6))
 fig.patch.set_alpha(0)
@@ -87,7 +92,7 @@ im = ax.imshow(np.where(catch_view, catch_view, np.nan), extent=grid.extent,
 plt.xlabel('Longitude')
 plt.ylabel('Latitude')
 plt.title('Delineated Catchment', size=14)
-```
+</pre>
 
 </p>
 </details>
@@ -122,7 +127,7 @@ catch_view = grid.view(catch)
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 # Plot the catchment
 fig, ax = plt.subplots(figsize=(8,6))
 fig.patch.set_alpha(0)
@@ -133,7 +138,7 @@ im = ax.imshow(np.where(catch_view, catch_view, np.nan), extent=grid.extent,
 plt.xlabel('Longitude')
 plt.ylabel('Latitude')
 plt.title('Delineated Catchment', size=14)
-```
+</pre>
 
 </p>
 </details>

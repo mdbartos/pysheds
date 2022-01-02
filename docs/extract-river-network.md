@@ -1,3 +1,8 @@
+---
+layout: default
+title:  "Extract River Network"
+---
+
 # Extract River Network
 
 ## Preliminaries
@@ -41,7 +46,7 @@ branches = grid.extract_river_network(fdir, acc > 100)
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 import numpy as np
 from matplotlib import pyplot as plt
 import seaborn as sns
@@ -58,11 +63,12 @@ for branch in branches['features']:
     plt.plot(line[:, 0], line[:, 1])
     
 _ = plt.title('Channel network (>100 accumulation)', size=14)
-```
+</pre>
 
 </p>
 </details>
 
+<br>
 
 The `grid.extract_river_network` method returns a dictionary in the geojson format. The branches can be plotted by iterating through the features:
 
@@ -77,7 +83,7 @@ branches = grid.extract_river_network(fdir, acc > 100, apply_output_mask=False)
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 sns.set_palette('husl')
 fig, ax = plt.subplots(figsize=(8.5,6.5))
 plt.xlim(grid.bbox[0], grid.bbox[2])
@@ -89,7 +95,7 @@ for branch in branches['features']:
     plt.plot(line[:, 0], line[:, 1])
     
 _ = plt.title('Channel network (no mask)', size=14)
-```
+</pre>
 
 </p>
 </details>
@@ -109,7 +115,7 @@ branches_2 = grid.extract_river_network(fdir, acc > 2)
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 fig, ax = plt.subplots(figsize=(8.5,6.5))
 
 plt.xlim(grid.bbox[0], grid.bbox[2])
@@ -134,7 +140,7 @@ for branch in branches_2['features']:
     plt.plot(line[:, 0], line[:, 1])
     
 _ = plt.title('Channel network (>2 accumulation)', size=14)
-```
+</pre>
 
 </p>
 </details>

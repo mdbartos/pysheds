@@ -84,14 +84,14 @@ class Raster(np.ndarray):
         viewfinder = viewfinder.copy()
         metadata = metadata.copy()
         # Set attributes of array
-        obj.viewfinder = viewfinder
+        obj._viewfinder = viewfinder
         obj.metadata = metadata
         return obj
 
     def __array_finalize__(self, obj):
         if obj is None:
             return
-        self.viewfinder = getattr(obj, 'viewfinder', None)
+        self._viewfinder = getattr(obj, 'viewfinder', None)
         self.metadata = getattr(obj, 'metadata', None)
 
     @classmethod
@@ -111,6 +111,22 @@ class Raster(np.ndarray):
                                         inherit_metadata=False,
                                         new_metadata=metadata)
         return input_array, viewfinder, metadata
+
+    @property
+    def viewfinder(self):
+        return self._viewfinder
+
+    @viewfinder.setter
+    def viewfinder(self, new_viewfinder):
+        try:
+            assert(isinstance(new_viewfinder, ViewFinder))
+        except:
+            raise ValueError("Must be a `ViewFinder` object")
+        try:
+            assert new_viewfinder.shape == self.shape
+        except:
+            raise ValueError('viewfinder and raster array must have the same shape.')
+        self._viewfinder = new_viewfinder
 
     @property
     def bbox(self):
@@ -284,7 +300,10 @@ class ViewFinder():
 
     @affine.setter
     def affine(self, new_affine):
-        assert(isinstance(new_affine, Affine))
+        try:
+            assert(isinstance(new_affine, Affine))
+        except:
+            raise TypeError('Affine transformation must be an `Affine` object')
         self._affine = new_affine
 
     @property
@@ -298,7 +317,7 @@ class ViewFinder():
             assert isinstance(new_shape[0], int)
             assert isinstance(new_shape[1], int)
         except:
-            raise ValueError('`shape` must be a sequence of length 2.')
+            raise ValueError('`shape` must be an integer sequence of length 2.')
         new_shape = tuple(new_shape)
         self._shape = new_shape
 
@@ -337,7 +356,10 @@ class ViewFinder():
 
     @crs.setter
     def crs(self, new_crs):
-        assert (isinstance(new_crs, pyproj.Proj))
+        try:
+            assert (isinstance(new_crs, pyproj.Proj))
+        except:
+            raise TypeError('`crs` must be a `pyproj.Proj` object.')
         self._crs = new_crs
 
     @property

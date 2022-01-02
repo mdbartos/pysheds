@@ -51,30 +51,39 @@ class Raster(np.ndarray):
     def __new__(cls, input_array, viewfinder=None, metadata={}):
         # Handle case where input is a Raster itself
         if isinstance(input_array, Raster):
-            if viewfinder is None:
-                viewfinder = input_array.viewfinder.copy()
-            if not metadata:
-                metadata = input_array.metadata.copy()
-        # Handle case where input is an array-like
+            input_array, viewfinder, metadata = cls._handle_raster_input(input_array,
+                                                                         viewfinder,
+                                                                         metadata)
+        # Create a numpy array from the input
+        obj = np.asarray(input_array).view(cls)
+        # If no viewfinder provided, construct one congruent with the array shape
+        if viewfinder is None:
+            viewfinder = ViewFinder(shape=obj.shape)
+        # If a viewfinder is provided, ensure that it is a viewfinder...
         else:
             try:
-                assert not np.issubdtype(input_array.dtype, np.object_)
-                assert not np.issubdtype(input_array.dtype, np.flexible)
+                assert(isinstance(viewfinder, ViewFinder))
             except:
-                raise TypeError('`object` and `flexible` dtypes not allowed.')
-            if viewfinder is None:
-                shape = input_array.shape
-                viewfinder = ViewFinder(shape=shape)
-            else:
-                try:
-                    assert(isinstance(viewfinder, ViewFinder))
-                except:
-                    raise ValueError("Must initialize with a ViewFinder")
-        obj = np.asarray(input_array).view(cls)
+                raise ValueError("Must initialize with a ViewFinder.")
+            # Ensure that viewfinder shape is correct...
+            try:
+                assert viewfinder.shape == obj.shape
+            except:
+                raise ValueError('Viewfinder and array shape must be the same.')
+        # Test typing of array
+        try:
+            assert not np.issubdtype(obj.dtype, np.object_)
+            assert not np.issubdtype(obj.dtype, np.flexible)
+        except:
+            raise TypeError('`object` and `flexible` dtypes not allowed.')
         try:
             assert np.min_scalar_type(viewfinder.nodata) <= obj.dtype
         except:
-            raise TypeError('`nodata` value not representable in dtype of array')
+            raise TypeError('`nodata` value not representable in dtype of array.')
+        # Don't allow original viewfinder and metadata to be modified
+        viewfinder = viewfinder.copy()
+        metadata = metadata.copy()
+        # Set attributes of array
         obj.viewfinder = viewfinder
         obj.metadata = metadata
         return obj
@@ -84,6 +93,24 @@ class Raster(np.ndarray):
             return
         self.viewfinder = getattr(obj, 'viewfinder', None)
         self.metadata = getattr(obj, 'metadata', None)
+
+    @classmethod
+    def _handle_raster_input(cls, input_array, viewfinder, metadata):
+        if not metadata:
+            metadata = input_array.metadata
+        # If no viewfinder provided, use viewfinder of input raster
+        if viewfinder is None:
+            viewfinder = input_array.viewfinder
+        # Otherwise, given viewfinder overrides and returns a view
+        else:
+            if viewfinder != input_array.viewfinder:
+                input_array = View.view(data=input_array,
+                                        target_view=viewfinder,
+                                        apply_input_mask=False,
+                                        apply_output_mask=False,
+                                        inherit_metadata=False,
+                                        new_metadata=metadata)
+        return input_array, viewfinder, metadata
 
     @property
     def bbox(self):
@@ -237,12 +264,11 @@ class ViewFinder():
             is_eq &= (self.shape[0] == other.shape[0])
             is_eq &= (self.shape[1] == other.shape[1])
             is_eq &= (self.crs == other.crs)
-            # TODO: May want to redefine this as `congruent_with`
-            # is_eq &= (self.mask == other.mask).all()
-            # if np.isnan(self.nodata):
-            #     is_eq &= np.isnan(other.nodata)
-            # else:
-            #     is_eq &= self.nodata == other.nodata
+            is_eq &= (self.mask == other.mask).all()
+            if np.isnan(self.nodata):
+                is_eq &= np.isnan(other.nodata)
+            else:
+                is_eq &= self.nodata == other.nodata
             return is_eq
         else:
             return False
@@ -356,6 +382,17 @@ class ViewFinder():
     def axes(self):
         return View.axes(self.affine, self.shape)
 
+    def is_congruent_with(self, other):
+        if isinstance(other, ViewFinder):
+            is_congruent = True
+            is_congruent &= (self.affine == other.affine)
+            is_congruent &= (self.shape[0] == other.shape[0])
+            is_congruent &= (self.shape[1] == other.shape[1])
+            is_congruent &= (self.crs == other.crs)
+            return is_congruent
+        else:
+            return False
+
     def copy(self):
         new_view = copy.deepcopy(self)
         return new_view
@@ -453,7 +490,7 @@ class View():
             arr = np.where(data_view.mask, data, target_view.nodata).astype(dtype)
             data = Raster(arr, data.viewfinder, metadata=data.metadata)
         # If data view and target view are the same, return a copy of the data
-        if (data_view == target_view):
+        if data_view.is_congruent_with(target_view):
             out = cls._view_same_viewfinder(data, data_view, target_view, dtype,
                                             apply_output_mask=apply_output_mask)
         # If data view and target view are different...
@@ -746,7 +783,7 @@ class View():
         if apply_output_mask:
             out = np.where(target_view.mask, data, target_view.nodata).astype(dtype)
         else:
-            out = data.copy().astype(dtype)
+            out = np.asarray(data.copy(), dtype=dtype)
         out = Raster(out, target_view)
         return out
 

@@ -941,19 +941,20 @@ class Grid(object):
                       inplace=True, apply_mask=False, ignore_metadata=False, properties={},
                       metadata={}, snap='corner', **kwargs):
 
-        # Vectorized Recursive algorithm:
+        # Vectorized Iterative algorithm:
         # for each cell j, recursively search through grid to determine
         # if surrounding cells are in the contributing area, then add
         # flattened indices to self.collect
-        def d8_catchment_search(cells):
+        def d8_catchment_search(pour_point):
             nonlocal collect
             nonlocal fdir
-            collect.extend(cells)
-            selection = self._select_surround_ravel(cells, fdir.shape)
-            # TODO: Why use np.where here?
-            next_idx = selection[(fdir.flat[selection] == r_dirmap)]
-            if next_idx.any():
-                return d8_catchment_search(next_idx)
+
+            cells = np.copy(pour_point)
+            while cells.any():
+                collect.extend(cells)
+                selection = self._select_surround_ravel(cells, fdir.shape)
+                cells = selection[(fdir.flat[selection] == r_dirmap)]
+
         try:
             # Pad the rim
             left, right, top, bottom = self._pop_rim(fdir, nodata=nodata_in)

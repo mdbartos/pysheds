@@ -728,7 +728,7 @@ class sGrid():
         if xytype in {'label', 'coordinate'}:
             x, y = self.nearest_cell(x, y, fdir.affine, snap)
         # Delineate the catchment
-        catch = _self._dinf_catchment_numba(fdir_0, fdir_1, (y, x), dirmap)
+        catch = _self._dinf_catchment_iter_numba(fdir_0, fdir_1, (y, x), dirmap)
         # if pour point needs to be a special value, set it
         if pour_value is not None:
             catch[y, x] = pour_value

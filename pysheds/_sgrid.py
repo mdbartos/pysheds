@@ -300,10 +300,13 @@ def _d8_catchment_iter_numba(fdir, pour_point, dirmap):
         neighbors = offsets + parent
         for k in range(8):
             neighbor = neighbors[k]
-            points_to = (fdir.flat[neighbor] == r_dirmap[k])
             visited = catch.flat[neighbor]
-            if points_to and not visited:
-                queue.append(neighbor)
+            if visited:
+                continue
+            else:
+                points_to = (fdir.flat[neighbor] == r_dirmap[k])
+                if points_to:
+                    queue.append(neighbor)
     return catch
 
 @njit(void(int64, boolean[:,:], int64[:,:], int64[:,:], int64[:], int64[:]),
@@ -336,6 +339,38 @@ def _dinf_catchment_numba(fdir_0, fdir_1, pour_point, dirmap):
                          dirmap[7], dirmap[0], dirmap[1],
                          dirmap[2], dirmap[3]])
     _dinf_catchment_recursion(ix, catch, fdir_0, fdir_1, offsets, r_dirmap)
+    return catch
+
+@njit(boolean[:,:](int64[:,:], int64[:,:], UniTuple(int64, 2), UniTuple(int64, 8)),
+      cache=True)
+def _dinf_catchment_iter_numba(fdir_0, fdir_1, pour_point, dirmap):
+    catch = np.zeros(fdir_0.shape, dtype=np.bool8)
+    dirmap = np.array(dirmap)
+    offset = fdir_0.shape[1]
+    i, j = pour_point
+    ix = (i * offset) + j
+    offsets = np.array([-offset, 1 - offset, 1,
+                        1 + offset, offset, - 1 + offset,
+                        - 1, - 1 - offset])
+    r_dirmap = np.array([dirmap[4], dirmap[5], dirmap[6],
+                         dirmap[7], dirmap[0], dirmap[1],
+                         dirmap[2], dirmap[3]])
+    queue = [ix]
+    while queue:
+        parent = queue.pop()
+        catch.flat[parent] = True
+        neighbors = offsets + parent
+        for k in range(8):
+            neighbor = neighbors[k]
+            visited = catch.flat[neighbor]
+            if visited:
+                continue
+            else:
+                points_to_0 = (fdir_0.flat[neighbor] == r_dirmap[k])
+                points_to_1 = (fdir_1.flat[neighbor] == r_dirmap[k])
+                points_to = points_to_0 or points_to_1
+                if points_to:
+                    queue.append(neighbor)
     return catch
 
 # Functions for 'accumulation'

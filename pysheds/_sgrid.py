@@ -1052,6 +1052,26 @@ def _d8_stream_network_numba(fdir, indegree, orig_indegree, startnodes):
                                      orig_indegree, profiles, profile)
     return profiles
 
+@njit(List(List(int64))(int64[:,:], uint8[:], uint8[:], int64[:]),
+      cache=True)
+def _d8_stream_network_iter_numba(fdir, indegree, orig_indegree, startnodes):
+    n = startnodes.size
+    profiles = [[0]]
+    _ = profiles.pop()
+    for k in range(n):
+        startnode = startnodes.flat[k]
+        endnode = fdir.flat[startnode]
+        profile = [startnode]
+        while (indegree.flat[startnode] == 0):
+            profile.append(endnode)
+            indegree.flat[endnode] -= 1
+            if (orig_indegree[endnode] > 1):
+                profiles.append(profile)
+                profile = [endnode]
+            startnode = endnode
+            endnode = fdir.flat[startnode]
+    return profiles
+
 @njit(parallel=True)
 def _d8_cell_dh_numba(startnodes, endnodes, dem):
     n = startnodes.size

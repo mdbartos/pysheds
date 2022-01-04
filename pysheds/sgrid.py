@@ -1159,7 +1159,8 @@ class sGrid():
         indegree = np.bincount(endnodes.ravel(), minlength=fdir.size).astype(np.uint8)
         orig_indegree = np.copy(indegree)
         startnodes = startnodes[(indegree == 0)]
-        profiles = _self._d8_stream_network_numba(endnodes, indegree, orig_indegree, startnodes)
+        profiles = _self._d8_stream_network_iter_numba(endnodes, indegree,
+                                                       orig_indegree, startnodes)
         # Fill geojson dict with profiles
         featurelist = []
         for index, profile in enumerate(profiles):

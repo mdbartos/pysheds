@@ -527,6 +527,36 @@ def _d8_flow_distance_numba(fdir, weights, pour_point, dirmap):
                                 r_dirmap, 0., offsets)
     return dist
 
+@njit(float64[:,:](int64[:,:], float64[:,:], UniTuple(int64, 2), UniTuple(int64, 8)),
+      cache=True)
+def _d8_flow_distance_iter_numba(fdir, weights, pour_point, dirmap):
+    visits = np.zeros(fdir.shape, dtype=np.bool8)
+    dist = np.full(fdir.shape, np.inf, dtype=np.float64)
+    r_dirmap = np.array([dirmap[4], dirmap[5], dirmap[6],
+                         dirmap[7], dirmap[0], dirmap[1],
+                         dirmap[2], dirmap[3]])
+    m, n = fdir.shape
+    offsets = np.array([-n, 1 - n, 1,
+                        1 + n, n, - 1 + n,
+                        - 1, - 1 - n])
+    i, j = pour_point
+    ix = (i * n) + j
+    dist.flat[ix] = 0.
+    queue = [ix]
+    while queue:
+        parent = queue.pop()
+        visits.flat[parent] = True
+        neighbors = offsets + parent
+        for k in range(8):
+            neighbor = neighbors[k]
+            points_to = (fdir.flat[neighbor] == r_dirmap[k])
+            visited = visits.flat[neighbor]
+            if points_to and not visited:
+                dist.flat[neighbor] = dist.flat[parent] + weights.flat[neighbor]
+                queue.append(neighbor)
+    return dist
+
+
 @njit(void(int64, int64[:,:], int64[:,:], boolean[:,:], float64[:,:],
            float64[:,:], float64[:,:], int64[:], float64, int64[:]),
       cache=True)

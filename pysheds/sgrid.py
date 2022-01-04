@@ -973,7 +973,7 @@ class sGrid():
             x, y = self.nearest_cell(x, y, fdir.affine, snap)
         if weights is None:
             weights = (~nodata_cells).reshape(fdir.shape).astype(np.float64)
-        dist = _self._d8_flow_distance_numba(fdir, weights, (y, x), dirmap)
+        dist = _self._d8_flow_distance_iter_numba(fdir, weights, (y, x), dirmap)
         dist = self._output_handler(data=dist, viewfinder=fdir.viewfinder,
                                    metadata=fdir.metadata, nodata=nodata_out)
         return dist

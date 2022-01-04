@@ -708,7 +708,7 @@ class sGrid():
         if xytype in {'label', 'coordinate'}:
             x, y = self.nearest_cell(x, y, fdir.affine, snap)
         # Delineate the catchment
-        catch = _self._d8_catchment_numba(fdir, (y, x), dirmap)
+        catch = _self._d8_catchment_iter_numba(fdir, (y, x), dirmap)
         if pour_value is not None:
             catch[y, x] = pour_value
         catch = self._output_handler(data=catch, viewfinder=fdir.viewfinder,

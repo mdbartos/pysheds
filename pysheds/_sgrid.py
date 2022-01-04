@@ -282,6 +282,30 @@ def _d8_catchment_numba(fdir, pour_point, dirmap):
     _d8_catchment_recursion(ix, catch, fdir, offsets, r_dirmap)
     return catch
 
+@njit(boolean[:,:](int64[:,:], UniTuple(int64, 2), UniTuple(int64, 8)))
+def _d8_catchment_iter_numba(fdir, pour_point, dirmap):
+    catch = np.zeros(fdir.shape, dtype=np.bool8)
+    offset = fdir.shape[1]
+    i, j = pour_point
+    ix = (i * offset) + j
+    offsets = np.array([-offset, 1 - offset, 1, 1 + offset,
+                        offset, - 1 + offset, - 1, - 1 - offset])
+    r_dirmap = np.array([dirmap[4], dirmap[5], dirmap[6],
+                         dirmap[7], dirmap[0], dirmap[1],
+                         dirmap[2], dirmap[3]])
+    queue = [ix]
+    while queue:
+        parent = queue.pop()
+        catch.flat[parent] = True
+        neighbors = offsets + parent
+        for k in range(8):
+            neighbor = neighbors[k]
+            points_to = (fdir.flat[neighbor] == r_dirmap[k])
+            visited = catch.flat[neighbor]
+            if points_to and not visited:
+                queue.append(neighbor)
+    return catch
+
 @njit(void(int64, boolean[:,:], int64[:,:], int64[:,:], int64[:], int64[:]),
       cache=True)
 def _dinf_catchment_recursion(ix, catch, fdir_0, fdir_1, offsets, r_dirmap):

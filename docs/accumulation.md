@@ -1,3 +1,8 @@
+---
+layout: default
+title:  "Accumulation"
+---
+
 # Accumulation
 
 ## Preliminaries
@@ -29,10 +34,9 @@ acc = grid.accumulation(fdir)
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
-%matplotlib inline
 
 fig, ax = plt.subplots(figsize=(8,6))
 fig.patch.set_alpha(0)
@@ -46,7 +50,7 @@ plt.title('Flow Accumulation', size=14)
 plt.xlabel('Longitude')
 plt.ylabel('Latitude')
 plt.tight_layout()
-```
+</pre>
 
 </p>
 </details>

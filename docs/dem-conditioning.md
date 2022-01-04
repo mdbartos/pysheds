@@ -1,3 +1,8 @@
+---
+layout: default
+title:  "DEM conditioning"
+---
+
 # DEM conditioning
 
 Raw DEMs often contain artifacts (such as depressions and flat regions) that prevent the DEM from fully draining. In this section, methods for removing these artifacts are discussed.
@@ -25,7 +30,7 @@ dem = grid.read_raster('./data/roi_10m')
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 # Plot the raw DEM
 fig, ax = plt.subplots(figsize=(8,6))
 fig.patch.set_alpha(0)
@@ -34,7 +39,7 @@ plt.imshow(grid.view(dem), cmap='terrain', zorder=1)
 plt.colorbar(label='Elevation (m)')
 plt.title('Digital elevation map', size=14)
 plt.tight_layout()
-```
+</pre>
 
 </p>
 </details>
@@ -53,7 +58,7 @@ pits = grid.detect_pits(dem)
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 # Plot pits
 fig, ax = plt.subplots(figsize=(8,6))
 fig.patch.set_alpha(0)
@@ -61,7 +66,7 @@ fig.patch.set_alpha(0)
 plt.imshow(pits, cmap='Greys_r', zorder=1)
 plt.title('Pits', size=14)
 plt.tight_layout()
-```
+</pre>
 
 </p>
 </details>
@@ -91,7 +96,7 @@ depressions = grid.detect_depressions(pit_filled_dem)
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 # Plot depressions
 fig, ax = plt.subplots(figsize=(8,6))
 fig.patch.set_alpha(0)
@@ -99,7 +104,7 @@ fig.patch.set_alpha(0)
 plt.imshow(depressions, cmap='Greys_r', zorder=1)
 plt.title('Depressions', size=14)
 plt.tight_layout()
-```
+</pre>
 
 </p>
 </details>
@@ -135,7 +140,7 @@ flats = grid.detect_flats(flooded_dem)
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 # Plot flats
 fig, ax = plt.subplots(figsize=(8,6))
 fig.patch.set_alpha(0)
@@ -143,7 +148,7 @@ fig.patch.set_alpha(0)
 plt.imshow(flats, cmap='Greys_r', zorder=1)
 plt.title('Flats', size=14)
 plt.tight_layout()
-```
+</pre>
 
 </p>
 </details>
@@ -177,7 +182,7 @@ acc = grid.accumulation(fdir)
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 fig, ax = plt.subplots(figsize=(8,6))
 fig.patch.set_alpha(0)
 im = ax.imshow(acc, zorder=2,
@@ -187,7 +192,7 @@ im = ax.imshow(acc, zorder=2,
 plt.colorbar(im, ax=ax, label='Upstream Cells')
 plt.title('Flow Accumulation', size=14)
 plt.tight_layout()
-```
+</pre>
 
 </p>
 </details>

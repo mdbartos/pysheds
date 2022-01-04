@@ -1,3 +1,8 @@
+---
+layout: default
+title:  "File I/O"
+---
+
 # File I/O
 
 ## Reading from raster files

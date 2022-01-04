@@ -1,3 +1,8 @@
+---
+layout: default
+title:  "Flow distance"
+---
+
 # Flow distance
 
 ## Preliminaries
@@ -41,7 +46,7 @@ dist = grid.distance_to_outlet(x, y, fdir=fdir, xytype='coordinate')
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 fig, ax = plt.subplots(figsize=(8,6))
 fig.patch.set_alpha(0)
 plt.grid('on', zorder=0)
@@ -51,7 +56,7 @@ plt.colorbar(im, ax=ax, label='Distance to outlet (cells)')
 plt.xlabel('Longitude')
 plt.ylabel('Latitude')
 plt.title('Distance to outlet', size=14)
-```
+</pre>
 
 </p>
 </details>
@@ -74,14 +79,14 @@ W = np.bincount(dist[np.isfinite(dist)].astype(int))
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 fig, ax = plt.subplots(figsize=(10, 5))
 plt.fill_between(np.arange(len(W)), W, 0, edgecolor='seagreen', linewidth=1, facecolor='lightgreen', alpha=0.8)
 plt.ylim(0, 100)
 plt.ylabel(r'Number of cells at distance $x$ from outlet', size=14)
 plt.xlabel(r'Distance from outlet (x)', size=14)
 plt.title('Width function W(x)', size=16)
-```
+</pre>
 
 </p>
 </details>
@@ -114,7 +119,7 @@ dist = grid.distance_to_outlet(x=x, y=y, fdir=fdir, weights=weights, xytype='coo
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 fig, ax = plt.subplots(figsize=(8,6))
 fig.patch.set_alpha(0)
 plt.grid('on', zorder=0)
@@ -124,7 +129,7 @@ plt.colorbar(im, ax=ax, label='Distance to outlet (cells)')
 plt.xlabel('Longitude')
 plt.ylabel('Latitude')
 plt.title('Weighted distance to outlet', size=14)
-```
+</pre>
 
 </p>
 </details>
@@ -147,14 +152,14 @@ hist, bin_edges = np.histogram(distances, range=(0,distances.max()+1e-5),
 <summary>Plotting code...</summary>
 <p>
 
-```python
+<pre>
 fig, ax = plt.subplots(figsize=(10, 5))
 plt.fill_between(bin_edges[1:], hist, 0, edgecolor='seagreen', linewidth=1, facecolor='lightgreen', alpha=0.8)
 plt.ylim(0, 500)
 plt.ylabel(r'Number of cells at distance $x$ from outlet', size=14)
 plt.xlabel(r'Distance from outlet (x)', size=14)
 plt.title('Weighted width function W(x)', size=16)
-```
+</pre>
 
 </p>
 </details>

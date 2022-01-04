@@ -1223,8 +1223,8 @@ class sGrid():
         min_order = np.full(fdir.shape, np.iinfo(np.int64).max, dtype=np.int64)
         max_order = np.ones(fdir.shape, dtype=np.int64)
         order = np.where(mask, 1, 0).astype(np.int64).reshape(fdir.shape)
-        order = _self._d8_streamorder_numba(min_order, max_order, order, endnodes,
-                                        indegree, orig_indegree, startnodes)
+        order = _self._d8_streamorder_iter_numba(min_order, max_order, order, endnodes,
+                                                 indegree, orig_indegree, startnodes)
         order = self._output_handler(data=order, viewfinder=fdir.viewfinder,
                                      metadata=fdir.metadata, nodata=nodata_out)
         return order

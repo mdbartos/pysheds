@@ -983,6 +983,27 @@ def _d8_streamorder_numba(min_order, max_order, order, fdir,
                                  fdir, indegree, orig_indegree)
     return order
 
+@njit(int64[:,:](int64[:,:], int64[:,:], int64[:,:], int64[:,:], uint8[:], uint8[:], int64[:]),
+      cache=True)
+def _d8_streamorder_iter_numba(min_order, max_order, order, fdir,
+                               indegree, orig_indegree, startnodes):
+    n = startnodes.size
+    for k in range(n):
+        startnode = startnodes.flat[k]
+        endnode = fdir.flat[startnode]
+        while (indegree.flat[startnode] == 0):
+            min_order.flat[endnode] = min(min_order.flat[endnode], order.flat[startnode])
+            max_order.flat[endnode] = max(max_order.flat[endnode], order.flat[startnode])
+            indegree.flat[endnode] -= 1
+            if ((min_order.flat[endnode] == max_order.flat[endnode]) and
+                (orig_indegree.flat[endnode] > 1)):
+                order.flat[endnode] = max_order.flat[endnode] + 1
+            else:
+                order.flat[endnode] = max_order.flat[endnode]
+            startnode = endnode
+            endnode = fdir.flat[startnode]
+    return order
+
 @njit(void(int64, int64, int64[:,:], uint8[:], uint8[:], List(List(int64)), List(int64)),
       cache=True)
 def _d8_stream_network_recursion(startnode, endnode, fdir, indegree,

@@ -629,6 +629,24 @@ def _d8_reverse_distance_numba(min_order, max_order, rdist, fdir,
                                        rdist, fdir, indegree, weights)
     return rdist
 
+@njit(float64[:,:](int64[:,:], int64[:,:], float64[:,:], int64[:,:],
+                   uint8[:], int64[:], float64[:,:]),
+      cache=True)
+def _d8_reverse_distance_iter_numba(min_order, max_order, rdist, fdir,
+                                    indegree, startnodes, weights):
+    n = startnodes.size
+    for k in range(n):
+        startnode = startnodes.flat[k]
+        endnode = fdir.flat[startnode]
+        while(indegree.flat[startnode] == 0):
+            min_order.flat[endnode] = min(min_order.flat[endnode], rdist.flat[startnode])
+            max_order.flat[endnode] = max(max_order.flat[endnode], rdist.flat[startnode])
+            indegree.flat[endnode] -= 1
+            rdist.flat[endnode] = max_order.flat[endnode] + weights.flat[endnode]
+            startnode = endnode
+            endnode = fdir.flat[startnode]
+    return rdist
+
 # Functions for 'resolve_flats'
 
 @njit(UniTuple(boolean[:,:], 3)(float64[:,:], int64[:]),

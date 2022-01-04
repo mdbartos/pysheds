@@ -1290,8 +1290,9 @@ class sGrid():
         min_order = np.full(fdir.shape, np.iinfo(np.int64).max, dtype=np.int64)
         max_order = np.ones(fdir.shape, dtype=np.int64)
         rdist = np.zeros(fdir.shape, dtype=np.float64)
-        rdist = _self._d8_reverse_distance_numba(min_order, max_order, rdist,
-                                            endnodes, indegree, startnodes, weights)
+        rdist = _self._d8_reverse_distance_iter_numba(min_order, max_order, rdist,
+                                                      endnodes, indegree, startnodes,
+                                                      weights)
         rdist = self._output_handler(data=rdist, viewfinder=fdir.viewfinder,
                                      metadata=fdir.metadata, nodata=nodata_out)
         return rdist

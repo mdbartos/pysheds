@@ -336,6 +336,20 @@ def _d8_accumulation_numba(acc, fdir, indegree, startnodes):
         _d8_accumulation_recursion(startnode, endnode, acc, fdir, indegree)
     return acc
 
+@njit(float64[:,:](float64[:,:], int64[:,:], uint8[:], int64[:]),
+      cache=True)
+def _d8_accumulation_iter_numba(acc, fdir, indegree, startnodes):
+    n = startnodes.size
+    for k in range(n):
+        startnode = startnodes[k]
+        endnode = fdir.flat[startnode]
+        while(indegree[startnode] == 0):
+            acc.flat[endnode] += acc.flat[startnode]
+            indegree[endnode] -= 1
+            startnode = endnode
+            endnode = fdir.flat[startnode]
+    return acc
+
 @njit(void(int64, int64, float64[:,:], int64[:,:], uint8[:], float64[:,:]),
       cache=True)
 def _d8_accumulation_eff_recursion(startnode, endnode, acc, fdir, indegree, eff):
@@ -355,6 +369,21 @@ def _d8_accumulation_eff_numba(acc, fdir, indegree, startnodes, eff):
         endnode = fdir.flat[startnode]
         _d8_accumulation_eff_recursion(startnode, endnode, acc, fdir, indegree, eff)
     return acc
+
+@njit(float64[:,:](float64[:,:], int64[:,:], uint8[:], int64[:], float64[:,:]),
+      cache=True)
+def _d8_accumulation_eff_iter_numba(acc, fdir, indegree, startnodes, eff):
+    n = startnodes.size
+    for k in range(n):
+        startnode = startnodes[k]
+        endnode = fdir.flat[startnode]
+        while(indegree[startnode] == 0):
+            acc.flat[endnode] += (acc.flat[startnode] * eff.flat[startnode])
+            indegree[endnode] -= 1
+            startnode = endnode
+            endnode = fdir.flat[startnode]
+    return acc
+
 
 @njit(void(int64, int64, float64[:,:], int64[:,:], int64[:,:], uint8[:], float64,
            boolean[:,:], float64[:,:], float64[:,:]),

@@ -868,8 +868,8 @@ class sGrid():
         startnodes = startnodes[(indegree == 0)]
         # Compute accumulation
         if efficiency is None:
-            acc = _self._dinf_accumulation_numba(acc, endnodes_0, endnodes_1, indegree,
-                                           startnodes, prop_0, prop_1)
+            acc = _self._dinf_accumulation_iter_numba(acc, endnodes_0, endnodes_1, indegree,
+                                                      startnodes, prop_0, prop_1)
         else:
             acc = _self._dinf_accumulation_eff_numba(acc, endnodes_0, endnodes_1, indegree,
                                                startnodes, prop_0, prop_1, eff)

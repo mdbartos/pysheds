@@ -484,6 +484,35 @@ def _dinf_accumulation_numba(acc, fdir_0, fdir_1, indegree, startnodes,
         visited.flat[startnode] = True
     return acc
 
+@njit(float64[:,:](float64[:,:], int64[:,:], int64[:,:], uint8[:], int64[:],
+                   float64[:,:], float64[:,:]),
+      cache=True)
+def _dinf_accumulation_iter_numba(acc, fdir_0, fdir_1, indegree, startnodes,
+                                  props_0, props_1):
+    n = startnodes.size
+    visited = np.zeros(acc.shape, dtype=np.bool8)
+    queue = [0]
+    _ = queue.pop()
+    for k in range(n):
+        startnode = startnodes.flat[k]
+        queue.append(startnode)
+        while queue:
+            startnode = queue.pop()
+            endnode_0 = fdir_0.flat[startnode]
+            endnode_1 = fdir_1.flat[startnode]
+            prop_0 = props_0.flat[startnode]
+            prop_1 = props_1.flat[startnode]
+            acc.flat[endnode_0] += (prop_0 * acc.flat[startnode])
+            acc.flat[endnode_1] += (prop_1 * acc.flat[startnode])
+            visited.flat[startnode] = True
+            indegree.flat[endnode_0] -= 1
+            indegree.flat[endnode_1] -= 1
+            if (indegree.flat[endnode_0] == 0):
+                queue.append(endnode_0)
+            if (indegree.flat[endnode_1] == 0):
+                queue.append(endnode_1)
+    return acc
+
 @njit(void(int64, int64, float64[:,:], int64[:,:], int64[:,:], uint8[:], float64,
            boolean[:,:], float64[:,:], float64[:,:], float64[:,:]),
       cache=True)

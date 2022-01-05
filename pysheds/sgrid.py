@@ -995,8 +995,8 @@ class sGrid():
             weights_0 = (~nodata_cells).reshape(fdir.shape).astype(np.float64)
             weights_1 = weights_0
         if method.lower() == 'shortest':
-            dist = _self._dinf_flow_distance_numba(fdir_0, fdir_1, weights_0,
-                                                   weights_1, (y, x), dirmap)
+            dist = _self._dinf_flow_distance_iter_numba(fdir_0, fdir_1, weights_0,
+                                                        weights_1, (y, x), dirmap)
         else:
             raise NotImplementedError("Only implemented for shortest path distance.")
         # Prepare output

@@ -490,7 +490,6 @@ def _dinf_accumulation_numba(acc, fdir_0, fdir_1, indegree, startnodes,
 def _dinf_accumulation_iter_numba(acc, fdir_0, fdir_1, indegree, startnodes,
                                   props_0, props_1):
     n = startnodes.size
-    visited = np.zeros(acc.shape, dtype=np.bool8)
     queue = [0]
     _ = queue.pop()
     for k in range(n):
@@ -504,13 +503,14 @@ def _dinf_accumulation_iter_numba(acc, fdir_0, fdir_1, indegree, startnodes,
             prop_1 = props_1.flat[startnode]
             acc.flat[endnode_0] += (prop_0 * acc.flat[startnode])
             acc.flat[endnode_1] += (prop_1 * acc.flat[startnode])
-            visited.flat[startnode] = True
             indegree.flat[endnode_0] -= 1
             indegree.flat[endnode_1] -= 1
             if (indegree.flat[endnode_0] == 0):
                 queue.append(endnode_0)
             if (indegree.flat[endnode_1] == 0):
-                queue.append(endnode_1)
+                # Account for cases where both fdirs point in same direction
+                if (endnode_0 != endnode_1):
+                    queue.append(endnode_1)
     return acc
 
 @njit(void(int64, int64, float64[:,:], int64[:,:], int64[:,:], uint8[:], float64,
@@ -663,6 +663,44 @@ def _dinf_flow_distance_numba(fdir_0, fdir_1, weights_0, weights_1,
     ix = (i * n) + j
     _dinf_flow_distance_recursion(ix, fdir_0, fdir_1, visits, dist,
                                   weights_0, weights_1, r_dirmap, 0., offsets)
+    return dist
+
+@njit(float64[:,:](int64[:,:], int64[:,:], float64[:,:], float64[:,:],
+                   UniTuple(int64, 2), UniTuple(int64, 8)),
+      cache=True)
+def _dinf_flow_distance_iter_numba(fdir_0, fdir_1, weights_0, weights_1,
+                                   pour_point, dirmap):
+    dist = np.full(fdir_0.shape, np.inf, dtype=np.float64)
+    r_dirmap = np.array([dirmap[4], dirmap[5], dirmap[6],
+                         dirmap[7], dirmap[0], dirmap[1],
+                         dirmap[2], dirmap[3]])
+    m, n = fdir_0.shape
+    offsets = np.array([-n, 1 - n, 1,
+                        1 + n, n, - 1 + n,
+                        - 1, - 1 - n])
+    i, j = pour_point
+    ix = (i * n) + j
+    dist.flat[ix] = 0.
+    queue = [ix]
+    while queue:
+        parent = queue.pop()
+        parent_dist = dist.flat[parent]
+        neighbors = offsets + parent
+        for k in range(8):
+            neighbor = neighbors[k]
+            current_neighbor_dist = dist.flat[neighbor]
+            points_to_0 = (fdir_0.flat[neighbor] == r_dirmap[k])
+            points_to_1 = (fdir_1.flat[neighbor] == r_dirmap[k])
+            if points_to_0:
+                neighbor_dist_0 = parent_dist + weights_0.flat[neighbor]
+                if (neighbor_dist_0 < current_neighbor_dist):
+                    dist.flat[neighbor] = neighbor_dist_0
+                    queue.append(neighbor)
+            elif points_to_1:
+                neighbor_dist_1 = parent_dist + weights_1.flat[neighbor]
+                if (neighbor_dist_1 < current_neighbor_dist):
+                    dist.flat[neighbor] = neighbor_dist_1
+                    queue.append(neighbor)
     return dist
 
 @njit(void(int64, int64, int64[:,:], int64[:,:], float64[:,:],

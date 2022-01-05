@@ -164,10 +164,10 @@ def test_accumulation():
     acc = grid.accumulation(fdir, dirmap=dirmap, routing='d8')
     assert(acc.max() == acc_in_frame)
     # set nodata to 1
-    eff = grid.view(eff)
-    eff[eff == eff.nodata] = 1
-    acc_d8_eff = grid.accumulation(fdir, dirmap=dirmap,
-                                   efficiency=eff, routing='d8')
+    # eff = grid.view(eff)
+    # eff[eff == eff.nodata] = 1
+    # acc_d8_eff = grid.accumulation(fdir, dirmap=dirmap,
+    #                                efficiency=eff, routing='d8')
 #     # TODO: Need to find new accumulation with efficiency
 #     # assert(abs(grid.acc_eff.max() - acc_in_frame_eff) < 0.001)
 #     # assert(abs(grid.acc_eff[grid.acc==grid.acc.max()] - acc_in_frame_eff1) < 0.001)
@@ -186,10 +186,10 @@ def test_accumulation():
     acc_dinf = grid.accumulation(fdir_dinf, dirmap=dirmap, routing='dinf')
     assert(acc_dinf.max() > 11300)
     # #set nodata to 1
-    eff = grid.view(dinf_eff)
-    eff[eff==dinf_eff.nodata] = 1
-    acc_dinf_eff = grid.accumulation(fdir_dinf, dirmap=dirmap,
-                                     routing='dinf', efficiency=eff)
+    # eff = grid.view(dinf_eff)
+    # eff[eff==dinf_eff.nodata] = 1
+    # acc_dinf_eff = grid.accumulation(fdir_dinf, dirmap=dirmap,
+    #                                  routing='dinf', efficiency=eff)
     # pos = np.where(grid.dinf_acc==grid.dinf_acc.max())
     # assert(np.round(grid.dinf_acc[pos] / grid.dinf_acc_eff[pos]) == 4.)
     d.acc = acc

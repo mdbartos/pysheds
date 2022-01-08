@@ -569,8 +569,9 @@ def _dinf_accumulation_eff_iter_numba(acc, fdir_0, fdir_1, indegree, startnodes,
             endnode_1 = fdir_1.flat[startnode]
             prop_0 = props_0.flat[startnode]
             prop_1 = props_1.flat[startnode]
-            acc.flat[endnode_0] += (prop_0 * acc.flat[startnode] * eff.flat[startnode])
-            acc.flat[endnode_1] += (prop_1 * acc.flat[startnode] * eff.flat[startnode])
+            transfer = acc.flat[startnode] * eff.flat[startnode]
+            acc.flat[endnode_0] += (prop_0 * transfer)
+            acc.flat[endnode_1] += (prop_1 * transfer)
             indegree.flat[endnode_0] -= 1
             indegree.flat[endnode_1] -= 1
             if (indegree.flat[endnode_0] == 0):

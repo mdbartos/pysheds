@@ -164,10 +164,10 @@ def test_accumulation():
     acc = grid.accumulation(fdir, dirmap=dirmap, routing='d8')
     assert(acc.max() == acc_in_frame)
     # set nodata to 1
-    # eff = grid.view(eff)
-    # eff[eff == eff.nodata] = 1
-    # acc_d8_eff = grid.accumulation(fdir, dirmap=dirmap,
-    #                                efficiency=eff, routing='d8')
+    eff = grid.view(eff)
+    eff[eff == eff.nodata] = 1
+    acc_d8_eff = grid.accumulation(fdir, dirmap=dirmap,
+                                   efficiency=eff, routing='d8')
 #     # TODO: Need to find new accumulation with efficiency
 #     # assert(abs(grid.acc_eff.max() - acc_in_frame_eff) < 0.001)
 #     # assert(abs(grid.acc_eff[grid.acc==grid.acc.max()] - acc_in_frame_eff1) < 0.001)

@@ -629,7 +629,8 @@ class sGrid():
                                     metadata=dem.metadata, nodata=nodata_out)
 
     def catchment(self, x, y, fdir, pour_value=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                  nodata_out=False, xytype='coordinate', routing='d8', snap='corner', **kwargs):
+                  nodata_out=False, xytype='coordinate', routing='d8', snap='corner',
+                  algorithm='iterative', **kwargs):
         """
         Delineates a watershed from a given pour point (x, y).
 
@@ -650,7 +651,7 @@ class sGrid():
                  [N, NE, E, SE, S, SW, W, NW]
         nodata_out : int or float
                      Value to indicate `no data` in output array.
-        xytype : 'coordinate' or 'index'
+        xytype : str
                  How to interpret parameters 'x' and 'y'.
                      'coordinate' : x and y represent geographic coordinates
                                     (will be passed to self.nearest_cell).
@@ -664,6 +665,10 @@ class sGrid():
                Function to use for self.nearest_cell:
                'corner' : numpy.around()
                'center' : numpy.floor()
+        algorithm : str
+                    Algorithm type to use:
+                    'iterative' : Use an iterative algorithm (recommended).
+                    'recursive' : Use a recursive algorithm.
 
         Additional keyword arguments (**kwargs) are passed to self.view.
 
@@ -693,14 +698,17 @@ class sGrid():
                                 .format(x, y, fdir.shape))
         if routing.lower() == 'd8':
             catch = self._d8_catchment(x, y, fdir=fdir, pour_value=pour_value, dirmap=dirmap,
-                                       nodata_out=nodata_out, xytype=xytype, snap=snap)
+                                       nodata_out=nodata_out, xytype=xytype, snap=snap,
+                                       algorithm=algorithm)
         elif routing.lower() == 'dinf':
             catch = self._dinf_catchment(x, y, fdir=fdir, pour_value=pour_value, dirmap=dirmap,
-                                         nodata_out=nodata_out, xytype=xytype, snap=snap)
+                                         nodata_out=nodata_out, xytype=xytype, snap=snap,
+                                         algorithm=algorithm)
         return catch
 
     def _d8_catchment(self, x, y, fdir, pour_value=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                      nodata_out=False, xytype='coordinate', snap='corner'):
+                      nodata_out=False, xytype='coordinate', snap='corner',
+                      algorithm='iterative'):
         # Pad the rim
         left, right, top, bottom = self._pop_rim(fdir, nodata=0)
         # If xytype is 'coordinate', delineate catchment based on cell nearest
@@ -708,7 +716,12 @@ class sGrid():
         if xytype in {'label', 'coordinate'}:
             x, y = self.nearest_cell(x, y, fdir.affine, snap)
         # Delineate the catchment
-        catch = _self._d8_catchment_iter_numba(fdir, (y, x), dirmap)
+        if algorithm.lower() == 'iterative':
+            catch = _self._d8_catchment_iter_numba(fdir, (y, x), dirmap)
+        elif algorithm.lower() == 'recursive':
+            catch = _self._d8_catchment_recur_numba(fdir, (y, x), dirmap)
+        else:
+            raise ValueError('Algorithm must be `iterative` or `recursive`.')
         if pour_value is not None:
             catch[y, x] = pour_value
         catch = self._output_handler(data=catch, viewfinder=fdir.viewfinder,
@@ -716,7 +729,8 @@ class sGrid():
         return catch
 
     def _dinf_catchment(self, x, y, fdir, pour_value=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                        nodata_out=False, xytype='coordinate', snap='corner'):
+                        nodata_out=False, xytype='coordinate', snap='corner',
+                        algorithm='iterative'):
         # Find nodata cells
         nodata_cells = self._get_nodata_cells(fdir)
         # Split dinf flowdir
@@ -728,7 +742,12 @@ class sGrid():
         if xytype in {'label', 'coordinate'}:
             x, y = self.nearest_cell(x, y, fdir.affine, snap)
         # Delineate the catchment
-        catch = _self._dinf_catchment_iter_numba(fdir_0, fdir_1, (y, x), dirmap)
+        if algorithm.lower() == 'iterative':
+            catch = _self._dinf_catchment_iter_numba(fdir_0, fdir_1, (y, x), dirmap)
+        elif algorithm.lower() == 'recursive':
+            catch = _self._dinf_catchment_recur_numba(fdir_0, fdir_1, (y, x), dirmap)
+        else:
+            raise ValueError('Algorithm must be `iterative` or `recursive`.')
         # if pour point needs to be a special value, set it
         if pour_value is not None:
             catch[y, x] = pour_value
@@ -737,7 +756,8 @@ class sGrid():
         return catch
 
     def accumulation(self, fdir, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                     nodata_out=0., efficiency=None, routing='d8', cycle_size=1, **kwargs):
+                     nodata_out=0., efficiency=None, routing='d8', cycle_size=1,
+                     algorithm='iterative', **kwargs):
         """
         Generates a flow accumulation raster. If no weights are provided, the value of each cell
         is equal to the number of upstream cells. If weights are provided, the value of each cell
@@ -768,6 +788,10 @@ class sGrid():
                      that d-infinity routing can generate cycles that will cause
                      the accumulation algorithm to abort. These cycles are removed prior
                      to running the d-infinity accumulation algorithm.)
+        algorithm : str
+                    Algorithm type to use:
+                    'iterative' : Use an iterative algorithm (recommended).
+                    'recursive' : Use a recursive algorithm.
 
         Additional keyword arguments (**kwargs) are passed to self.view.
 
@@ -795,16 +819,16 @@ class sGrid():
         if routing.lower() == 'd8':
             acc = self._d8_accumulation(fdir, weights=weights, dirmap=dirmap,
                                         nodata_out=nodata_out,
-                                        efficiency=efficiency)
+                                        efficiency=efficiency, algorithm=algorithm)
         elif routing.lower() == 'dinf':
             acc = self._dinf_accumulation(fdir, weights=weights, dirmap=dirmap,
                                           nodata_out=nodata_out,
                                           efficiency=efficiency,
-                                          cycle_size=cycle_size)
+                                          cycle_size=cycle_size, algorithm=algorithm)
         return acc
 
     def _d8_accumulation(self, fdir, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                         nodata_out=0., efficiency=None, **kwargs):
+                         nodata_out=0., efficiency=None, algorithm='iterative', **kwargs):
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
         invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
@@ -829,17 +853,31 @@ class sGrid():
         indegree = np.bincount(endnodes.ravel(), minlength=fdir.size).astype(np.uint8)
         # Set starting nodes to those with no predecessors
         startnodes = startnodes[(indegree == 0)]
-        # Compute accumulation
+        # Compute accumulation for no efficiency case
         if efficiency is None:
-            acc = _self._d8_accumulation_iter_numba(acc, endnodes, indegree, startnodes)
+            if algorithm.lower() == 'iterative':
+                acc = _self._d8_accumulation_iter_numba(acc, endnodes, indegree, startnodes)
+            elif algorithm.lower() == 'recursive':
+                acc = _self._d8_accumulation_recur_numba(acc, endnodes, indegree, startnodes)
+            else:
+                raise ValueError('Algorithm must be `iterative` or `recursive`.')
+        # Compute accumulation for efficiency case
         else:
-            acc = _self._d8_accumulation_eff_iter_numba(acc, endnodes, indegree, startnodes, eff)
+            if algorithm.lower() == 'iterative':
+                acc = _self._d8_accumulation_eff_iter_numba(acc, endnodes, indegree,
+                                                            startnodes, eff)
+            elif algorithm.lower() == 'recursive':
+                acc = _self._d8_accumulation_eff_recur_numba(acc, endnodes, indegree,
+                                                             startnodes, eff)
+            else:
+                raise ValueError('Algorithm must be `iterative` or `recursive`.')
         acc = self._output_handler(data=acc, viewfinder=fdir.viewfinder,
                                    metadata=fdir.metadata, nodata=nodata_out)
         return acc
 
     def _dinf_accumulation(self, fdir, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                           nodata_out=0., efficiency=None, cycle_size=1, **kwargs):
+                           nodata_out=0., efficiency=None, cycle_size=1, algorithm='iterative',
+                           **kwargs):
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
         # Split d-infinity grid
@@ -866,21 +904,37 @@ class sGrid():
         indegree = (indegree_0 + indegree_1).astype(np.uint8)
         # Set starting nodes to those with no predecessors
         startnodes = startnodes[(indegree == 0)]
-        # Compute accumulation
+        # Compute accumulation for no efficiency case
         if efficiency is None:
-            acc = _self._dinf_accumulation_iter_numba(acc, endnodes_0, endnodes_1, indegree,
-                                                      startnodes, prop_0, prop_1)
-        else:
-            acc = _self._dinf_accumulation_eff_iter_numba(acc, endnodes_0, endnodes_1,
+            if algorithm.lower() == 'iterative':
+                acc = _self._dinf_accumulation_iter_numba(acc, endnodes_0, endnodes_1,
                                                           indegree, startnodes, prop_0,
-                                                          prop_1, eff)
+                                                          prop_1)
+            elif algorithm.lower() == 'recursive':
+                acc = _self._dinf_accumulation_recur_numba(acc, endnodes_0, endnodes_1,
+                                                           indegree, startnodes, prop_0,
+                                                           prop_1)
+            else:
+                raise ValueError('Algorithm must be `iterative` or `recursive`.')
+        # Compute accumulation for efficiency case
+        else:
+            if algorithm.lower() == 'iterative':
+                acc = _self._dinf_accumulation_eff_iter_numba(acc, endnodes_0, endnodes_1,
+                                                            indegree, startnodes, prop_0,
+                                                            prop_1, eff)
+            elif algorithm.lower() == 'recursive':
+                acc = _self._dinf_accumulation_eff_recur_numba(acc, endnodes_0, endnodes_1,
+                                                               indegree, startnodes, prop_0,
+                                                               prop_1, eff)
+            else:
+                raise ValueError('Algorithm must be `iterative` or `recursive`.')
         acc = self._output_handler(data=acc, viewfinder=fdir.viewfinder,
                                    metadata=fdir.metadata, nodata=nodata_out)
         return acc
 
     def distance_to_outlet(self, x, y, fdir, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
                            nodata_out=np.nan, routing='d8', method='shortest',
-                           xytype='coordinate', snap='corner', **kwargs):
+                           xytype='coordinate', snap='corner', algorithm='iterative', **kwargs):
         """
         Generates a raster representing the (weighted) topological distance from each cell
         to the outlet, moving downstream.
@@ -919,6 +973,10 @@ class sGrid():
                Function to use on array for indexing:
                'corner' : numpy.around()
                'center' : numpy.floor()
+        algorithm : str
+                    Algorithm type to use:
+                    'iterative' : Use an iterative algorithm (recommended).
+                    'recursive' : Use a recursive algorithm.
 
         Additional keyword arguments (**kwargs) are passed to self.view.
 
@@ -952,18 +1010,17 @@ class sGrid():
             dist = self._d8_flow_distance(x=x, y=y, fdir=fdir, weights=weights,
                                           dirmap=dirmap, nodata_out=nodata_out,
                                           method=method, xytype=xytype,
-                                          snap=snap)
+                                          snap=snap, algorithm=algorithm)
         elif routing.lower() == 'dinf':
             dist = self._dinf_flow_distance(x=x, y=y, fdir=fdir, weights=weights,
                                             dirmap=dirmap, nodata_out=nodata_out,
                                             method=method, xytype=xytype,
-                                            snap=snap)
+                                            snap=snap, algorithm=algorithm)
         return dist
 
-    def _d8_flow_distance(self, x, y, fdir, weights=None,
-                          dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                          nodata_out=np.nan, method='shortest',
-                          xytype='coordinate', snap='corner', **kwargs):
+    def _d8_flow_distance(self, x, y, fdir, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                          nodata_out=np.nan, method='shortest', xytype='coordinate',
+                          snap='corner', algorithm='iterative', **kwargs):
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
         invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
@@ -974,15 +1031,19 @@ class sGrid():
             x, y = self.nearest_cell(x, y, fdir.affine, snap)
         if weights is None:
             weights = (~nodata_cells).reshape(fdir.shape).astype(np.float64)
-        dist = _self._d8_flow_distance_iter_numba(fdir, weights, (y, x), dirmap)
+        if algorithm.lower() == 'iterative':
+            dist = _self._d8_flow_distance_iter_numba(fdir, weights, (y, x), dirmap)
+        elif algorithm.lower() == 'recursive':
+            dist = _self._d8_flow_distance_recur_numba(fdir, weights, (y, x), dirmap)
+        else:
+            raise ValueError('Algorithm must be `iterative` or `recursive`.')
         dist = self._output_handler(data=dist, viewfinder=fdir.viewfinder,
                                    metadata=fdir.metadata, nodata=nodata_out)
         return dist
 
-    def _dinf_flow_distance(self, x, y, fdir, weights=None,
-                          dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                          nodata_out=np.nan, method='shortest',
-                          xytype='coordinate', snap='corner', **kwargs):
+    def _dinf_flow_distance(self, x, y, fdir, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                            nodata_out=np.nan, method='shortest', xytype='coordinate',
+                            snap='corner', algorithm='iterative', **kwargs):
         # Find nodata cells
         nodata_cells = self._get_nodata_cells(fdir)
         # Split d-infinity grid
@@ -996,8 +1057,14 @@ class sGrid():
             weights_0 = (~nodata_cells).reshape(fdir.shape).astype(np.float64)
             weights_1 = weights_0
         if method.lower() == 'shortest':
-            dist = _self._dinf_flow_distance_iter_numba(fdir_0, fdir_1, weights_0,
-                                                        weights_1, (y, x), dirmap)
+            if algorithm.lower() == 'iterative':
+                dist = _self._dinf_flow_distance_iter_numba(fdir_0, fdir_1, weights_0,
+                                                            weights_1, (y, x), dirmap)
+            elif algorithm.lower() == 'recursive':
+                dist = _self._dinf_flow_distance_recur_numba(fdir_0, fdir_1, weights_0,
+                                                             weights_1, (y, x), dirmap)
+            else:
+                raise ValueError('Algorithm must be `iterative` or `recursive`.')
         else:
             raise NotImplementedError("Only implemented for shortest path distance.")
         # Prepare output
@@ -1006,7 +1073,8 @@ class sGrid():
         return dist
 
     def compute_hand(self, fdir, dem, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                     nodata_out=None, routing='d8', return_index=False, **kwargs):
+                     nodata_out=None, routing='d8', return_index=False, algorithm='iterative',
+                     **kwargs):
         """
         Computes the height above nearest drainage (HAND), based on a flow direction grid,
         a digital elevation grid, and a grid containing the locations of drainage channels.
@@ -1036,6 +1104,10 @@ class sGrid():
                          of the (topologically) nearest channel cell.
                        - If False, return a Raster where each cell indicates the elevation
                          above the (topologically) nearest channel cell.
+        algorithm : str
+                    Algorithm type to use:
+                    'iterative' : Use an iterative algorithm (recommended).
+                    'recursive' : Use a recursive algorithm.
 
         Additional keyword arguments (**kwargs) are passed to self.view.
 
@@ -1067,11 +1139,13 @@ class sGrid():
                 nodata_out = np.nan
         # Compute height above nearest drainage
         if routing.lower() == 'd8':
-            hand = self._d8_compute_hand(fdir=fdir, mask=mask,
-                                         dirmap=dirmap, nodata_out=nodata_out)
+            hand = self._d8_compute_hand(fdir=fdir, mask=mask, dirmap=dirmap,
+                                         nodata_out=nodata_out,
+                                         algorithm=algorithm)
         elif routing.lower() == 'dinf':
             hand = self._dinf_compute_hand(fdir=fdir, mask=mask,
-                                           nodata_out=nodata_out)
+                                           nodata_out=nodata_out,
+                                           algorithm=algorithm)
         # If index is not desired, return heights
         if not return_index:
             hand = _self._assign_hand_heights_numba(hand, dem, nodata_out)
@@ -1080,7 +1154,7 @@ class sGrid():
         return hand
 
     def _d8_compute_hand(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                         nodata_out=-1):
+                         nodata_out=-1, algorithm='iterative'):
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
         invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
@@ -1089,13 +1163,18 @@ class sGrid():
         fdir[invalid_cells] = 0
         dirleft, dirright, dirtop, dirbottom = self._pop_rim(fdir, nodata=0)
         maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=False)
-        hand = _self._d8_hand_iter_numba(fdir, mask, dirmap)
+        if algorithm.lower() == 'iterative':
+            hand = _self._d8_hand_iter_numba(fdir, mask, dirmap)
+        elif algorithm.lower() == 'recursive':
+            hand = _self._d8_hand_recur_numba(fdir, mask, dirmap)
+        else:
+            raise ValueError('Algorithm must be `iterative` or `recursive`.')
         hand = self._output_handler(data=hand, viewfinder=fdir.viewfinder,
                                     metadata=fdir.metadata, nodata=-1)
         return hand
 
     def _dinf_compute_hand(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                         nodata_out=-1):
+                           nodata_out=-1, algorithm='iterative'):
         # Get nodata cells
         nodata_cells = self._get_nodata_cells(fdir)
         # Split dinf flowdir
@@ -1106,13 +1185,18 @@ class sGrid():
         dirleft_1, dirright_1, dirtop_1, dirbottom_1 = self._pop_rim(fdir_1,
                                                                      nodata=0)
         maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=False)
-        hand = _self._dinf_hand_iter_numba(fdir_0, fdir_1, mask, dirmap)
+        if algorithm.lower() == 'iterative':
+            hand = _self._dinf_hand_iter_numba(fdir_0, fdir_1, mask, dirmap)
+        elif algorithm.lower() == 'recursive':
+            hand = _self._dinf_hand_recur_numba(fdir_0, fdir_1, mask, dirmap)
+        else:
+            raise ValueError('Algorithm must be `iterative` or `recursive`.')
         hand = self._output_handler(data=hand, viewfinder=fdir.viewfinder,
                                     metadata=fdir.metadata, nodata=-1)
         return hand
 
     def extract_river_network(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                              routing='d8', **kwargs):
+                              routing='d8', algorithm='iterative', **kwargs):
         """
         Generates river segments from accumulation and flow_direction arrays.
 
@@ -1129,6 +1213,10 @@ class sGrid():
         routing : str
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
+        algorithm : str
+                    Algorithm type to use:
+                    'iterative' : Use an iterative algorithm (recommended).
+                    'recursive' : Use a recursive algorithm.
 
         Additional keyword arguments (**kwargs) are passed to self.view.
 
@@ -1160,8 +1248,14 @@ class sGrid():
         indegree = np.bincount(endnodes.ravel(), minlength=fdir.size).astype(np.uint8)
         orig_indegree = np.copy(indegree)
         startnodes = startnodes[(indegree == 0)]
-        profiles = _self._d8_stream_network_iter_numba(endnodes, indegree,
-                                                       orig_indegree, startnodes)
+        if algorithm.lower() == 'iterative':
+            profiles = _self._d8_stream_network_iter_numba(endnodes, indegree,
+                                                           orig_indegree, startnodes)
+        elif algorithm.lower() == 'recursive':
+            profiles = _self._d8_stream_network_recur_numba(endnodes, indegree,
+                                                            orig_indegree, startnodes)
+        else:
+            raise ValueError('Algorithm must be `iterative` or `recursive`.')
         # Fill geojson dict with profiles
         featurelist = []
         for index, profile in enumerate(profiles):
@@ -1173,7 +1267,7 @@ class sGrid():
         return geo
 
     def stream_order(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                     nodata_out=0, routing='d8', **kwargs):
+                     nodata_out=0, routing='d8', algorithm='iterative', **kwargs):
         """
         Computes the Strahler stream order.
 
@@ -1192,6 +1286,10 @@ class sGrid():
         routing : str
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
+        algorithm : str
+                    Algorithm type to use:
+                    'iterative' : Use an iterative algorithm (recommended).
+                    'recursive' : Use a recursive algorithm.
 
         Additional keyword arguments (**kwargs) are passed to self.view.
 
@@ -1225,14 +1323,20 @@ class sGrid():
         min_order = np.full(fdir.shape, np.iinfo(np.int64).max, dtype=np.int64)
         max_order = np.ones(fdir.shape, dtype=np.int64)
         order = np.where(mask, 1, 0).astype(np.int64).reshape(fdir.shape)
-        order = _self._d8_streamorder_iter_numba(min_order, max_order, order, endnodes,
-                                                 indegree, orig_indegree, startnodes)
+        if algorithm.lower() == 'iterative':
+            order = _self._d8_streamorder_iter_numba(min_order, max_order, order, endnodes,
+                                                     indegree, orig_indegree, startnodes)
+        elif algorithm.lower() == 'recursive':
+            order = _self._d8_streamorder_recur_numba(min_order, max_order, order, endnodes,
+                                                      indegree, orig_indegree, startnodes)
+        else:
+            raise ValueError('Algorithm must be `iterative` or `recursive`.')
         order = self._output_handler(data=order, viewfinder=fdir.viewfinder,
                                      metadata=fdir.metadata, nodata=nodata_out)
         return order
 
     def distance_to_ridge(self, fdir, mask, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                          nodata_out=0, routing='d8', **kwargs):
+                          nodata_out=0, routing='d8', algorithm='iterative', **kwargs):
         """
         Generates a raster representing the (weighted) topological distance from each cell
         to its originating drainage divide, moving upstream.
@@ -1252,6 +1356,10 @@ class sGrid():
         routing : str
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
+        algorithm : str
+                    Algorithm type to use:
+                    'iterative' : Use an iterative algorithm (recommended).
+                    'recursive' : Use a recursive algorithm.
 
         Additional keyword arguments (**kwargs) are passed to self.view.
 
@@ -1292,9 +1400,16 @@ class sGrid():
         min_order = np.full(fdir.shape, np.iinfo(np.int64).max, dtype=np.int64)
         max_order = np.ones(fdir.shape, dtype=np.int64)
         rdist = np.zeros(fdir.shape, dtype=np.float64)
-        rdist = _self._d8_reverse_distance_iter_numba(min_order, max_order, rdist,
-                                                      endnodes, indegree, startnodes,
-                                                      weights)
+        if algorithm.lower() == 'iterative':
+            rdist = _self._d8_reverse_distance_iter_numba(min_order, max_order, rdist,
+                                                        endnodes, indegree, startnodes,
+                                                        weights)
+        elif algorithm.lower() == 'recursive':
+            rdist = _self._d8_reverse_distance_recur_numba(min_order, max_order, rdist,
+                                                           endnodes, indegree, startnodes,
+                                                           weights)
+        else:
+            raise ValueError('Algorithm must be `iterative` or `recursive`.')
         rdist = self._output_handler(data=rdist, viewfinder=fdir.viewfinder,
                                      metadata=fdir.metadata, nodata=nodata_out)
         return rdist

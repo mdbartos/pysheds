@@ -265,7 +265,7 @@ class ViewFinder():
     def __init__(self, affine=Affine(1., 0., 0., 0., 1., 0.), shape=(1,1),
                  nodata=0, mask=None, crs=pyproj.Proj(_pyproj_init)):
         self.affine = affine
-        self.shape = shape
+        self._shape = shape
         self.crs = crs
         self.nodata = nodata
         if mask is None:
@@ -312,14 +312,7 @@ class ViewFinder():
 
     @shape.setter
     def shape(self, new_shape):
-        try:
-            assert len(new_shape) == 2
-            assert isinstance(new_shape[0], int)
-            assert isinstance(new_shape[1], int)
-        except:
-            raise ValueError('`shape` must be an integer sequence of length 2.')
-        new_shape = tuple(new_shape)
-        self._shape = new_shape
+        raise AttributeError('Viewfinder shape cannot be changed after instantiation.')
 
     @property
     def mask(self):

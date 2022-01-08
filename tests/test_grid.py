@@ -3,7 +3,7 @@ import os
 import warnings
 import numpy as np
 from pysheds.grid import Grid
-from pysheds.sview import Raster
+from pysheds.view import Raster, ViewFinder
 from pysheds.rfsm import RFSM
 
 current_dir = os.path.dirname(os.path.realpath(__file__))
@@ -70,7 +70,7 @@ def test_constructors():
     newgrid = grid.from_ascii(dir_path, dtype=np.uint8, crs=crs)
     new_fdir = grid.read_ascii(dir_path, dtype=np.uint8, crs=crs)
     assert((fdir == new_fdir).all())
-    del newgrid
+    newgrid = Grid(viewfinder=fdir.viewfinder)
 
 def test_dtype():
     assert(fdir.dtype == np.uint8)
@@ -152,6 +152,10 @@ def test_computed_fdir_catch():
     catch_dinf = grid.catchment(x, y, fdir_dinf, dirmap=dirmap, routing='dinf',
                                 xytype='coordinate')
     assert(np.count_nonzero(catch_dinf) > 11300)
+    catch_d8_recur = grid.catchment(x, y, fdir_d8, dirmap=dirmap, routing='d8',
+                                    xytype='coordinate', algorithm='recursive')
+    catch_dinf_recur = grid.catchment(x, y, fdir_dinf, dirmap=dirmap, routing='dinf',
+                                      xytype='coordinate', algorithm='recursive')
 
 def test_accumulation():
     fdir = d.fdir
@@ -192,6 +196,10 @@ def test_accumulation():
     #                                  routing='dinf', efficiency=eff)
     # pos = np.where(grid.dinf_acc==grid.dinf_acc.max())
     # assert(np.round(grid.dinf_acc[pos] / grid.dinf_acc_eff[pos]) == 4.)
+    acc_d8_recur = grid.accumulation(fdir_d8, dirmap=dirmap, routing='d8',
+                                     algorithm='recursive')
+    acc_dinf_recur = grid.accumulation(fdir_dinf, dirmap=dirmap, routing='dinf',
+                                       algorithm='recursive')
     d.acc = acc
 
 def test_hand():
@@ -201,6 +209,10 @@ def test_hand():
     fdir_dinf = d.fdir_dinf
     hand_d8 = grid.compute_hand(fdir, dem, acc > 100, routing='d8')
     hand_dinf = grid.compute_hand(fdir_dinf, dem, acc > 100, routing='dinf')
+    hand_d8_recur = grid.compute_hand(fdir, dem, acc > 100, routing='d8',
+                                      algorithm='recursive')
+    hand_dinf_recur = grid.compute_hand(fdir_dinf, dem, acc > 100, routing='dinf',
+                                        algorithm='recursive')
 
 def test_distance_to_outlet():
     fdir = d.fdir
@@ -219,16 +231,23 @@ def test_distance_to_outlet():
                        dirmap=dirmap, xytype='label')
     grid.distance_to_outlet(x, y, fdir_dinf, dirmap=dirmap, weights=weights,
                        routing='dinf', xytype='label')
+    # Test recursive
+    grid.distance_to_outlet(x, y, fdir, dirmap=dirmap, xytype='coordinate',
+                            routing='d8', algorithm='recursive')
+    grid.distance_to_outlet(x, y, fdir_dinf, dirmap=dirmap, xytype='coordinate',
+                            routing='dinf', algorithm='recursive')
 
 def test_stream_order():
     fdir = d.fdir
     acc = d.acc
     order = grid.stream_order(fdir, acc > 100)
+    order = grid.stream_order(fdir, acc > 100, algorithm='recursive')
 
 def test_distance_to_ridge():
     fdir = d.fdir
     acc = d.acc
     order = grid.distance_to_ridge(fdir, acc > 100)
+    order = grid.distance_to_ridge(fdir, acc > 100, algorithm='recursive')
 
 def test_cell_dh():
     fdir = d.fdir
@@ -322,6 +341,7 @@ def test_extract_river_network():
     grid.clip_to(catch)
     rivers = grid.extract_river_network(catch, acc > 20)
     assert(isinstance(rivers, dict))
+    grid.extract_river_network(catch, acc > 20, algorithm='recursive')
     # TODO: Need more checks here. Check if endnodes equals next startnode
 
 def test_view_methods():
@@ -398,3 +418,8 @@ def test_polygonize_rasterize():
 #     waterlevel = rfsm.compute_waterlevel(input_vol)
 #     end_vol = (area*np.where(waterlevel, waterlevel - dem, 0)).sum()
 #     assert np.allclose(end_vol, input_vol.sum())
+
+def test_misc():
+    dem = d.dem
+    l, r, t, b = grid._pop_rim(dem, nodata=0)
+    grid._replace_rim(dem, l, r, t, b)

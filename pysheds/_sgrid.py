@@ -1000,10 +1000,9 @@ def _d8_hand_recursion(child, parent, hand, offsets, r_dirmap, fdir):
             hand.flat[neighbor] = parent
             _d8_hand_recursion(neighbor, parent, hand, offsets, r_dirmap, fdir)
 
-@njit(int64[:,:](int64[:], int64[:,:], UniTuple(int64, 8)),
+@njit(int64[:,:](int64[:,:], boolean[:,:], UniTuple(int64, 8)),
       cache=True)
-def _d8_hand_recur_numba(parents, fdir, dirmap):
-    n = parents.size
+def _d8_hand_recur_numba(fdir, mask, dirmap):
     offset = fdir.shape[1]
     offsets = np.array([-offset, 1 - offset, 1,
                         1 + offset, offset, - 1 + offset,
@@ -1012,6 +1011,8 @@ def _d8_hand_recur_numba(parents, fdir, dirmap):
                          dirmap[7], dirmap[0], dirmap[1],
                          dirmap[2], dirmap[3]])
     hand = -np.ones(fdir.shape, dtype=np.int64)
+    parents = np.flatnonzero(mask)
+    n = parents.size
     for i in range(n):
         parent = parents[i]
         hand.flat[parent] = parent
@@ -1069,10 +1070,9 @@ def _dinf_hand_recursion(child, parent, hand, offsets, r_dirmap, fdir_0, fdir_1)
             hand.flat[neighbor] = parent
             _dinf_hand_recursion(neighbor, parent, hand, offsets, r_dirmap, fdir_0, fdir_1)
 
-@njit(int64[:,:](int64[:], int64[:,:], int64[:,:], UniTuple(int64, 8)),
+@njit(int64[:,:](int64[:,:], int64[:,:], boolean[:,:], UniTuple(int64, 8)),
       cache=True)
-def _dinf_hand_recur_numba(parents, fdir_0, fdir_1, dirmap):
-    n = parents.size
+def _dinf_hand_recur_numba(fdir_0, fdir_1, mask, dirmap):
     offset = fdir_0.shape[1]
     offsets = np.array([-offset, 1 - offset, 1,
                         1 + offset, offset, - 1 + offset,
@@ -1081,6 +1081,8 @@ def _dinf_hand_recur_numba(parents, fdir_0, fdir_1, dirmap):
                          dirmap[7], dirmap[0], dirmap[1],
                          dirmap[2], dirmap[3]])
     hand = -np.ones(fdir_0.shape, dtype=np.int64)
+    parents = np.flatnonzero(mask)
+    n = parents.size
     for i in range(n):
         parent = parents[i]
         hand.flat[parent] = parent

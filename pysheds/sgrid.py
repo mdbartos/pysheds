@@ -262,10 +262,11 @@ class sGrid():
                                       window_crs=window_crs, metadata=metadata,
                                       mask_geometry=mask_geometry, **kwargs)
 
-    def to_ascii(self, data, file_name, target_view=None, delimiter=' ', fmt=None,
-                interpolation='nearest', apply_input_mask=False,
-                apply_output_mask=True, affine=None, shape=None, crs=None,
-                mask=None, nodata=None, dtype=None, **kwargs):
+    def to_ascii(self, data, file_name, target_view=None, delimiter=' ',
+                 fmt=None, interpolation='nearest', apply_input_mask=False,
+                 apply_output_mask=True, inherit_nodata=True, affine=None,
+                 shape=None, crs=None, mask=None, nodata=None, dtype=None,
+                 **kwargs):
         """
         Writes a Raster object to a formatted ascii text file.
 
@@ -288,6 +289,9 @@ class sGrid():
                             If True, mask the input Raster according to self.mask.
         apply_output_mask : bool
                             If True, mask the output Raster according to target_view.mask.
+        inherit_nodata : bool
+                         If True, output ascii inherits `nodata` value from `data`.
+                         If False, output ascii uses `nodata` value from grid's viewfinder.
         affine : affine.Affine
                     Affine transformation matrix (overrides target_view.affine)
         shape : tuple of ints (length 2)
@@ -309,15 +313,16 @@ class sGrid():
                                    delimiter=delimiter, fmt=fmt, interpolation=interpolation,
                                    apply_input_mask=apply_input_mask,
                                    apply_output_mask=apply_output_mask,
+                                   inherit_nodata=inherit_nodata,
                                    affine=affine, shape=shape, crs=crs,
                                    mask=mask, nodata=nodata,
                                    dtype=dtype, **kwargs)
 
-    def to_raster(self, data, file_name, target_view=None, profile=None, view=True,
-                blockxsize=256, blockysize=256, interpolation='nearest',
-                apply_input_mask=False, apply_output_mask=True, affine=None,
-                shape=None, crs=None, mask=None, nodata=None, dtype=None,
-                **kwargs):
+    def to_raster(self, data, file_name, target_view=None, profile=None,
+                  blockxsize=256, blockysize=256, interpolation='nearest',
+                  apply_input_mask=False, apply_output_mask=True,
+                  inherit_nodata=True, affine=None, shape=None, crs=None,
+                  mask=None, nodata=None, dtype=None, **kwargs):
         """
         Writes gridded data to a raster.
 
@@ -342,6 +347,9 @@ class sGrid():
                             If True, mask the input Raster according to self.mask.
         apply_output_mask : bool
                             If True, mask the output Raster according to target_view.mask.
+        inherit_nodata : bool
+                         If True, output Raster inherits `nodata` value from `data`.
+                         If False, output Raster uses `nodata` value from grid's viewfinder.
         affine : affine.Affine
                     Affine transformation matrix (overrides target_view.affine)
         shape : tuple of ints (length 2)
@@ -358,12 +366,12 @@ class sGrid():
         if target_view is None:
             target_view = self.viewfinder
         return pysheds.io.to_raster(data, file_name, target_view=target_view,
-                                    profile=profile, view=view,
-                                    blockxsize=blockxsize,
+                                    profile=profile, blockxsize=blockxsize,
                                     blockysize=blockysize,
                                     interpolation=interpolation,
                                     apply_input_mask=apply_input_mask,
                                     apply_output_mask=apply_output_mask,
+                                    inherit_nodata=inherit_nodata,
                                     affine=affine, shape=shape, crs=crs,
                                     mask=mask, nodata=nodata, dtype=dtype,
                                     **kwargs)
@@ -420,7 +428,7 @@ class sGrid():
             raise TypeError('`data` must be a Raster or str.')
 
     def view(self, data, data_view=None, target_view=None, interpolation='nearest',
-             apply_input_mask=False, apply_output_mask=True,
+             apply_input_mask=False, apply_output_mask=True, inherit_nodata=True,
              affine=None, shape=None, crs=None, mask=None, nodata=None,
              dtype=None, inherit_metadata=True, new_metadata={}, **kwargs):
         """
@@ -449,6 +457,9 @@ class sGrid():
                            If True, mask the input Raster according to data.mask.
         apply_output_mask : bool
                            If True, mask the output Raster according to grid.mask.
+        inherit_nodata : bool
+                         If True, output Raster inherits `nodata` value from `data` or `data_view`.
+                         If False, output Raster uses `nodata` value from grid's viewfinder.
         affine : affine.Affine
                  Affine transformation matrix (overrides target_view.affine)
         shape : tuple of ints (length 2)
@@ -462,7 +473,7 @@ class sGrid():
         dtype : numpy datatype
                 Desired datatype of the output array.
         inherit_metadata : bool
-                           If True, output Raster inherits metadata from input data.
+                           If True, output Raster inherits metadata from input Raster.
         new_metadata : dict
                        Optional metadata to add to output Raster.
 
@@ -490,6 +501,7 @@ class sGrid():
                         interpolation=interpolation,
                         apply_input_mask=apply_input_mask,
                         apply_output_mask=apply_output_mask,
+                        inherit_nodata=inherit_nodata,
                         affine=affine, shape=shape,
                         crs=crs, mask=mask, nodata=nodata,
                         dtype=dtype,

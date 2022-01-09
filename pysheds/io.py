@@ -150,8 +150,9 @@ def read_raster(data, band=1, window=None, window_crs=None, mask_geometry=False,
 
 def to_ascii(data, file_name, target_view=None, delimiter=' ', fmt=None,
              interpolation='nearest', apply_input_mask=False,
-             apply_output_mask=True, affine=None, shape=None, crs=None,
-             mask=None, nodata=None, dtype=None, **kwargs):
+             apply_output_mask=True, inherit_nodata=True, affine=None,
+             shape=None, crs=None, mask=None, nodata=None, dtype=None,
+             **kwargs):
     """
     Writes a Raster object to a formatted ascii text file.
 
@@ -174,6 +175,9 @@ def to_ascii(data, file_name, target_view=None, delimiter=' ', fmt=None,
                         If True, mask the input Raster according to data.mask.
     apply_output_mask : bool
                         If True, mask the output Raster according to target_view.mask.
+    inherit_nodata : bool
+                     If True, output ascii inherits `nodata` value from `data`.
+                     If False, output ascii uses `nodata` value from `target_view`.
     affine : affine.Affine
                 Affine transformation matrix (overrides target_view.affine)
     shape : tuple of ints (length 2)
@@ -193,9 +197,9 @@ def to_ascii(data, file_name, target_view=None, delimiter=' ', fmt=None,
         target_view = data.viewfinder
     data = View.view(data, target_view, interpolation=interpolation,
                      apply_input_mask=apply_input_mask,
-                     apply_output_mask=apply_output_mask, affine=affine,
-                     shape=shape, crs=crs, mask=mask, nodata=nodata,
-                     dtype=dtype)
+                     apply_output_mask=apply_output_mask,
+                     inherit_nodata=inherit_nodata, affine=affine, shape=shape,
+                     crs=crs, mask=mask, nodata=nodata, dtype=dtype)
     try:
         assert (abs(data.affine.a) == abs(data.affine.e))
     except:
@@ -225,8 +229,9 @@ def to_ascii(data, file_name, target_view=None, delimiter=' ', fmt=None,
 
 def to_raster(data, file_name, target_view=None, profile=None, blockxsize=256,
               blockysize=256, interpolation='nearest', apply_input_mask=False,
-              apply_output_mask=True, affine=None, shape=None, crs=None,
-              mask=None, nodata=None, dtype=None, **kwargs):
+              apply_output_mask=True, inherit_nodata=True, affine=None,
+              shape=None, crs=None, mask=None, nodata=None, dtype=None,
+              **kwargs):
     """
     Writes gridded data to a raster.
 
@@ -251,6 +256,9 @@ def to_raster(data, file_name, target_view=None, profile=None, blockxsize=256,
                         If True, mask the input Raster according to data.mask.
     apply_output_mask : bool
                         If True, mask the output Raster according to target_view.mask.
+    inherit_nodata : bool
+                     If True, output Raster inherits `nodata` value from `data`.
+                     If False, output Raster uses `nodata` value from `target_view`.
     affine : affine.Affine
                 Affine transformation matrix (overrides target_view.affine)
     shape : tuple of ints (length 2)
@@ -268,9 +276,9 @@ def to_raster(data, file_name, target_view=None, profile=None, blockxsize=256,
         target_view = data.viewfinder
     data = View.view(data, target_view, interpolation=interpolation,
                      apply_input_mask=apply_input_mask,
-                     apply_output_mask=apply_output_mask, affine=affine,
-                     shape=shape, crs=crs, mask=mask, nodata=nodata,
-                     dtype=dtype)
+                     apply_output_mask=apply_output_mask,
+                     inherit_nodata=inherit_nodata, affine=affine, shape=shape,
+                     crs=crs, mask=mask, nodata=nodata, dtype=dtype)
     height, width = data.shape
     default_blockx = width
     default_profile = {

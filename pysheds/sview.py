@@ -436,7 +436,7 @@ class View():
 
     @classmethod
     def view(cls, data, target_view, data_view=None, interpolation='nearest',
-             apply_input_mask=False, apply_output_mask=True,
+             apply_input_mask=False, apply_output_mask=True, inherit_nodata=True,
              affine=None, shape=None, crs=None, mask=None, nodata=None,
              dtype=None, inherit_metadata=True, new_metadata={}):
         """
@@ -460,6 +460,9 @@ class View():
                            If True, mask the input Raster according to data.mask.
         apply_output_mask : bool
                            If True, mask the output Raster according to grid.mask.
+        inherit_nodata : bool
+                         If True, output Raster inherits `nodata` value from `data_view`.
+                         If False, output Raster uses `nodata` value from `target_view`.
         affine : affine.Affine
                  Affine transformation matrix (overrides target_view.affine)
         shape : tuple of ints (length 2)
@@ -489,6 +492,10 @@ class View():
             except:
                 raise TypeError('`data` must be a Raster instance.')
             data_view = data.viewfinder
+        # By default, use dataset's `nodata` value
+        if nodata is None:
+            if inherit_nodata:
+                nodata = data_view.nodata
         # Override parameters of target view if desired
         target_view = cls._override_target_view(target_view,
                                                 affine=affine,

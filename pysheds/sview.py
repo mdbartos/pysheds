@@ -129,24 +129,24 @@ class Raster(np.ndarray):
         self._viewfinder = new_viewfinder
 
     @property
-    def bbox(self):
-        return self.viewfinder.bbox
+    def affine(self):
+        return self.viewfinder.affine
 
-    @property
-    def coords(self):
-        return self.viewfinder.coords
-
-    @property
-    def axes(self):
-        return self.viewfinder.axes
-
-    @property
-    def view_shape(self):
-        return self.viewfinder.shape
+    @affine.setter
+    def affine(self, new_affine):
+        self.viewfinder.affine = new_affine
 
     @property
     def mask(self):
         return self.viewfinder.mask
+
+    @mask.setter
+    def mask(self, new_mask):
+        try:
+            assert (new_mask.shape == self.shape)
+        except:
+            raise ValueError('`mask` must have same dimensions as Raster.')
+        self.viewfinder.mask = new_mask
 
     @property
     def nodata(self):
@@ -160,19 +160,27 @@ class Raster(np.ndarray):
     def crs(self):
         return self.viewfinder.crs
 
+    @crs.setter
+    def crs(self, new_crs):
+        self.viewfinder.crs = new_crs
+
     @property
-    def view_size(self):
-        return np.prod(self.viewfinder.shape)
+    def bbox(self):
+        return self.viewfinder.bbox
+
+    @property
+    def coords(self):
+        return self.viewfinder.coords
+
+    @property
+    def axes(self):
+        return self.viewfinder.axes
 
     @property
     def extent(self):
         bbox = self.viewfinder.bbox
         extent = (bbox[0], bbox[2], bbox[1], bbox[3])
         return extent
-
-    @property
-    def affine(self):
-        return self.viewfinder.affine
 
     @property
     def properties(self):
@@ -245,11 +253,13 @@ class ViewFinder():
     Attributes
     ==========
     affine : Affine transformation matrix (uses affine module).
-    shape : The shape of the raster (number of rows, number of columns).
+    shape : The shape of the raster (number of rows, number of columns). Note: if
+            the shape of the provided `mask` differs, the `mask` shape will be used.
     crs : The coordinate reference system.
     nodata : The value indicating `no data`.
     mask : A boolean array used to mask raster cells; may be used to indicate
-           which cells lie inside a catchment.
+           which cells lie inside a catchment. Note: if the shape of the provided
+           `mask` is different from `shape`, the shape of `mask` will be used.
     bbox : The bounding box of the raster (xmin, ymin, xmax, ymax).
     extent : The extent of the raster (xmin, xmax, ymin, ymax).
     size : The number of cells in the raster.
@@ -265,7 +275,6 @@ class ViewFinder():
     def __init__(self, affine=Affine(1., 0., 0., 0., 1., 0.), shape=(1,1),
                  nodata=0, mask=None, crs=pyproj.Proj(_pyproj_init)):
         self.affine = affine
-        self._shape = shape
         self.crs = crs
         self.nodata = nodata
         if mask is None:
@@ -308,7 +317,7 @@ class ViewFinder():
 
     @property
     def shape(self):
-        return self._shape
+        return self.mask.shape
 
     @shape.setter
     def shape(self, new_shape):
@@ -321,14 +330,10 @@ class ViewFinder():
     @mask.setter
     def mask(self, new_mask):
         try:
-            assert (new_mask.shape == self.shape)
-        except:
-            raise ValueError('`mask` shape must be the same as `self.shape`')
-        try:
             assert (np.min_scalar_type(new_mask) <= np.dtype(np.bool8))
         except:
             raise TypeError('`mask` must be of boolean type')
-        new_mask = new_mask.astype(np.bool8)
+        new_mask = np.asarray(new_mask).astype(np.bool8)
         self._mask = new_mask
 
     @property

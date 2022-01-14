@@ -229,6 +229,15 @@ def test_accumulation():
     # identical to the flow accumulation without efficiency
     assert(np.isclose(outlets_eff[1], acc_dinf.max()))
 
+    # similar to Dinf:
+    eff = np.ones_like(acc_d8)
+    # the identity of the D8 and Dinf outlets were asserted above
+    # outlets = np.where(acc_d8==acc_d8.max())
+    eff[outlets] = reduction
+    acc_d8_eff = grid.accumulation(fdir_d8, dirmap=dirmap, routing='d8', efficiency=eff)
+    outlets_eff = np.sort(acc_d8_eff[outlets])
+    assert(np.isclose(outlets_eff[0] / outlets_eff[1], reduction))
+
     d.acc = acc
 
 def test_hand():

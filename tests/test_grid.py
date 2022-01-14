@@ -306,7 +306,8 @@ def test_to_ascii():
     catch = d.catch
     fdir = d.fdir
     grid.clip_to(catch)
-    grid.to_ascii(fdir, 'test_dir.asc', target_view=fdir.viewfinder, dtype=np.float)
+    # np.float is depreciated
+    grid.to_ascii(fdir, 'test_dir.asc', target_view=fdir.viewfinder, dtype=float)
     fdir_out = grid.read_ascii('test_dir.asc', dtype=np.uint8)
     assert((fdir_out == fdir).all())
     grid.to_ascii(fdir, 'test_dir.asc', dtype=np.uint8)

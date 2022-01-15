@@ -252,6 +252,35 @@ def _angle_to_d8_numba(angles, dirmap, nodata_cells):
         props_1.flat[i] = prop_1
     return fdirs_0, fdirs_1, props_0, props_1
 
+@njit(float64[:,:,:](float64[:,:], float64, float64, boolean[:,:], int64, int64),
+      parallel=True,
+      cache=True)
+def _mfd_flowdir_numba(dem, dx, dy, nodata_cells, nodata_out, p=1):
+    m, n = dem.shape
+    fdir = np.zeros((8, m, n), dtype=np.float64)
+    row_offsets = np.array([-1, -1, 0, 1, 1, 1, 0, -1])
+    col_offsets = np.array([0, 1, 1, 1, 0, -1, -1, -1])
+    dd = np.sqrt(dx**2 + dy**2)
+    distances = np.array([dy, dd, dx, dd, dy, dd, dx, dd])
+    for i in prange(1, m - 1):
+        for j in prange(1, n - 1):
+            if nodata_cells[i, j]:
+                fdir[:, i, j] = nodata_out
+            else:
+                elev = dem[i, j]
+                den = 0.
+                for k in range(8):
+                    row_offset = row_offsets[k]
+                    col_offset = col_offsets[k]
+                    distance = distances[k]
+                    num = (elev - dem[i + row_offset, j + col_offset])**p / distance
+                    if num > 0:
+                        fdir[k, i, j] = num
+                        den += num
+                if den > 0:
+                    fdir[:, i, j] /= den
+    return fdir
+
 # Functions for 'catchment'
 
 @njit(void(int64, boolean[:,:], int64[:,:], int64[:], int64[:]),
@@ -369,6 +398,37 @@ def _dinf_catchment_iter_numba(fdir_0, fdir_1, pour_point, dirmap):
                 points_to_0 = (fdir_0.flat[neighbor] == r_dirmap[k])
                 points_to_1 = (fdir_1.flat[neighbor] == r_dirmap[k])
                 points_to = points_to_0 or points_to_1
+                if points_to:
+                    queue.append(neighbor)
+    return catch
+
+@njit(boolean[:,:](float64[:,:,:], UniTuple(int64, 2)),
+      cache=True)
+def _mfd_catchment_iter_numba(fdir, pour_point):
+    _, m, n = fdir.shape
+    mn = m * n
+    catch = np.zeros((m, n), dtype=np.bool8)
+    i, j = pour_point
+    ix = (i * n) + j
+    offsets = np.array([-n, 1 - n, 1,
+                        1 + n, n, - 1 + n,
+                        - 1, - 1 - n])
+    r_dirmap = np.array([4, 5, 6, 7,
+                         0, 1, 2, 3])
+    queue = [ix]
+    while queue:
+        parent = queue.pop()
+        catch.flat[parent] = True
+        neighbors = offsets + parent
+        for k in range(8):
+            neighbor = neighbors[k]
+            neighbor_dir = r_dirmap[k]
+            visited = catch.flat[neighbor]
+            if visited:
+                continue
+            else:
+                kix = neighbor + (neighbor_dir * mn)
+                points_to = fdir.flat[kix] > 0.
                 if points_to:
                     queue.append(neighbor)
     return catch

@@ -642,6 +642,43 @@ def _dinf_accumulation_eff_iter_numba(acc, fdir_0, fdir_1, indegree, startnodes,
                     queue.append(endnode_1)
     return acc
 
+@njit(parallel=True)
+def _mfd_bincount(fdir):
+    p, m, n = fdir.shape
+    mn = m * n
+    out = np.zeros(mn, dtype=np.uint8)
+    for i in range(p):
+        fdir_i = fdir[i]
+        for j in prange(mn):
+            endnode = fdir_i.flat[j]
+            if endnode != j:
+                out[endnode] += 1
+    return out
+
+@njit
+def _mfd_accumulation_iter_numba(acc, fdir, props, indegree, startnodes):
+    n = startnodes.size
+    queue = [0]
+    _ = queue.pop()
+    for k in range(n):
+        startnode = startnodes.flat[k]
+        queue.append(startnode)
+        while queue:
+            startnode = queue.pop()
+            for i in range(8):
+                fdir_i = fdir[i]
+                props_i = props[i]
+                endnode = fdir_i.flat[startnode]
+                if endnode == startnode:
+                    continue
+                else:
+                    prop = props_i.flat[startnode]
+                    acc.flat[endnode] += (prop * acc.flat[startnode])
+                    indegree.flat[endnode] -= 1
+                    if (indegree.flat[endnode] == 0):
+                        queue.append(endnode)
+    return acc
+
 # Functions for 'flow_distance'
 
 @njit(void(int64, int64[:,:], boolean[:,:], float64[:,:], float64[:,:],

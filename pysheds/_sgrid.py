@@ -908,6 +908,44 @@ def _mfd_flow_distance_iter_numba(fdir, pour_point, weights):
                     queue.append(neighbor)
     return dist
 
+# TODO: Weights should actually by (8, m, n)
+# neighbor_dist = parent_dist + weights.flat[kix]
+@njit(float64[:,:](float64[:,:,:], UniTuple(int64, 2), float64[:,:]),
+      cache=True)
+def _mfd_flow_distance_heap_numba(fdir, pour_point, weights):
+    _, m, n = fdir.shape
+    mn = m * n
+    dist = np.full((m, n), np.inf, dtype=np.float64)
+    visited = np.zeros((m, n), dtype=np.bool8)
+    i, j = pour_point
+    ix = (i * n) + j
+    offsets = np.array([-n, 1 - n, 1,
+                        1 + n, n, - 1 + n,
+                        - 1, - 1 - n])
+    r_dirmap = np.array([4, 5, 6, 7,
+                         0, 1, 2, 3])
+    dist.flat[ix] = 0.
+    queue = [(0., ix)]
+    while queue:
+        parent_dist, parent = heappop(queue)
+        visited.flat[parent] = True
+        neighbors = offsets + parent
+        for k in range(8):
+            neighbor = neighbors[k]
+            if visited.flat[neighbor]:
+                continue
+            else:
+                neighbor_dir = r_dirmap[k]
+                current_neighbor_dist = dist.flat[neighbor]
+                kix = neighbor + (neighbor_dir * mn)
+                points_to = fdir.flat[kix] > 0.
+                if points_to:
+                    neighbor_dist = parent_dist + weights.flat[neighbor]
+                    if (neighbor_dist < current_neighbor_dist):
+                        dist.flat[neighbor] = neighbor_dist
+                        heappush(queue, (neighbor_dist, neighbor))
+    return dist
+
 # Functions for 'reverse_flow_distance'
 
 @njit(void(int64, int64, int64[:,:], int64[:,:], float64[:,:],

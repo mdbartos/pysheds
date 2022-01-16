@@ -831,6 +831,42 @@ def _dinf_flow_distance_iter_numba(fdir_0, fdir_1, weights_0, weights_1,
                     queue.append(neighbor)
     return dist
 
+# TODO: Weights should actually by (8, m, n)
+# neighbor_dist = parent_dist + weights.flat[kix]
+@njit(float64[:,:](float64[:,:,:], UniTuple(int64, 2), float64[:,:]),
+      cache=True)
+def _mfd_flow_distance_iter_numba(fdir, pour_point, weights):
+    _, m, n = fdir.shape
+    mn = m * n
+    dist = np.full((m, n), np.inf, dtype=np.float64)
+    i, j = pour_point
+    ix = (i * n) + j
+    offsets = np.array([-n, 1 - n, 1,
+                        1 + n, n, - 1 + n,
+                        - 1, - 1 - n])
+    r_dirmap = np.array([4, 5, 6, 7,
+                         0, 1, 2, 3])
+    dist.flat[ix] = 0.
+    queue = [ix]
+    while queue:
+        parent = queue.pop()
+        parent_dist = dist.flat[parent]
+        neighbors = offsets + parent
+        for k in range(8):
+            neighbor = neighbors[k]
+            neighbor_dir = r_dirmap[k]
+            current_neighbor_dist = dist.flat[neighbor]
+            kix = neighbor + (neighbor_dir * mn)
+            points_to = fdir.flat[kix] > 0.
+            if points_to:
+                neighbor_dist = parent_dist + weights.flat[neighbor]
+                if (neighbor_dist < current_neighbor_dist):
+                    dist.flat[neighbor] = neighbor_dist
+                    queue.append(neighbor)
+    return dist
+
+# Functions for 'reverse_flow_distance'
+
 @njit(void(int64, int64, int64[:,:], int64[:,:], float64[:,:],
            int64[:,:], uint8[:], float64[:,:]),
       cache=True)

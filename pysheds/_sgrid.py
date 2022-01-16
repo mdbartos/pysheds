@@ -948,50 +948,78 @@ def _mfd_flow_distance_heap_numba(fdir, pour_point, weights):
 
 # Functions for 'reverse_flow_distance'
 
-@njit(void(int64, int64, int64[:,:], int64[:,:], float64[:,:],
+@njit(void(int64, int64, int64[:,:], float64[:,:],
            int64[:,:], uint8[:], float64[:,:]),
       cache=True)
-def _d8_reverse_distance_recursion(startnode, endnode, min_order, max_order,
+def _d8_reverse_distance_recursion(startnode, endnode, max_order,
                                    rdist, fdir, indegree, weights):
-    min_order.flat[endnode] = min(min_order.flat[endnode], rdist.flat[startnode])
     max_order.flat[endnode] = max(max_order.flat[endnode], rdist.flat[startnode])
     indegree.flat[endnode] -= 1
     if indegree.flat[endnode] == 0:
         rdist.flat[endnode] = max_order.flat[endnode] + weights.flat[endnode]
         new_startnode = endnode
         new_endnode = fdir.flat[new_startnode]
-        _d8_reverse_distance_recursion(new_startnode, new_endnode, min_order,
-                                       max_order, rdist, fdir, indegree, weights)
+        _d8_reverse_distance_recursion(new_startnode, new_endnode, max_order,
+                                       rdist, fdir, indegree, weights)
 
-@njit(float64[:,:](int64[:,:], int64[:,:], float64[:,:], int64[:,:],
+@njit(float64[:,:](int64[:,:], float64[:,:], int64[:,:],
                    uint8[:], int64[:], float64[:,:]),
       cache=True)
-def _d8_reverse_distance_recur_numba(min_order, max_order, rdist, fdir,
+def _d8_reverse_distance_recur_numba(max_order, rdist, fdir,
                                      indegree, startnodes, weights):
     n = startnodes.size
     for k in range(n):
         startnode = startnodes.flat[k]
         endnode = fdir.flat[startnode]
-        _d8_reverse_distance_recursion(startnode, endnode, min_order, max_order,
+        _d8_reverse_distance_recursion(startnode, endnode, max_order,
                                        rdist, fdir, indegree, weights)
     return rdist
 
-@njit(float64[:,:](int64[:,:], int64[:,:], float64[:,:], int64[:,:],
+@njit(float64[:,:](int64[:,:], float64[:,:], int64[:,:],
                    uint8[:], int64[:], float64[:,:]),
       cache=True)
-def _d8_reverse_distance_iter_numba(min_order, max_order, rdist, fdir,
+def _d8_reverse_distance_iter_numba(max_order, rdist, fdir,
                                     indegree, startnodes, weights):
     n = startnodes.size
     for k in range(n):
         startnode = startnodes.flat[k]
         endnode = fdir.flat[startnode]
         while(indegree.flat[startnode] == 0):
-            min_order.flat[endnode] = min(min_order.flat[endnode], rdist.flat[startnode])
             max_order.flat[endnode] = max(max_order.flat[endnode], rdist.flat[startnode])
             indegree.flat[endnode] -= 1
             rdist.flat[endnode] = max_order.flat[endnode] + weights.flat[endnode]
             startnode = endnode
             endnode = fdir.flat[startnode]
+    return rdist
+
+# TODO: This should probably have two weights vectors
+@njit(float64[:,:](float64[:,:], int64[:,:], int64[:,:],
+                   uint8[:], int64[:], float64[:,:]),
+      cache=True)
+def _dinf_reverse_distance_iter_numba(rdist, fdir_0, fdir_1,
+                                      indegree, startnodes, weights):
+    n = startnodes.size
+    queue = [0]
+    _ = queue.pop()
+    for k in range(n):
+        startnode = startnodes.flat[k]
+        queue.append(startnode)
+        while queue:
+            startnode = queue.pop()
+            endnode_0 = fdir_0.flat[startnode]
+            endnode_1 = fdir_1.flat[startnode]
+            rdist.flat[endnode_0] = max(rdist.flat[endnode_0],
+                                        rdist.flat[startnode] + weights.flat[endnode_0])
+            rdist.flat[endnode_1] = max(rdist.flat[endnode_1],
+                                        rdist.flat[startnode] + weights.flat[endnode_1])
+            indegree.flat[endnode_0] -= 1
+            indegree.flat[endnode_1] -= 1
+            if (indegree.flat[endnode_0] == 0):
+                queue.append(endnode_0)
+            if (indegree.flat[endnode_1] == 0):
+                # Account for cases where both fdirs point in same direction
+                if (endnode_0 != endnode_1):
+                    queue.append(endnode_1)
     return rdist
 
 # Functions for 'resolve_flats'

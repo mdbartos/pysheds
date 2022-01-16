@@ -1041,6 +1041,7 @@ class sGrid():
         fdir[invalid_cells] = 0
         if xytype in {'label', 'coordinate'}:
             x, y = self.nearest_cell(x, y, fdir.affine, snap)
+        # TODO: Should this be ones for all cells?
         if weights is None:
             weights = (~nodata_cells).reshape(fdir.shape).astype(np.float64)
         if algorithm.lower() == 'iterative':
@@ -1066,6 +1067,7 @@ class sGrid():
             weights_0 = weights
             weights_1 = weights
         else:
+            # TODO: Should this be ones for all cells?
             weights_0 = (~nodata_cells).reshape(fdir.shape).astype(np.float64)
             weights_1 = weights_0
         if method.lower() == 'shortest':
@@ -1347,8 +1349,9 @@ class sGrid():
                                      metadata=fdir.metadata, nodata=nodata_out)
         return order
 
-    def distance_to_ridge(self, fdir, mask, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                          nodata_out=0, routing='d8', algorithm='iterative', **kwargs):
+    def distance_to_ridge(self, fdir, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                          nodata_out=np.nan, routing='d8', algorithm='iterative', cycle_size=1,
+                          **kwargs):
         """
         Generates a raster representing the (weighted) topological distance from each cell
         to its originating drainage divide, moving upstream.
@@ -1383,43 +1386,89 @@ class sGrid():
         """
         if routing.lower() == 'd8':
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
+        elif routing.lower() == 'dinf':
+            fdir_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
         else:
-            raise NotImplementedError('Only implemented for D8 routing.')
-        mask_overrides = {'dtype' : np.bool8, 'nodata' : False}
+            raise NotImplementedError('Routing method must be one of: `d8`, `dinf`')
         kwargs.update(fdir_overrides)
         fdir = self._input_handler(fdir, **kwargs)
-        kwargs.update(mask_overrides)
-        mask = self._input_handler(mask, **kwargs)
         if weights is not None:
             weights_overrides = {'dtype' : np.float64, 'nodata' : weights.nodata}
             kwargs.update(weights_overrides)
             weights = self._input_handler(weights, **kwargs)
+        if routing.lower() == 'd8':
+            rdist = self._d8_distance_to_ridge(fdir=fdir, weights=weights,
+                                               dirmap=dirmap, algorithm=algorithm,
+                                               nodata_out=nodata_out)
+        elif routing.lower() == 'dinf':
+            rdist = self._dinf_distance_to_ridge(fdir=fdir, weights=weights,
+                                                 dirmap=dirmap, algorithm=algorithm,
+                                                 nodata_out=nodata_out, cycle_size=cycle_size)
+        return rdist
+
+    def _d8_distance_to_ridge(self, fdir, weights, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                              algorithm='iterative', nodata_out=np.nan, **kwargs):
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
         invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
         fdir[nodata_cells] = 0
         fdir[invalid_cells] = 0
+        # TODO: Should this be ones for all cells?
         if weights is None:
             weights = (~nodata_cells).reshape(fdir.shape).astype(np.float64)
-        maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=0)
-        masked_fdir = np.where(mask, fdir, 0).astype(np.int64)
         startnodes = np.arange(fdir.size, dtype=np.int64)
-        endnodes = _self._flatten_fdir_numba(masked_fdir, dirmap).reshape(fdir.shape)
+        endnodes = _self._flatten_fdir_numba(fdir, dirmap).reshape(fdir.shape)
         indegree = np.bincount(endnodes.ravel()).astype(np.uint8)
-        orig_indegree = np.copy(indegree)
         startnodes = startnodes[(indegree == 0)]
-        min_order = np.full(fdir.shape, np.iinfo(np.int64).max, dtype=np.int64)
         max_order = np.ones(fdir.shape, dtype=np.int64)
         rdist = np.zeros(fdir.shape, dtype=np.float64)
         if algorithm.lower() == 'iterative':
-            rdist = _self._d8_reverse_distance_iter_numba(min_order, max_order, rdist,
-                                                        endnodes, indegree, startnodes,
-                                                        weights)
+            rdist = _self._d8_reverse_distance_iter_numba(max_order, rdist,
+                                                          endnodes, indegree,
+                                                          startnodes, weights)
         elif algorithm.lower() == 'recursive':
-            rdist = _self._d8_reverse_distance_recur_numba(min_order, max_order, rdist,
-                                                           endnodes, indegree, startnodes,
-                                                           weights)
+            rdist = _self._d8_reverse_distance_recur_numba(max_order, rdist,
+                                                           endnodes, indegree,
+                                                           startnodes, weights)
+        else:
+            raise ValueError('Algorithm must be `iterative` or `recursive`.')
+        rdist = self._output_handler(data=rdist, viewfinder=fdir.viewfinder,
+                                     metadata=fdir.metadata, nodata=nodata_out)
+        return rdist
+
+    def _dinf_distance_to_ridge(self, fdir, weights, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                                algorithm='iterative', nodata_out=np.nan, cycle_size=1,
+                                **kwargs):
+        # Find nodata cells and invalid cells
+        nodata_cells = self._get_nodata_cells(fdir)
+        # Split d-infinity grid
+        fdir_0, fdir_1, prop_0, prop_1 = _self._angle_to_d8_numba(fdir, dirmap, nodata_cells)
+        # Get matching of start and end nodes
+        startnodes = np.arange(fdir.size, dtype=np.int64)
+        endnodes_0 = _self._flatten_fdir_numba(fdir_0, dirmap).reshape(fdir.shape)
+        endnodes_1 = _self._flatten_fdir_numba(fdir_1, dirmap).reshape(fdir.shape)
+        # Remove cycles
+        _self._dinf_fix_cycles_numba(endnodes_0, endnodes_1, cycle_size)
+        # Find indegree of all cells
+        indegree_0 = np.bincount(endnodes_0.ravel(), minlength=fdir.size)
+        indegree_1 = np.bincount(endnodes_1.ravel(), minlength=fdir.size)
+        indegree = (indegree_0 + indegree_1).astype(np.uint8)
+        # Set starting nodes to those with no predecessors
+        startnodes = startnodes[(indegree == 0)]
+        # TODO: Should this be ones for all cells?
+        if weights is None:
+            weights = np.ones(fdir_0.shape, dtype=np.float64)
+        rdist = np.zeros(fdir_0.shape, dtype=np.float64)
+        if algorithm.lower() == 'iterative':
+            rdist = _self._dinf_reverse_distance_iter_numba(rdist,
+                                                            endnodes_0,
+                                                            endnodes_1,
+                                                            indegree,
+                                                            startnodes,
+                                                            weights)
+        elif algorithm.lower() == 'recursive':
+            raise NotImplementedError('Recursive algorithm not implemented for distance_to_ridge.')
         else:
             raise ValueError('Algorithm must be `iterative` or `recursive`.')
         rdist = self._output_handler(data=rdist, viewfinder=fdir.viewfinder,

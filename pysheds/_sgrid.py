@@ -1305,6 +1305,46 @@ def _dinf_hand_recur_numba(fdir_0, fdir_1, mask, dirmap):
         _dinf_hand_recursion(parent, parent, hand, offsets, r_dirmap, fdir_0, fdir_1)
     return hand
 
+@njit(int64[:,:](float64[:,:,:], boolean[:,:]),
+      cache=True)
+def _mfd_hand_iter_numba(fdir, mask):
+    _, m, n = fdir.shape
+    mn = m * n
+    offsets = np.array([-n, 1 - n, 1,
+                        1 + n, n, - 1 + n,
+                        - 1, - 1 - n])
+    r_dirmap = np.array([4, 5, 6, 7,
+                         0, 1, 2, 3])
+    hand = -np.ones((m, n), dtype=np.int64)
+    cur_queue = []
+    next_queue = []
+    for i in range(hand.size):
+        if mask.flat[i]:
+            hand.flat[i] = i
+            cur_queue.append(i)
+    while True:
+        if not cur_queue:
+            break
+        while cur_queue:
+            k = cur_queue.pop()
+            neighbors = offsets + k
+            for j in range(8):
+                neighbor = neighbors[j]
+                visited = (hand.flat[neighbor] >= 0)
+                if visited:
+                    continue
+                else:
+                    neighbor_dir = r_dirmap[j]
+                    kix = neighbor + (neighbor_dir * mn)
+                    points_to = fdir.flat[kix] > 0.
+                    if points_to:
+                        hand.flat[neighbor] = hand.flat[k]
+                        next_queue.append(neighbor)
+        while next_queue:
+            next_cell = next_queue.pop()
+            cur_queue.append(next_cell)
+    return hand
+
 @njit(float64[:,:](int64[:,:], float64[:,:], float64),
       parallel=True,
       cache=True)

@@ -948,46 +948,44 @@ def _mfd_flow_distance_heap_numba(fdir, pour_point, weights):
 
 # Functions for 'reverse_flow_distance'
 
-@njit(void(int64, int64, int64[:,:], float64[:,:],
-           int64[:,:], uint8[:], float64[:,:]),
+@njit(void(int64, int64, float64[:,:], int64[:,:], uint8[:], float64[:,:]),
       cache=True)
-def _d8_reverse_distance_recursion(startnode, endnode, max_order,
-                                   rdist, fdir, indegree, weights):
-    max_order.flat[endnode] = max(max_order.flat[endnode], rdist.flat[startnode])
+def _d8_reverse_distance_recursion(startnode, endnode, rdist, fdir, indegree,
+                                   weights):
+    rdist.flat[endnode] = max(rdist.flat[endnode],
+                              rdist.flat[startnode] + weights.flat[endnode])
     indegree.flat[endnode] -= 1
     if indegree.flat[endnode] == 0:
-        rdist.flat[endnode] = max_order.flat[endnode] + weights.flat[endnode]
         new_startnode = endnode
         new_endnode = fdir.flat[new_startnode]
-        _d8_reverse_distance_recursion(new_startnode, new_endnode, max_order,
-                                       rdist, fdir, indegree, weights)
+        _d8_reverse_distance_recursion(new_startnode, new_endnode, rdist, fdir,
+                                       indegree, weights)
 
-@njit(float64[:,:](int64[:,:], float64[:,:], int64[:,:],
+@njit(float64[:,:](float64[:,:], int64[:,:],
                    uint8[:], int64[:], float64[:,:]),
       cache=True)
-def _d8_reverse_distance_recur_numba(max_order, rdist, fdir,
+def _d8_reverse_distance_recur_numba(rdist, fdir,
                                      indegree, startnodes, weights):
     n = startnodes.size
     for k in range(n):
         startnode = startnodes.flat[k]
         endnode = fdir.flat[startnode]
-        _d8_reverse_distance_recursion(startnode, endnode, max_order,
-                                       rdist, fdir, indegree, weights)
+        _d8_reverse_distance_recursion(startnode, endnode, rdist, fdir,
+                                       indegree, weights)
     return rdist
 
-@njit(float64[:,:](int64[:,:], float64[:,:], int64[:,:],
+@njit(float64[:,:](float64[:,:], int64[:,:],
                    uint8[:], int64[:], float64[:,:]),
       cache=True)
-def _d8_reverse_distance_iter_numba(max_order, rdist, fdir,
-                                    indegree, startnodes, weights):
+def _d8_reverse_distance_iter_numba(rdist, fdir, indegree, startnodes, weights):
     n = startnodes.size
     for k in range(n):
         startnode = startnodes.flat[k]
         endnode = fdir.flat[startnode]
         while(indegree.flat[startnode] == 0):
-            max_order.flat[endnode] = max(max_order.flat[endnode], rdist.flat[startnode])
+            rdist.flat[endnode] = max(rdist.flat[endnode],
+                                      rdist.flat[startnode] + weights.flat[endnode])
             indegree.flat[endnode] -= 1
-            rdist.flat[endnode] = max_order.flat[endnode] + weights.flat[endnode]
             startnode = endnode
             endnode = fdir.flat[startnode]
     return rdist

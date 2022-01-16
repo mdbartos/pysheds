@@ -1421,16 +1421,15 @@ class sGrid():
         endnodes = _self._flatten_fdir_numba(fdir, dirmap).reshape(fdir.shape)
         indegree = np.bincount(endnodes.ravel()).astype(np.uint8)
         startnodes = startnodes[(indegree == 0)]
-        max_order = np.ones(fdir.shape, dtype=np.int64)
         rdist = np.zeros(fdir.shape, dtype=np.float64)
         if algorithm.lower() == 'iterative':
-            rdist = _self._d8_reverse_distance_iter_numba(max_order, rdist,
-                                                          endnodes, indegree,
-                                                          startnodes, weights)
+            rdist = _self._d8_reverse_distance_iter_numba(rdist, endnodes,
+                                                          indegree, startnodes,
+                                                          weights)
         elif algorithm.lower() == 'recursive':
-            rdist = _self._d8_reverse_distance_recur_numba(max_order, rdist,
-                                                           endnodes, indegree,
-                                                           startnodes, weights)
+            rdist = _self._d8_reverse_distance_recur_numba(rdist, endnodes,
+                                                           indegree, startnodes,
+                                                           weights)
         else:
             raise ValueError('Algorithm must be `iterative` or `recursive`.')
         rdist = self._output_handler(data=rdist, viewfinder=fdir.viewfinder,

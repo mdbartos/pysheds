@@ -1070,7 +1070,7 @@ class sGrid():
             weights_1 = weights_0
         if method.lower() == 'shortest':
             if algorithm.lower() == 'iterative':
-                dist = _self._dinf_flow_distance_iter_numba(fdir_0, fdir_1, weights_0,
+                dist = _self._dinf_flow_distance_heap_numba(fdir_0, fdir_1, weights_0,
                                                             weights_1, (y, x), dirmap)
             elif algorithm.lower() == 'recursive':
                 dist = _self._dinf_flow_distance_recur_numba(fdir_0, fdir_1, weights_0,

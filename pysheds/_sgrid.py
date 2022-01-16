@@ -1,3 +1,4 @@
+from heapq import heappop, heappush
 import numpy as np
 from numba import njit, prange
 from numba.types import float64, int64, uint32, uint16, uint8, boolean, UniTuple, Tuple, List, void
@@ -829,6 +830,48 @@ def _dinf_flow_distance_iter_numba(fdir_0, fdir_1, weights_0, weights_1,
                 if (neighbor_dist_1 < current_neighbor_dist):
                     dist.flat[neighbor] = neighbor_dist_1
                     queue.append(neighbor)
+    return dist
+
+@njit(float64[:,:](int64[:,:], int64[:,:], float64[:,:], float64[:,:],
+                   UniTuple(int64, 2), UniTuple(int64, 8)),
+      cache=True)
+def _dinf_flow_distance_heap_numba(fdir_0, fdir_1, weights_0, weights_1,
+                                   pour_point, dirmap):
+    dist = np.full(fdir_0.shape, np.inf, dtype=np.float64)
+    visited = np.zeros(fdir_0.shape, dtype=np.bool8)
+    r_dirmap = np.array([dirmap[4], dirmap[5], dirmap[6],
+                         dirmap[7], dirmap[0], dirmap[1],
+                         dirmap[2], dirmap[3]])
+    m, n = fdir_0.shape
+    offsets = np.array([-n, 1 - n, 1,
+                        1 + n, n, - 1 + n,
+                        - 1, - 1 - n])
+    i, j = pour_point
+    ix = (i * n) + j
+    dist.flat[ix] = 0.
+    queue = [(0., ix)]
+    while queue:
+        parent_dist, parent = heappop(queue)
+        visited.flat[parent] = True
+        neighbors = offsets + parent
+        for k in range(8):
+            neighbor = neighbors[k]
+            if visited.flat[neighbor]:
+                continue
+            else:
+                current_neighbor_dist = dist.flat[neighbor]
+                points_to_0 = (fdir_0.flat[neighbor] == r_dirmap[k])
+                points_to_1 = (fdir_1.flat[neighbor] == r_dirmap[k])
+                if points_to_0:
+                    neighbor_dist_0 = parent_dist + weights_0.flat[neighbor]
+                    if (neighbor_dist_0 < current_neighbor_dist):
+                        dist.flat[neighbor] = neighbor_dist_0
+                        heappush(queue, (neighbor_dist_0, neighbor))
+                elif points_to_1:
+                    neighbor_dist_1 = parent_dist + weights_1.flat[neighbor]
+                    if (neighbor_dist_1 < current_neighbor_dist):
+                        dist.flat[neighbor] = neighbor_dist_1
+                        heappush(queue, (neighbor_dist_1, neighbor))
     return dist
 
 # TODO: Weights should actually by (8, m, n)

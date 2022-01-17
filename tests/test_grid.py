@@ -11,8 +11,6 @@ data_dir = os.path.abspath(os.path.join(current_dir, '../data'))
 dir_path = os.path.join(data_dir, 'dir.asc')
 dem_path = os.path.join(data_dir, 'dem.tif')
 roi_path = os.path.join(data_dir, 'roi.tif')
-# eff_path = os.path.join(data_dir, 'eff.tif')
-# dinf_eff_path = os.path.join(data_dir, 'dinf_eff.tif')
 feature_geometry = [{'type': 'Polygon',
                       'coordinates': (((-97.29749977660477, 32.74000135435936),
                         (-97.29083107907053, 32.74000328969928),
@@ -38,26 +36,15 @@ grid = Grid.from_raster(dem_path)
 fdir = grid.read_ascii(dir_path, dtype=np.uint8, crs=grid.crs)
 dem = grid.read_raster(dem_path)
 roi = grid.read_raster(roi_path)
-# eff = grid.read_raster(eff_path)
-# dinf_eff = grid.read_raster(dinf_eff_path)
 
 # Add datasets to dataset holder
 d.dem = dem
 d.fdir = fdir
 d.roi = roi
-# d.eff = eff
-# d.dinf_eff = dinf_eff
-
-# set nodata to 1
-# why is that not working with grid.view() in test_accumulation?
-#grid.eff[grid.eff==grid.eff.nodata] = 1
-#grid.dinf_eff[grid.dinf_eff==grid.dinf_eff.nodata] = 1
 
 # Initialize parameters
 dirmap = (64,  128,  1,   2,    4,   8,    16,  32)
 acc_in_frame = 77261
-# acc_in_frame_eff = 76498 # max value with efficiency
-# acc_in_frame_eff1 = 19125.5 # accumulation for raster cell with acc_in_frame with transport efficiency
 cells_in_catch = 11422
 catch_shape = (159, 169)
 max_distance_d8 = 209
@@ -187,11 +174,6 @@ def test_accumulation():
     assert(acc_d8.max() > 11300)
 
     # ...with efficiency
-    # eff = d.eff
-    # set nodata to 1
-    # eff = grid.view(eff)
-    # eff[eff == eff.nodata] = 1
-
     # we set the efficiency for starting cells to 0
     # this will reduce the flow accumulation by the number of starting cells
     start_cells = np.where(acc_d8 == 1)
@@ -316,7 +298,7 @@ def test_to_ascii():
     fdir = d.fdir
     grid.clip_to(catch)
     # np.float is depreciated
-    grid.to_ascii(fdir, 'test_dir.asc', target_view=fdir.viewfinder, dtype=float)
+    grid.to_ascii(fdir, 'test_dir.asc', target_view=fdir.viewfinder, dtype=np.float64)
     fdir_out = grid.read_ascii('test_dir.asc', dtype=np.uint8)
     assert((fdir_out == fdir).all())
     grid.to_ascii(fdir, 'test_dir.asc', dtype=np.uint8)

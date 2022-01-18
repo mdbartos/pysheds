@@ -1709,6 +1709,57 @@ def _flatten_fdir_no_boundary(fdir, dirmap):
         flat_fdir.flat[k] = k + offset
     return flat_fdir
 
+# TODO: Assumes pits and flats are removed
+@njit(int64[:,:,:](float64[:,:,:]),
+      parallel=True,
+      cache=True)
+def _flatten_mfd_fdir_numba(fdir):
+    p, r, c = fdir.shape
+    n = r * c
+    flat_fdir = np.zeros((p, r, c), dtype=np.int64)
+    offsets = np.array([0 - c, 1 - c, 1 + 0, 1 + c,
+                        0 + c, -1 + c, -1 + 0, -1 - c],
+                       dtype=np.int64)
+    left_map = np.array([offsets[0], offsets[1], offsets[2], offsets[3],
+                         offsets[4], 0, 0, 0],
+                        dtype=np.int64)
+    right_map = np.array([offsets[0], 0, 0, 0,
+                          offsets[4], offsets[5], offsets[6], offsets[7]],
+                         dtype=np.int64)
+    top_map = np.array([0, 0, offsets[2], offsets[3],
+                        offsets[4], offsets[5], offsets[6], 0],
+                       dtype=np.int64)
+    bottom_map = np.array([offsets[0], offsets[1], offsets[2], 0,
+                           0, 0, offsets[6], offsets[7]],
+                          dtype=np.int64)
+    for i in prange(8):
+        for k in prange(n):
+            kix = k + (i * n)
+            cell_value = fdir.flat[kix]
+            if cell_value == 0:
+                offset = 0
+            else:
+                on_left = ((k % c) == 0)
+                on_right = (((k + 1) % c) == 0)
+                on_top = (k < c)
+                on_bottom = (k > (n - c - 1))
+                on_boundary = (on_left | on_right | on_top | on_bottom)
+                if on_boundary:
+                    # TODO: This seems like it could cause errors at corner points
+                    # TODO: Check if offset is already zero
+                    if on_left:
+                        offset = left_map[i]
+                    if on_right and (offset != 0):
+                        offset = right_map[i]
+                    if on_top and (offset != 0):
+                        offset = top_map[i]
+                    if on_bottom and (offset != 0):
+                        offset = bottom_map[i]
+                else:
+                    offset = offsets[i]
+            flat_fdir.flat[kix] = k + offset
+    return flat_fdir
+
 @njit
 def _construct_matching(fdir, dirmap):
     n = fdir.size

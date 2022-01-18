@@ -643,7 +643,7 @@ def _dinf_accumulation_eff_iter_numba(acc, fdir_0, fdir_1, indegree, startnodes,
                     queue.append(endnode_1)
     return acc
 
-@njit(parallel=True)
+@njit(uint8[:](int64[:,:,:]), parallel=True)
 def _mfd_bincount(fdir):
     p, m, n = fdir.shape
     mn = m * n
@@ -656,7 +656,8 @@ def _mfd_bincount(fdir):
                 out[endnode] += 1
     return out
 
-@njit
+@njit(float64[:,:](float64[:,:], int64[:,:,:], float64[:,:,:], uint8[:], int64[:]),
+      cache=True)
 def _mfd_accumulation_iter_numba(acc, fdir, props, indegree, startnodes):
     n = startnodes.size
     queue = [0]
@@ -1018,6 +1019,31 @@ def _dinf_reverse_distance_iter_numba(rdist, fdir_0, fdir_1,
                 # Account for cases where both fdirs point in same direction
                 if (endnode_0 != endnode_1):
                     queue.append(endnode_1)
+    return rdist
+
+@njit(float64[:,:](float64[:,:], int64[:,:,:], uint8[:], int64[:], float64[:,:]),
+      cache=True)
+def _mfd_reverse_distance_iter_numba(rdist, fdir, indegree, startnodes, weights):
+    n = startnodes.size
+    queue = [0]
+    _ = queue.pop()
+    for k in range(n):
+        startnode = startnodes.flat[k]
+        queue.append(startnode)
+        while queue:
+            startnode = queue.pop()
+            for i in range(8):
+                fdir_i = fdir[i]
+                endnode = fdir_i.flat[startnode]
+                if endnode == startnode:
+                    continue
+                else:
+                    weight = weights.flat[startnode]
+                    rdist.flat[endnode] = max(rdist.flat[endnode],
+                                              rdist.flat[startnode] + weights.flat[endnode])
+                    indegree.flat[endnode] -= 1
+                    if (indegree.flat[endnode] == 0):
+                        queue.append(endnode)
     return rdist
 
 # Functions for 'resolve_flats'

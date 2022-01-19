@@ -50,7 +50,9 @@ class Raster(np.ndarray):
 
     def __new__(cls, input_array, viewfinder=None, metadata={}):
         try:
+            # MultiRaster must be subclass of ndarray
             assert isinstance(input_array, np.ndarray)
+            # Ensure MultiRaster is 2D
             assert input_array.ndim == 2
         except:
             raise TypeError('Input must be a 2-dimensional array-like object.')
@@ -251,9 +253,12 @@ class Raster(np.ndarray):
 class MultiRaster(Raster):
     def __new__(cls, input_array, viewfinder=None, metadata={}):
         try:
+            # MultiRaster must be subclass of ndarray
             assert isinstance(input_array, np.ndarray)
+            # If 2D, upcast to 3D
             if (input_array.ndim == 2):
                 input_array = input_array.reshape(1, *input_array.shape)
+            # Ensure MultiRaster is 3D
             assert input_array.ndim == 3
         except:
             raise TypeError('Input must be a 2d or 3d array-like object.')
@@ -475,6 +480,8 @@ class ViewFinder():
         target_view = self
         return View.view(raster, data_view, target_view, **kwargs)
 
+# TODO: Ensure that target_view cannot be 3-dimensional
+# TODO: Or use only last two entries of viewfinder.shape
 class View():
     """
     Class containing methods for manipulating views of gridded datasets.
@@ -543,11 +550,17 @@ class View():
         out : Raster
               View of the input Raster at the provided target view.
         """
-        # If no data view given, use data view
+        # TODO: Temporary check on target_view
+        try:
+            assert (len(target_view.shape) == 2)
+        except:
+            raise ValueError('Target view must be 2-dimensional.')
+        # TODO: Use type instead of isinstance
         is_raster = isinstance(data, Raster)
         is_multiraster = isinstance(data, MultiRaster)
         is_2d_array = isinstance(data, np.ndarray) and (data.ndim == 2)
         is_3d_array = isinstance(data, np.ndarray) and (data.ndim == 3)
+        # If no data view given, use data view
         if data_view is None:
             try:
                 assert (is_raster or is_multiraster)

@@ -253,7 +253,7 @@ def _angle_to_d8_numba(angles, dirmap, nodata_cells):
         props_1.flat[i] = prop_1
     return fdirs_0, fdirs_1, props_0, props_1
 
-@njit(float64[:,:,:](float64[:,:], float64, float64, boolean[:,:], int64, int64),
+@njit(float64[:,:,:](float64[:,:], float64, float64, boolean[:,:], float64, int64),
       parallel=True,
       cache=True)
 def _mfd_flowdir_numba(dem, dx, dy, nodata_cells, nodata_out, p=1):

@@ -608,34 +608,37 @@ class View():
 
     @classmethod
     def _view_raster(cls, data, target_view, data_view=None, interpolation='nearest',
-                     apply_output_mask=True, dtype=None):
+                     apply_output_mask=True, dtype=None, out=None):
+        # Create an output array to fill
+        if out is None:
+            out = np.empty(target_view.shape, dtype=dtype)
         # If data view and target view are the same, return a copy of the data
         if data_view.is_congruent_with(target_view):
-            out = cls._view_same_viewfinder(data, data_view, target_view, dtype,
+            out = cls._view_same_viewfinder(data, data_view, target_view, out, dtype,
                                             apply_output_mask=apply_output_mask)
         # If data view and target view are different...
         else:
-            out = cls._view_different_viewfinder(data, data_view, target_view, dtype,
+            out = cls._view_different_viewfinder(data, data_view, target_view, out, dtype,
                                                  apply_output_mask=apply_output_mask,
                                                  interpolation=interpolation)
         return out
 
     @classmethod
     def _view_multiraster(cls, data, target_view, data_view=None, interpolation='nearest',
-                          apply_output_mask=True, dtype=None):
+                          apply_output_mask=True, dtype=None, out=None):
         k, m, n = data.shape
-        out = np.full((k, *target_view.shape), target_view.nodata, dtype=dtype)
+        if out is None:
+            out = np.empty((k, *target_view.shape), dtype=dtype)
         out_mask = np.ones((k, *target_view.shape), dtype=np.bool8)
-        # TODO: Is it faster to concatenate, or write to empty array?
         for i in range(k):
             slice_viewfinder = ViewFinder(affine=data_view.affine, mask=data_view.mask[i],
                                           nodata=data_view.nodata, crs=data_view.crs)
             data_i = Raster(np.asarray(data[i]), viewfinder=slice_viewfinder)
+            # Write to out array in-place
             view_i = cls._view_raster(data_i, target_view, slice_viewfinder,
                                       interpolation=interpolation,
                                       apply_output_mask=apply_output_mask,
-                                      dtype=dtype)
-            out[i, :, :] = view_i
+                                      dtype=dtype, out=out[i, :, :])
             out_mask[i, :, :] = view_i.mask
         target_viewfinder = ViewFinder(affine=target_view.affine, mask=out_mask,
                                        nodata=target_view.nodata, crs=target_view.crs)
@@ -921,21 +924,19 @@ class View():
 
     # TODO: Can speed this up by giving option to not copy
     @classmethod
-    def _view_same_viewfinder(cls, data, data_view, target_view, dtype,
+    def _view_same_viewfinder(cls, data, data_view, target_view, out, dtype,
                               apply_output_mask=True):
+        out[:] = data
         has_output_mask = not target_view.mask.all()
-        # TODO: pass in an empty array and fill to avoid copying
         if (apply_output_mask) and (has_output_mask):
-            out = np.where(target_view.mask, data, target_view.nodata).astype(dtype)
-        else:
-            out = np.asarray(data.copy(), dtype=dtype)
-        out = Raster(out, target_view)
-        return out
+            out[~target_view.mask] = target_view.nodata
+        out_raster = Raster(out, target_view)
+        return out_raster
 
     @classmethod
-    def _view_different_viewfinder(cls, data, data_view, target_view, dtype,
+    def _view_different_viewfinder(cls, data, data_view, target_view, out, dtype,
                                    apply_output_mask=True, interpolation='nearest'):
-        out = np.full(target_view.shape, target_view.nodata, dtype=dtype)
+        # TODO: May need to fill with nodata here
         if (data_view.crs == target_view.crs):
             out = cls._view_same_crs(out, data, data_view,
                                      target_view, interpolation)
@@ -944,9 +945,9 @@ class View():
                                           target_view, interpolation)
         has_output_mask = not target_view.mask.all()
         if (apply_output_mask) and (has_output_mask):
-            np.place(out, ~target_view.mask, target_view.nodata)
-        out = Raster(out, target_view)
-        return out
+            out[~target_view.mask] = target_view.nodata
+        out_raster = Raster(out, target_view)
+        return out_raster
 
     @classmethod
     def _view_same_crs(cls, view, data, data_view, target_view, interpolation='nearest'):
@@ -958,11 +959,12 @@ class View():
         x_ix, _ = cls.affine_transform(inv_affine, x,
                                        np.zeros(target_view.shape[1],
                                                 dtype=np.float64))
+        nodata = target_view.nodata
         # TODO: Does this work for rotated data? Or is it for axis-aligned data only?
         if interpolation == 'nearest':
-            view = _self._view_fill_by_axes_nearest_numba(data, view, y_ix, x_ix)
+            view = _self._view_fill_by_axes_nearest_numba(data, view, y_ix, x_ix, nodata)
         elif interpolation == 'linear':
-            view = _self._view_fill_by_axes_linear_numba(data, view, y_ix, x_ix)
+            view = _self._view_fill_by_axes_linear_numba(data, view, y_ix, x_ix, nodata)
         else:
             raise ValueError('Interpolation method must be one of: `nearest`, `linear`')
         return view
@@ -974,10 +976,11 @@ class View():
                                   errcheck=True, always_xy=True)
         inv_affine = ~data_view.affine
         x_ix, y_ix = cls.affine_transform(inv_affine, xt, yt)
+        nodata = target_view.nodata
         if interpolation == 'nearest':
-            view = _self._view_fill_by_entries_nearest_numba(data, view, y_ix, x_ix)
+            view = _self._view_fill_by_entries_nearest_numba(data, view, y_ix, x_ix, nodata)
         elif interpolation == 'linear':
-            view = _self._view_fill_by_entries_linear_numba(data, view, y_ix, x_ix)
+            view = _self._view_fill_by_entries_linear_numba(data, view, y_ix, x_ix, nodata)
         else:
             raise ValueError('Interpolation method must be one of: `nearest`, `linear`')
         return view

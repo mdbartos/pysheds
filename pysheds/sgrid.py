@@ -582,6 +582,7 @@ class sGrid():
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
                   'dinf' : D-infinity flow directions
+                  'mfd'  : Multiple flow directions
 
         Additional keyword arguments (**kwargs) are passed to self.view.
 
@@ -618,7 +619,7 @@ class sGrid():
                                      nodata_out=nodata_out, flats=flats,
                                      pits=pits, dirmap=dirmap)
         else:
-            raise ValueError('Routing method must be one of: `d8`, `dinf`')
+            raise ValueError('Routing method must be one of: `d8`, `dinf`, `mfd`')
         fdir.metadata.update(default_metadata)
         return fdir
 
@@ -694,6 +695,7 @@ class sGrid():
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
                   'dinf' : D-infinity flow directions
+                  'mfd'  : Multiple flow directions
         snap : str
                Function to use for self.nearest_cell:
                'corner' : numpy.around()
@@ -847,6 +849,7 @@ class sGrid():
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
                   'dinf' : D-infinity flow directions
+                  'mfd'  : Multiple flow directions
         cycle_size : int
                      Maximum length of cycles to check for in d-infinity grids. (Note
                      that d-infinity routing can generate cycles that will cause
@@ -871,7 +874,7 @@ class sGrid():
         elif routing.lower() == 'mfd':
             fdir_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
         else:
-            raise ValueError('Routing method must be one of: `d8`, `dinf`')
+            raise ValueError('Routing method must be one of: `d8`, `dinf`, `mfd`')
         kwargs.update(fdir_overrides)
         fdir = self._input_handler(fdir, **kwargs)
         if weights is not None:
@@ -1078,6 +1081,7 @@ class sGrid():
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
                   'dinf' : D-infinity flow directions
+                  'mfd'  : Multiple flow directions
         xytype : 'coordinate' or 'index'
                  How to interpret parameters 'x' and 'y'.
                      'coordinate' : x and y represent geographic coordinates
@@ -1110,7 +1114,7 @@ class sGrid():
         elif routing.lower() == 'mfd':
             input_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
         else:
-            raise ValueError('Routing method must be one of: `d8`, `dinf`')
+            raise ValueError('Routing method must be one of: `d8`, `dinf`, `mfd`')
         kwargs.update(input_overrides)
         fdir = self._input_handler(fdir, **kwargs)
         if weights is not None:
@@ -1253,7 +1257,8 @@ class sGrid():
         routing : str
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
-                  'dinf' : D-infinity flow directions (not implemented)
+                  'dinf' : D-infinity flow directions
+                  'mfd'  : Multiple flow directions
         return_index : bool
                        Boolean value indicating desired output.
                        - If True, return a Raster where each cell indicates the index
@@ -1280,7 +1285,7 @@ class sGrid():
         elif routing.lower() == 'mfd':
             fdir_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
         else:
-            raise ValueError('Routing method must be one of: `d8`, `dinf`')
+            raise ValueError('Routing method must be one of: `d8`, `dinf`, `mfd`')
         dem_overrides = {'dtype' : np.float64, 'nodata' : dem.nodata}
         mask_overrides = {'dtype' : np.bool8, 'nodata' : False}
         kwargs.update(fdir_overrides)
@@ -1411,7 +1416,7 @@ class sGrid():
         if routing.lower() == 'd8':
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
         else:
-            raise NotImplementedError('Only implemented for D8 routing.')
+            raise NotImplementedError('Only implemented for `d8` routing.')
         mask_overrides = {'dtype' : np.bool8, 'nodata' : False}
         kwargs.update(fdir_overrides)
         fdir = self._input_handler(fdir, **kwargs)
@@ -1483,7 +1488,7 @@ class sGrid():
         if routing.lower() == 'd8':
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
         else:
-            raise NotImplementedError('Only implemented for D8 routing.')
+            raise NotImplementedError('Only implemented for `d8` routing.')
         mask_overrides = {'dtype' : np.bool8, 'nodata' : False}
         kwargs.update(fdir_overrides)
         fdir = self._input_handler(fdir, **kwargs)
@@ -1539,6 +1544,8 @@ class sGrid():
         routing : str
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
+                  'dinf' : D-infinity flow directions
+                  'mfd'  : Multiple flow directions
         algorithm : str
                     Algorithm type to use:
                     'iterative' : Use an iterative algorithm (recommended).
@@ -1559,7 +1566,7 @@ class sGrid():
         elif routing.lower() == 'mfd':
             fdir_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
         else:
-            raise NotImplementedError('Routing method must be one of: `d8`, `dinf`')
+            raise NotImplementedError('Routing method must be one of: `d8`, `dinf`, `mfd`')
         kwargs.update(fdir_overrides)
         fdir = self._input_handler(fdir, **kwargs)
         if weights is not None:

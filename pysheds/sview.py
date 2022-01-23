@@ -626,6 +626,7 @@ class View():
         k, m, n = data.shape
         out = np.full((k, *target_view.shape), target_view.nodata, dtype=dtype)
         out_mask = np.ones((k, *target_view.shape), dtype=np.bool8)
+        # TODO: Is it faster to concatenate, or write to empty array?
         for i in range(k):
             slice_viewfinder = ViewFinder(affine=data_view.affine, mask=data_view.mask[i],
                                           nodata=data_view.nodata, crs=data_view.crs)
@@ -918,10 +919,12 @@ class View():
             raise TypeError('`object` and `flexible` dtypes not allowed.')
         return dtype
 
+    # TODO: Can speed this up by giving option to not copy
     @classmethod
     def _view_same_viewfinder(cls, data, data_view, target_view, dtype,
                               apply_output_mask=True):
         has_output_mask = not target_view.mask.all()
+        # TODO: pass in an empty array and fill to avoid copying
         if (apply_output_mask) and (has_output_mask):
             out = np.where(target_view.mask, data, target_view.nodata).astype(dtype)
         else:
@@ -955,7 +958,7 @@ class View():
         x_ix, _ = cls.affine_transform(inv_affine, x,
                                        np.zeros(target_view.shape[1],
                                                 dtype=np.float64))
-        # TODO: Does this work for rotated data?
+        # TODO: Does this work for rotated data? Or is it for axis-aligned data only?
         if interpolation == 'nearest':
             view = _self._view_fill_by_axes_nearest_numba(data, view, y_ix, x_ix)
         elif interpolation == 'linear':

@@ -681,6 +681,31 @@ def _mfd_accumulation_iter_numba(acc, fdir, props, indegree, startnodes):
                         queue.append(endnode)
     return acc
 
+@njit(float64[:,:](float64[:,:], int64[:,:,:], float64[:,:,:], uint8[:], int64[:], float64[:,:]),
+      cache=True)
+def _mfd_accumulation_eff_iter_numba(acc, fdir, props, indegree, startnodes, eff):
+    n = startnodes.size
+    queue = [0]
+    _ = queue.pop()
+    for k in range(n):
+        startnode = startnodes.flat[k]
+        queue.append(startnode)
+        while queue:
+            startnode = queue.pop()
+            for i in range(8):
+                fdir_i = fdir[i]
+                props_i = props[i]
+                endnode = fdir_i.flat[startnode]
+                if endnode == startnode:
+                    continue
+                else:
+                    prop = props_i.flat[startnode]
+                    acc.flat[endnode] += (prop * acc.flat[startnode] * eff.flat[startnode])
+                    indegree.flat[endnode] -= 1
+                    if (indegree.flat[endnode] == 0):
+                        queue.append(endnode)
+    return acc
+
 # Functions for 'flow_distance'
 
 @njit(void(int64, int64[:,:], boolean[:,:], float64[:,:], float64[:,:],

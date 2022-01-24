@@ -131,6 +131,11 @@ def test_dinf_flowdir():
     fdir_dinf = grid.flowdir(inflated_dem, dirmap=dirmap, routing='dinf')
     d.fdir_dinf = fdir_dinf
 
+def test_mfd_flowdir():
+    inflated_dem = d.inflated_dem
+    fdir_mfd = grid.flowdir(inflated_dem, dirmap=dirmap, routing='mfd')
+    d.fdir_mfd = fdir_mfd
+
 def test_clip_pad():
     catch = d.catch
     grid.clip_to(catch)
@@ -143,14 +148,16 @@ def test_clip_pad():
 def test_computed_fdir_catch():
     fdir_d8 = d.fdir_d8
     fdir_dinf = d.fdir_dinf
+    fdir_mfd = d.fdir_mfd
     catch_d8 = grid.catchment(x, y, fdir_d8, dirmap=dirmap, routing='d8',
                               xytype='coordinate')
     assert(np.count_nonzero(catch_d8) > 11300)
     # Reference routing
-    catch_d8 = grid.catchment(x, y, fdir_d8, dirmap=dirmap, routing='d8',
-                              xytype='coordinate')
     catch_dinf = grid.catchment(x, y, fdir_dinf, dirmap=dirmap, routing='dinf',
                                 xytype='coordinate')
+    assert(np.count_nonzero(catch_dinf) > 11300)
+    catch_mfd = grid.catchment(x, y, fdir_mfd, dirmap=dirmap, routing='mfd',
+                               xytype='coordinate')
     assert(np.count_nonzero(catch_dinf) > 11300)
     catch_d8_recur = grid.catchment(x, y, fdir_d8, dirmap=dirmap, routing='d8',
                                     xytype='coordinate', algorithm='recursive')
@@ -163,6 +170,7 @@ def test_accumulation():
     catch = d.catch
     fdir_d8 = d.fdir_d8
     fdir_dinf = d.fdir_dinf
+    fdir_mfd = d.fdir_mfd
     # TODO: This breaks if clip_to's padding of dir is nonzero
     grid.clip_to(fdir)
     acc = grid.accumulation(fdir, dirmap=dirmap, routing='d8')
@@ -189,6 +197,8 @@ def test_accumulation():
     assert(acc_d8.max() > 11300)
     acc_dinf = grid.accumulation(fdir_dinf, dirmap=dirmap, routing='dinf')
     assert(acc_dinf.max() > 11300)
+    acc_mfd = grid.accumulation(fdir_mfd, dirmap=dirmap, routing='mfd')
+    assert(acc_mfd.max() > 11200)
     # #set nodata to 1
     # eff = grid.view(dinf_eff)
     # eff[eff==dinf_eff.nodata] = 1
@@ -207,8 +217,10 @@ def test_hand():
     dem = d.dem
     acc = d.acc
     fdir_dinf = d.fdir_dinf
+    fdir_mfd = d.fdir_mfd
     hand_d8 = grid.compute_hand(fdir, dem, acc > 100, routing='d8')
     hand_dinf = grid.compute_hand(fdir_dinf, dem, acc > 100, routing='dinf')
+    hand_mfd = grid.compute_hand(fdir_mfd, dem, acc > 100, routing='mfd')
     hand_d8_recur = grid.compute_hand(fdir, dem, acc > 100, routing='d8',
                                       algorithm='recursive')
     hand_dinf_recur = grid.compute_hand(fdir_dinf, dem, acc > 100, routing='dinf',
@@ -218,6 +230,7 @@ def test_distance_to_outlet():
     fdir = d.fdir
     catch = d.catch
     fdir_dinf = d.fdir_dinf
+    fdir_mfd = d.fdir_mfd
     grid.clip_to(catch)
     dist = grid.distance_to_outlet(x, y, fdir, dirmap=dirmap, xytype='coordinate')
     assert(dist[np.isfinite(dist)].max() == max_distance_d8)
@@ -227,10 +240,14 @@ def test_distance_to_outlet():
     weights = Raster(2 * np.ones(grid.shape), grid.viewfinder)
     grid.distance_to_outlet(x, y, fdir_dinf, dirmap=dirmap, routing='dinf',
                        xytype='coordinate')
+    grid.distance_to_outlet(x, y, fdir_mfd, dirmap=dirmap, routing='mfd',
+                       xytype='coordinate')
     grid.distance_to_outlet(x, y, fdir, weights=weights,
                        dirmap=dirmap, xytype='label')
     grid.distance_to_outlet(x, y, fdir_dinf, dirmap=dirmap, weights=weights,
                        routing='dinf', xytype='label')
+    grid.distance_to_outlet(x, y, fdir_mfd, dirmap=dirmap, weights=weights,
+                       routing='mfd', xytype='label')
     # Test recursive
     grid.distance_to_outlet(x, y, fdir, dirmap=dirmap, xytype='coordinate',
                             routing='d8', algorithm='recursive')
@@ -246,8 +263,12 @@ def test_stream_order():
 def test_distance_to_ridge():
     fdir = d.fdir
     acc = d.acc
+    fdir_dinf = d.fdir_dinf
+    fdir_mfd = d.fdir_mfd
     order = grid.distance_to_ridge(fdir, acc > 100)
     order = grid.distance_to_ridge(fdir, acc > 100, algorithm='recursive')
+    order = grid.distance_to_ridge(fdir_dinf, acc > 100, routing='dinf')
+    order = grid.distance_to_ridge(fdir_mfd, acc > 100, routing='mfd')
 
 def test_cell_dh():
     fdir = d.fdir

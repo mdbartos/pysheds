@@ -155,7 +155,6 @@ def test_accumulation():
     # D8 flow accumulation without efficiency
     # external flow direction
     fdir = d.fdir
-    eff = d.eff
     catch = d.catch
     fdir_d8 = d.fdir_d8
     fdir_dinf = d.fdir_dinf

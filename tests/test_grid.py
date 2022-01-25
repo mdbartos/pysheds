@@ -11,8 +11,6 @@ data_dir = os.path.abspath(os.path.join(current_dir, '../data'))
 dir_path = os.path.join(data_dir, 'dir.asc')
 dem_path = os.path.join(data_dir, 'dem.tif')
 roi_path = os.path.join(data_dir, 'roi.tif')
-eff_path = os.path.join(data_dir, 'eff.tif')
-dinf_eff_path = os.path.join(data_dir, 'dinf_eff.tif')
 feature_geometry = [{'type': 'Polygon',
                       'coordinates': (((-97.29749977660477, 32.74000135435936),
                         (-97.29083107907053, 32.74000328969928),
@@ -38,26 +36,15 @@ grid = Grid.from_raster(dem_path)
 fdir = grid.read_ascii(dir_path, dtype=np.uint8, crs=grid.crs)
 dem = grid.read_raster(dem_path)
 roi = grid.read_raster(roi_path)
-eff = grid.read_raster(eff_path)
-dinf_eff = grid.read_raster(dinf_eff_path)
 
 # Add datasets to dataset holder
 d.dem = dem
 d.fdir = fdir
 d.roi = roi
-d.eff = eff
-d.dinf_eff = dinf_eff
-
-# set nodata to 1
-# why is that not working with grid.view() in test_accumulation?
-#grid.eff[grid.eff==grid.eff.nodata] = 1
-#grid.dinf_eff[grid.dinf_eff==grid.dinf_eff.nodata] = 1
 
 # Initialize parameters
 dirmap = (64,  128,  1,   2,    4,   8,    16,  32)
 acc_in_frame = 77261
-acc_in_frame_eff = 76498 # max value with efficiency
-acc_in_frame_eff1 = 19125.5 # accumulation for raster cell with acc_in_frame with transport efficiency
 cells_in_catch = 11422
 catch_shape = (159, 169)
 max_distance_d8 = 209
@@ -165,6 +152,8 @@ def test_computed_fdir_catch():
                                       xytype='coordinate', algorithm='recursive')
 
 def test_accumulation():
+    # D8 flow accumulation without efficiency
+    # external flow direction
     fdir = d.fdir
     eff = d.eff
     catch = d.catch
@@ -175,27 +164,46 @@ def test_accumulation():
     grid.clip_to(fdir)
     acc = grid.accumulation(fdir, dirmap=dirmap, routing='d8')
     assert(acc.max() == acc_in_frame)
-    # set nodata to 1
-    eff = grid.view(eff)
-    eff[eff == eff.nodata] = 1
-    acc_d8_eff = grid.accumulation(fdir, dirmap=dirmap,
-                                   efficiency=eff, routing='d8')
-#     # TODO: Need to find new accumulation with efficiency
-#     # assert(abs(grid.acc_eff.max() - acc_in_frame_eff) < 0.001)
-#     # assert(abs(grid.acc_eff[grid.acc==grid.acc.max()] - acc_in_frame_eff1) < 0.001)
-#     # TODO: Should eventually assert: grid.acc.dtype == np.min_scalar_type(grid.acc.max())
-#     # TODO: SEGFAULT HERE?
-#     # TODO: Why is this not working anymore?
+
+    # catch = d.catch
+    # fdir differs from fdir_d8 and fdir_dinf
+    # we derive new catchment grids for assertions below
+    catch = grid.catchment(x, y, d.fdir_d8, dirmap=dirmap, xytype='coordinate')
     grid.clip_to(catch)
+    fdir_d8 = d.fdir_d8
+    fdir_dinf = d.fdir_dinf
+    # Test D8 flow accumulation on calculated flow direction
+    # without efficiency
     c, r = grid.nearest_cell(x, y)
-    acc_d8 = grid.accumulation(fdir, dirmap=dirmap, routing='d8')
-    assert(acc_d8[r, c] == cells_in_catch)
-    # Test accumulation on computed flowdirs
-    # TODO: Failing due to loose typing
     acc_d8 = grid.accumulation(fdir_d8, dirmap=dirmap, routing='d8')
-    # TODO: Need better test
+    # flow accumulation at outlet should be size of the catchment
+    # CHECK: 
+    # acc_d8[acc_d8 > 0].size is catch[catch].size + 1
+    # because two grid cells have acc_d8.max()?!
+    # np.where(acc_d8 >= acc_d8.max())
+    assert(acc_d8[r, c] == acc_d8.max())
+    assert(catch[catch].size == acc_d8.max())
+    # original assertion
     assert(acc_d8.max() > 11300)
+
+    # ...with efficiency
+    # we set the efficiency for starting cells to 0
+    # this will reduce the flow accumulation by the number of starting cells
+    start_cells = np.where(acc_d8 == 1)
+    # default efficiency is 1 = no reduction
+    eff = np.ones_like(acc_d8)
+    eff[start_cells] = 0
+    acc_d8_eff = grid.accumulation(fdir_d8, dirmap=dirmap,
+                                   efficiency=eff, routing='d8')
+    # test the outlet of the catchment
+    assert(acc_d8.max() - acc_d8_eff.max() - start_cells[0].size == 0)
+
+    # Test Dinf accumulation on computed flowdirs
+    # without efficiency
     acc_dinf = grid.accumulation(fdir_dinf, dirmap=dirmap, routing='dinf')
+    # Dinf outlet is identical to D8 outlet
+    assert((acc_dinf[np.where(acc_d8==acc_d8.max())]==acc_dinf.max()).all())
+    # original assertion
     assert(acc_dinf.max() > 11300)
     acc_mfd = grid.accumulation(fdir_mfd, dirmap=dirmap, routing='mfd')
     assert(acc_mfd.max() > 11200)
@@ -210,6 +218,33 @@ def test_accumulation():
                                      algorithm='recursive')
     acc_dinf_recur = grid.accumulation(fdir_dinf, dirmap=dirmap, routing='dinf',
                                        algorithm='recursive')
+    # ...with efficiency
+    # this is probably a bit hacky
+    # we have two grid cells with the outlet value == max flow accumulation
+    # which should actually not happen but so
+    # we can set their efficiency to <1 and test the reduction
+    eff = np.ones_like(acc_dinf)
+    reduction = 0.25
+    outlets = np.where(acc_dinf==acc_dinf.max())
+    eff[outlets] = reduction
+    acc_dinf_eff = grid.accumulation(fdir_dinf, dirmap=dirmap,
+                                     routing='dinf', efficiency=eff)
+    outlets_eff = np.sort(acc_dinf_eff[outlets])
+    assert(np.isclose(outlets_eff[0] / outlets_eff[1], reduction))
+    # as the reduction is applied to the outflow of a grid cell
+    # the higher value (which belongs to the catchment) should be
+    # identical to the flow accumulation without efficiency
+    assert(np.isclose(outlets_eff[1], acc_dinf.max()))
+
+    # similar to Dinf:
+    eff = np.ones_like(acc_d8)
+    # the identity of the D8 and Dinf outlets were asserted above
+    # outlets = np.where(acc_d8==acc_d8.max())
+    eff[outlets] = reduction
+    acc_d8_eff = grid.accumulation(fdir_d8, dirmap=dirmap, routing='d8', efficiency=eff)
+    outlets_eff = np.sort(acc_d8_eff[outlets])
+    assert(np.isclose(outlets_eff[0] / outlets_eff[1], reduction))
+
     d.acc = acc
 
 def test_hand():
@@ -298,7 +333,8 @@ def test_to_ascii():
     catch = d.catch
     fdir = d.fdir
     grid.clip_to(catch)
-    grid.to_ascii(fdir, 'test_dir.asc', target_view=fdir.viewfinder, dtype=np.float)
+    # np.float is depreciated
+    grid.to_ascii(fdir, 'test_dir.asc', target_view=fdir.viewfinder, dtype=np.float64)
     fdir_out = grid.read_ascii('test_dir.asc', dtype=np.uint8)
     assert((fdir_out == fdir).all())
     grid.to_ascii(fdir, 'test_dir.asc', dtype=np.uint8)

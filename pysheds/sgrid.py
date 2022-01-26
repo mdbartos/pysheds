@@ -1751,7 +1751,7 @@ class sGrid():
         fdir[nodata_cells] = 0
         fdir[invalid_cells] = 0
         dirleft, dirright, dirtop, dirbottom = self._pop_rim(fdir, nodata=0)
-        startnodes = np.arange(fdir.size, dtype=np.int64)
+        startnodes = np.arange(fdir.size, dtype=np.int64).reshape(fdir.shape)
         endnodes = _self._flatten_fdir_numba(fdir, dirmap).reshape(fdir.shape)
         dh = _self._d8_cell_dh_numba(startnodes, endnodes, dem)
         dh = self._output_handler(data=dh, viewfinder=fdir.viewfinder,
@@ -1769,7 +1769,7 @@ class sGrid():
                                                                      nodata=0)
         dirleft_1, dirright_1, dirtop_1, dirbottom_1 = self._pop_rim(fdir_1,
                                                                      nodata=0)
-        startnodes = np.arange(fdir.size, dtype=np.int64)
+        startnodes = np.arange(fdir.size, dtype=np.int64).reshape(fdir.shape)
         endnodes_0 = _self._flatten_fdir_numba(fdir_0, dirmap).reshape(fdir.shape)
         endnodes_1 = _self._flatten_fdir_numba(fdir_1, dirmap).reshape(fdir.shape)
         dh = _self._dinf_cell_dh_numba(startnodes, endnodes_0, endnodes_1, prop_0, prop_1, dem)
@@ -1784,7 +1784,7 @@ class sGrid():
         # Set nodata cells to zero
         fdir[nodata_cells] = 0.
         # Start and end nodes
-        startnodes = np.arange(fdir[0].size, dtype=np.int64)
+        startnodes = np.arange(fdir[0].size, dtype=np.int64).reshape(fdir[0].shape)
         props = fdir
         endnodes = _self._flatten_mfd_fdir_numba(props)
         dh = _self._mfd_cell_dh_numba(startnodes, endnodes, props, dem)
@@ -1885,7 +1885,7 @@ class sGrid():
         # Set nodata cells to zero
         fdir[nodata_cells] = 0.
         # Start and end nodes
-        startnodes = np.arange(fdir[0].size, dtype=np.int64)
+        startnodes = np.arange(fdir[0].size, dtype=np.int64).reshape(fdir[0].shape)
         props = fdir
         endnodes = _self._flatten_mfd_fdir_numba(props)
         dx = abs(fdir.affine.a)

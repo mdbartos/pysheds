@@ -1538,7 +1538,9 @@ def _d8_stream_network_iter_numba(fdir, indegree, orig_indegree, startnodes):
             endnode = fdir.flat[startnode]
     return profiles
 
-@njit(parallel=True)
+@njit(float64[:,:](int64[:,:], int64[:,:], float64[:,:]),
+      parallel=True,
+      cache=True)
 def _d8_cell_dh_numba(startnodes, endnodes, dem):
     n = startnodes.size
     dh = np.zeros_like(dem)
@@ -1548,7 +1550,9 @@ def _d8_cell_dh_numba(startnodes, endnodes, dem):
         dh.flat[k] = dem.flat[startnode] - dem.flat[endnode]
     return dh
 
-@njit(parallel=True)
+@njit(float64[:,:](int64[:,:], int64[:,:], int64[:,:], float64[:,:], float64[:,:], float64[:,:]),
+      parallel=True,
+      cache=True)
 def _dinf_cell_dh_numba(startnodes, endnodes_0, endnodes_1, props_0, props_1, dem):
     n = startnodes.size
     dh = np.zeros(dem.shape, dtype=np.float64)
@@ -1562,7 +1566,9 @@ def _dinf_cell_dh_numba(startnodes, endnodes_0, endnodes_1, props_0, props_1, de
                       prop_1 * (dem.flat[startnode] - dem.flat[endnode_1]))
     return dh
 
-@njit(parallel=True)
+@njit(float64[:,:](int64[:,:], int64[:,:,:], float64[:,:,:], float64[:,:]),
+      parallel=True,
+      cache=True)
 def _mfd_cell_dh_numba(startnodes, endnodes, props, dem):
     k, m, n = props.shape
     mn = m * n
@@ -1579,7 +1585,9 @@ def _mfd_cell_dh_numba(startnodes, endnodes, props, dem):
             dh.flat[startnode] += prop * (elev - neighbor_elev)
     return dh
 
-@njit(parallel=True)
+@njit(float64[:,:](int64[:,:], UniTuple(int64, 8), float64, float64),
+      parallel=True,
+      cache=True)
 def _d8_cell_distances_numba(fdir, dirmap, dx, dy):
     n = fdir.size
     cdist = np.zeros(fdir.shape, dtype=np.float64)
@@ -1593,7 +1601,10 @@ def _d8_cell_distances_numba(fdir, dirmap, dx, dy):
         cdist.flat[k] = dist_map[fdir_k]
     return cdist
 
-@njit(parallel=True)
+@njit(float64[:,:](int64[:,:], int64[:,:], float64[:,:], float64[:,:], UniTuple(int64, 8),
+                   float64, float64),
+      parallel=True,
+      cache=True)
 def _dinf_cell_distances_numba(fdir_0, fdir_1, prop_0, prop_1, dirmap, dx, dy):
     n = fdir_0.size
     cdist = np.zeros(fdir_0.shape, dtype=np.float64)
@@ -1613,7 +1624,9 @@ def _dinf_cell_distances_numba(fdir_0, fdir_1, prop_0, prop_1, dirmap, dx, dy):
         cdist.flat[k] = dist_k
     return cdist
 
-@njit(parallel=True)
+@njit(float64[:,:](int64[:,:], int64[:,:,:], float64[:,:,:], float64, float64),
+      parallel=True,
+      cache=True)
 def _mfd_cell_distances_numba(startnodes, endnodes, props, dx, dy):
     k, m, n = props.shape
     mn = m * n
@@ -1630,7 +1643,9 @@ def _mfd_cell_distances_numba(startnodes, endnodes, props, dx, dy):
             cdist.flat[startnode] += prop * distances[j]
     return cdist
 
-@njit(parallel=True)
+@njit(float64[:,:](float64[:,:], float64[:,:]),
+      parallel=True,
+      cache=True)
 def _cell_slopes_numba(dh, cdist):
     n = dh.size
     slopes = np.zeros(dh.shape, dtype=np.float64)

@@ -1563,6 +1563,23 @@ def _dinf_cell_dh_numba(startnodes, endnodes_0, endnodes_1, props_0, props_1, de
     return dh
 
 @njit(parallel=True)
+def _mfd_cell_dh_numba(startnodes, endnodes, props, dem):
+    k, m, n = props.shape
+    mn = m * n
+    N = startnodes.size
+    dh = np.zeros((m, n), dtype=np.float64)
+    for i in prange(N):
+        startnode = startnodes.flat[i]
+        elev = dem.flat[startnode]
+        for j in prange(k):
+            kix = startnode + (j * mn)
+            endnode = endnodes.flat[kix]
+            prop = props.flat[kix]
+            neighbor_elev = dem.flat[endnode]
+            dh.flat[startnode] += prop * (elev - neighbor_elev)
+    return dh
+
+@njit(parallel=True)
 def _d8_cell_distances_numba(fdir, dirmap, dx, dy):
     n = fdir.size
     cdist = np.zeros(fdir.shape, dtype=np.float64)
@@ -1594,6 +1611,23 @@ def _dinf_cell_distances_numba(fdir_0, fdir_1, prop_0, prop_1, dirmap, dx, dy):
         prop_k_1 = prop_1.flat[k]
         dist_k = prop_k_0 * dist_k_0 + prop_k_1 * dist_k_1
         cdist.flat[k] = dist_k
+    return cdist
+
+@njit(parallel=True)
+def _mfd_cell_distances_numba(startnodes, endnodes, props, dx, dy):
+    k, m, n = props.shape
+    mn = m * n
+    N = startnodes.size
+    dd = np.sqrt(dx**2 + dy**2)
+    distances = (dy, dd, dx, dd, dy, dd, dx, dd)
+    cdist = np.zeros((m, n), dtype=np.float64)
+    for i in prange(N):
+        startnode = startnodes.flat[i]
+        for j in prange(k):
+            kix = startnode + (j * mn)
+            endnode = endnodes.flat[kix]
+            prop = props.flat[kix]
+            cdist.flat[startnode] += prop * distances[j]
     return cdist
 
 @njit(parallel=True)

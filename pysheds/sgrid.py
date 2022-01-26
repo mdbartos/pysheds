@@ -1708,7 +1708,8 @@ class sGrid():
         routing : str
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
-                  'dinf' : D-infinity flow directions (not implemented)
+                  'dinf' : D-infinity flow directions
+                  'mfd'  : Multiple flow directions
 
         Additional keyword arguments (**kwargs) are passed to self.view.
 
@@ -1721,8 +1722,10 @@ class sGrid():
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
         elif routing.lower() == 'dinf':
             fdir_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
+        elif routing.lower() == 'mfd':
+            fdir_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
         else:
-            raise ValueError('Routing method must be one of: `d8`, `dinf`')
+            raise ValueError('Routing method must be one of: `d8`, `dinf`, `mfd`')
         dem_overrides = {'dtype' : np.float64, 'nodata' : dem.nodata}
         kwargs.update(fdir_overrides)
         fdir = self._input_handler(fdir, **kwargs)
@@ -1733,6 +1736,9 @@ class sGrid():
                                   nodata_out=nodata_out)
         elif routing.lower() == 'dinf':
             dh = self._dinf_cell_dh(dem=dem, fdir=fdir, dirmap=dirmap,
+                                    nodata_out=nodata_out)
+        elif routing.lower() == 'mfd':
+            dh = self._mfd_cell_dh(dem=dem, fdir=fdir, dirmap=dirmap,
                                     nodata_out=nodata_out)
         return dh
 
@@ -1753,7 +1759,7 @@ class sGrid():
         return dh
 
     def _dinf_cell_dh(self, dem, fdir, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                         nodata_out=np.nan):
+                      nodata_out=np.nan):
         # Get nodata cells
         nodata_cells = self._get_nodata_cells(fdir)
         # Split dinf flowdir
@@ -1769,6 +1775,23 @@ class sGrid():
         dh = _self._dinf_cell_dh_numba(startnodes, endnodes_0, endnodes_1, prop_0, prop_1, dem)
         dh = self._output_handler(data=dh, viewfinder=fdir.viewfinder,
                                   metadata=fdir.metadata, nodata=nodata_out)
+        return dh
+
+    def _mfd_cell_dh(self, dem, fdir, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                     nodata_out=np.nan):
+        # Find nodata cells and invalid cells
+        nodata_cells = self._get_nodata_cells(fdir)
+        # Set nodata cells to zero
+        fdir[nodata_cells] = 0.
+        # Start and end nodes
+        startnodes = np.arange(fdir[0].size, dtype=np.int64)
+        props = fdir
+        endnodes = _self._flatten_mfd_fdir_numba(props)
+        dh = _self._mfd_cell_dh_numba(startnodes, endnodes, props, dem)
+        new_mask = fdir.mask[0]
+        dh = self._output_handler(data=dh, viewfinder=fdir.viewfinder,
+                                  metadata=fdir.metadata, nodata=nodata_out,
+                                  mask=new_mask)
         return dh
 
     def cell_distances(self, fdir, dirmap=(64, 128, 1, 2, 4, 8, 16, 32), nodata_out=np.nan,
@@ -1789,7 +1812,8 @@ class sGrid():
         routing : str
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
-                  'dinf' : D-infinity flow directions (not implemented)
+                  'dinf' : D-infinity flow directions
+                  'mfd'  : Multiple flow directions
 
         Additional keyword arguments (**kwargs) are passed to self.view.
 
@@ -1803,8 +1827,10 @@ class sGrid():
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
         elif routing.lower() == 'dinf':
             fdir_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
+        elif routing.lower() == 'mfd':
+            fdir_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
         else:
-            raise ValueError('Routing method must be one of: `d8`, `dinf`')
+            raise ValueError('Routing method must be one of: `d8`, `dinf`, `mfd`')
         kwargs.update(fdir_overrides)
         fdir = self._input_handler(fdir, **kwargs)
         if routing.lower() == 'd8':
@@ -1813,6 +1839,9 @@ class sGrid():
         elif routing.lower() == 'dinf':
             cdist = self._dinf_cell_distances(fdir=fdir, dirmap=dirmap,
                                            nodata_out=nodata_out)
+        elif routing.lower() == 'mfd':
+            cdist = self._mfd_cell_distances(fdir=fdir, dirmap=dirmap,
+                                             nodata_out=nodata_out)
         return cdist
 
     def _d8_cell_distances(self, fdir, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
@@ -1849,6 +1878,25 @@ class sGrid():
                                      metadata=fdir.metadata, nodata=nodata_out)
         return cdist
 
+    def _mfd_cell_distances(self, fdir, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                            nodata_out=np.nan):
+        # Find nodata cells and invalid cells
+        nodata_cells = self._get_nodata_cells(fdir)
+        # Set nodata cells to zero
+        fdir[nodata_cells] = 0.
+        # Start and end nodes
+        startnodes = np.arange(fdir[0].size, dtype=np.int64)
+        props = fdir
+        endnodes = _self._flatten_mfd_fdir_numba(props)
+        dx = abs(fdir.affine.a)
+        dy = abs(fdir.affine.e)
+        cdist = _self._mfd_cell_distances_numba(startnodes, endnodes, props, dx, dy)
+        new_mask = fdir.mask[0]
+        cdist = self._output_handler(data=cdist, viewfinder=fdir.viewfinder,
+                                     metadata=fdir.metadata, nodata=nodata_out,
+                                     mask=new_mask)
+        return cdist
+
     def cell_slopes(self, dem, fdir, dirmap=(64, 128, 1, 2, 4, 8, 16, 32), nodata_out=np.nan,
                     routing='d8', **kwargs):
         """
@@ -1870,7 +1918,8 @@ class sGrid():
         routing : str
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
-                  'dinf' : D-infinity flow directions (not implemented)
+                  'dinf' : D-infinity flow directions
+                  'mfd'  : Multiple flow directions
 
         Additional keyword arguments (**kwargs) are passed to self.view.
 
@@ -1884,8 +1933,10 @@ class sGrid():
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
         elif routing.lower() == 'dinf':
             fdir_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
+        elif routing.lower() == 'mfd':
+            fdir_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
         else:
-            raise ValueError('Routing method must be one of: `d8`, `dinf`')
+            raise ValueError('Routing method must be one of: `d8`, `dinf`, `mfd`')
         dem_overrides = {'dtype' : np.float64, 'nodata' : dem.nodata}
         kwargs.update(fdir_overrides)
         fdir = self._input_handler(fdir, **kwargs)

@@ -307,23 +307,29 @@ def test_distance_to_ridge():
 def test_cell_dh():
     fdir = d.fdir
     fdir_dinf = d.fdir_dinf
+    fdir_mfd = d.fdir_mfd
     dem = d.dem
     dh_d8 = grid.cell_dh(dem, fdir, routing='d8')
     dh_dinf = grid.cell_dh(dem, fdir_dinf, routing='dinf')
+    dh_mfd = grid.cell_dh(dem, fdir_mfd, routing='mfd')
 
 def test_cell_distances():
     fdir = d.fdir
     fdir_dinf = d.fdir_dinf
+    fdir_mfd = d.fdir_mfd
     dem = d.dem
     cdist_d8 = grid.cell_distances(fdir, routing='d8')
     cdist_dinf = grid.cell_distances(fdir_dinf, routing='dinf')
+    cdist_mfd = grid.cell_distances(fdir_mfd, routing='mfd')
 
 def test_cell_slopes():
     fdir = d.fdir
     fdir_dinf = d.fdir_dinf
+    fdir_mfd = d.fdir_mfd
     dem = d.dem
     slopes_d8 = grid.cell_slopes(dem, fdir, routing='d8')
     slopes_dinf = grid.cell_slopes(dem, fdir_dinf, routing='dinf')
+    slopes_mfd = grid.cell_slopes(dem, fdir_mfd, routing='mfd')
 
 # def test_set_nodata():
 #     grid.set_nodata('dir', 0)

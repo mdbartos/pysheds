@@ -730,7 +730,7 @@ class sGrid():
                 raise ValueError('Pour point ({}, {}) is out of bounds for dataset with bbox {}.'
                                 .format(x, y, (xmin, ymin, xmax, ymax)))
         elif xytype == 'index':
-            if (x < 0) or (y < 0) or (x >= fdir.shape[1]) or (y >= fdir.shape[0]):
+            if (x < 0) or (y < 0) or (x >= fdir.shape[-1]) or (y >= fdir.shape[-2]):
                 raise ValueError('Pour point ({}, {}) is out of bounds for dataset with shape {}.'
                                 .format(x, y, fdir.shape))
         if routing.lower() == 'd8':
@@ -1127,7 +1127,7 @@ class sGrid():
                 raise ValueError('Pour point ({}, {}) is out of bounds for dataset with bbox {}.'
                                 .format(x, y, (xmin, ymin, xmax, ymax)))
         elif xytype == 'index':
-            if (x < 0) or (y < 0) or (x >= fdir.shape[1]) or (y >= fdir.shape[0]):
+            if (x < 0) or (y < 0) or (x >= fdir.shape[-1]) or (y >= fdir.shape[-2]):
                 raise ValueError('Pour point ({}, {}) is out of bounds for dataset with shape {}.'
                                 .format(x, y, fdir.shape))
         if routing.lower() == 'd8':

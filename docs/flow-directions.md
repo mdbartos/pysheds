@@ -135,7 +135,121 @@ Raster([[  nan,   nan,   nan, ...,   nan,   nan,   nan],
 
 Note that each entry takes a value between 0 and 2π, with `np.nan` representing unknown flow directions.
 
-Note that you must also specify `routing=dinf` when using `grid.catchment` or `grid.accumulation` with a D-infinity output grid.
+Note that you must also specify `routing='dinf'` when using other functions that use the flow direction grid such as `grid.catchment` or `grid.accumulation`.
+
+## Multiple flow directions (MFD)
+
+The multiple flow direction (MFD) routing scheme partitions flow from each cell to among as many as eight of its neighbors. The proportion of the cell that flows to each of its neighbors is proportional to the height gradient between the neighboring cells.
+
+MFD routing can be selected by using the keyword argument `routing='mfd'`.
+
+```python
+fdir = grid.flowdir(inflated_dem, routing='mfd')
+```
+
+<details>
+<summary>Output...</summary>
+<p>
+
+<pre>
+fdir
+
+MultiRaster([[[0.        , 0.        , 0.        , ..., 0.        ,
+               0.        , 0.        ],
+              [0.        , 0.37428797, 0.41595555, ..., 0.        ,
+               0.        , 0.        ],
+              [0.        , 0.35360402, 0.42297009, ..., 0.06924557,
+               0.        , 0.        ],
+              ...,
+              [0.        , 0.        , 0.        , ..., 0.        ,
+               0.        , 0.        ],
+              [0.        , 0.        , 0.        , ..., 0.        ,
+               0.        , 0.        ],
+              [0.        , 0.        , 0.        , ..., 0.        ,
+               0.        , 0.        ]],
+
+             [[0.        , 0.        , 0.        , ..., 0.        ,
+               0.        , 0.        ],
+              [0.        , 0.36288963, 0.33088875, ..., 0.06863035,
+               0.        , 0.        ],
+              [0.        , 0.40169546, 0.36123674, ..., 0.23938736,
+               0.17013502, 0.        ],
+              ...,
+              [0.        , 0.00850506, 0.10102002, ..., 0.        ,
+               0.        , 0.        ],
+              [0.        , 0.        , 0.04147018, ..., 0.        ,
+               0.        , 0.        ],
+              [0.        , 0.        , 0.        , ..., 0.        ,
+               0.        , 0.        ]],
+
+             [[0.        , 0.        , 0.        , ..., 0.        ,
+               0.        , 0.        ],
+              [0.        , 0.14276847, 0.06932945, ..., 0.48528137,
+               0.39806072, 0.        ],
+              [0.        , 0.1217316 , 0.06042334, ..., 0.4193337 ,
+               0.48612365, 0.        ],
+              ...,
+              [0.        , 0.1683329 , 0.28176027, ..., 0.        ,
+               0.        , 0.        ],
+              [0.        , 0.13663963, 0.24437534, ..., 0.        ,
+               0.        , 0.        ],
+              [0.        , 0.        , 0.        , ..., 0.        ,
+               0.        , 0.        ]],
+
+             ...,
+
+             [[0.        , 0.        , 0.        , ..., 0.        ,
+               0.        , 0.        ],
+              [0.        , 0.        , 0.        , ..., 0.        ,
+               0.        , 0.        ],
+              [0.        , 0.        , 0.        , ..., 0.        ,
+               0.        , 0.        ],
+              ...,
+              [0.        , 0.20829874, 0.04770285, ..., 0.29010027,
+               0.31952507, 0.        ],
+              [0.        , 0.20128372, 0.11750307, ..., 0.23404662,
+               0.28716789, 0.        ],
+              [0.        , 0.        , 0.        , ..., 0.        ,
+               0.        , 0.        ]],
+
+             [[0.        , 0.        , 0.        , ..., 0.        ,
+               0.        , 0.        ],
+              [0.        , 0.        , 0.        , ..., 0.        ,
+               0.        , 0.        ],
+              [0.        , 0.        , 0.        , ..., 0.        ,
+               0.        , 0.        ],
+              ...,
+              [0.        , 0.        , 0.        , ..., 0.03460397,
+               0.06389793, 0.        ],
+              [0.        , 0.0151827 , 0.        , ..., 0.        ,
+               0.06675575, 0.        ],
+              [0.        , 0.        , 0.        , ..., 0.        ,
+               0.        , 0.        ]],
+
+             [[0.        , 0.        , 0.        , ..., 0.        ,
+               0.        , 0.        ],
+              [0.        , 0.12005394, 0.18382625, ..., 0.        ,
+               0.        , 0.        ],
+              [0.        , 0.12296892, 0.15536983, ..., 0.        ,
+               0.        , 0.        ],
+              ...,
+              [0.        , 0.        , 0.        , ..., 0.        ,
+               0.        , 0.        ],
+              [0.        , 0.        , 0.        , ..., 0.        ,
+               0.        , 0.        ],
+              [0.        , 0.        , 0.        , ..., 0.        ,
+               0.        , 0.        ]]])
+</pre>
+
+</p>
+</details>
+
+<br>
+
+Note that if the original DEM is of shape `(m, n)`, then the returned flow direction grid will be of shape `(8, m, n)`. The first dimension corresponds to the eight flow directions, with index 0 corresponding to North, index 1 corresponding to Northeast, index 2 corresponding to East, and so on until index 7 corresponding to Northwest. The value of a given array element (k, i, j) represents the proportion of flow that is transferred from cell (i, j) to the neighboring cell k (where k ∈ [0, 7]).
+
+Note that you must also specify `routing='mfd'` when using other functions that use the flow direction grid such as `grid.catchment` or `grid.accumulation`.
+
 
 ## Effect of map projections on routing
 

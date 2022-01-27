@@ -1,3 +1,4 @@
+from heapq import heappop, heappush
 import numpy as np
 from numba import njit, prange
 from numba.types import float64, int64, uint32, uint16, uint8, boolean, UniTuple, Tuple, List, void
@@ -252,6 +253,35 @@ def _angle_to_d8_numba(angles, dirmap, nodata_cells):
         props_1.flat[i] = prop_1
     return fdirs_0, fdirs_1, props_0, props_1
 
+@njit(float64[:,:,:](float64[:,:], float64, float64, boolean[:,:], float64, int64),
+      parallel=True,
+      cache=True)
+def _mfd_flowdir_numba(dem, dx, dy, nodata_cells, nodata_out, p=1):
+    m, n = dem.shape
+    fdir = np.zeros((8, m, n), dtype=np.float64)
+    row_offsets = np.array([-1, -1, 0, 1, 1, 1, 0, -1])
+    col_offsets = np.array([0, 1, 1, 1, 0, -1, -1, -1])
+    dd = np.sqrt(dx**2 + dy**2)
+    distances = np.array([dy, dd, dx, dd, dy, dd, dx, dd])
+    for i in prange(1, m - 1):
+        for j in prange(1, n - 1):
+            if nodata_cells[i, j]:
+                fdir[:, i, j] = nodata_out
+            else:
+                elev = dem[i, j]
+                den = 0.
+                for k in range(8):
+                    row_offset = row_offsets[k]
+                    col_offset = col_offsets[k]
+                    distance = distances[k]
+                    num = (elev - dem[i + row_offset, j + col_offset])**p / distance
+                    if num > 0:
+                        fdir[k, i, j] = num
+                        den += num
+                if den > 0:
+                    fdir[:, i, j] /= den
+    return fdir
+
 # Functions for 'catchment'
 
 @njit(void(int64, boolean[:,:], int64[:,:], int64[:], int64[:]),
@@ -369,6 +399,37 @@ def _dinf_catchment_iter_numba(fdir_0, fdir_1, pour_point, dirmap):
                 points_to_0 = (fdir_0.flat[neighbor] == r_dirmap[k])
                 points_to_1 = (fdir_1.flat[neighbor] == r_dirmap[k])
                 points_to = points_to_0 or points_to_1
+                if points_to:
+                    queue.append(neighbor)
+    return catch
+
+@njit(boolean[:,:](float64[:,:,:], UniTuple(int64, 2)),
+      cache=True)
+def _mfd_catchment_iter_numba(fdir, pour_point):
+    _, m, n = fdir.shape
+    mn = m * n
+    catch = np.zeros((m, n), dtype=np.bool8)
+    i, j = pour_point
+    ix = (i * n) + j
+    offsets = np.array([-n, 1 - n, 1,
+                        1 + n, n, - 1 + n,
+                        - 1, - 1 - n])
+    r_dirmap = np.array([4, 5, 6, 7,
+                         0, 1, 2, 3])
+    queue = [ix]
+    while queue:
+        parent = queue.pop()
+        catch.flat[parent] = True
+        neighbors = offsets + parent
+        for k in range(8):
+            neighbor = neighbors[k]
+            neighbor_dir = r_dirmap[k]
+            visited = catch.flat[neighbor]
+            if visited:
+                continue
+            else:
+                kix = neighbor + (neighbor_dir * mn)
+                points_to = fdir.flat[kix] > 0.
                 if points_to:
                     queue.append(neighbor)
     return catch
@@ -582,6 +643,69 @@ def _dinf_accumulation_eff_iter_numba(acc, fdir_0, fdir_1, indegree, startnodes,
                     queue.append(endnode_1)
     return acc
 
+@njit(uint8[:](int64[:,:,:]), parallel=True)
+def _mfd_bincount(fdir):
+    p, m, n = fdir.shape
+    mn = m * n
+    out = np.zeros(mn, dtype=np.uint8)
+    for i in range(p):
+        fdir_i = fdir[i]
+        for j in prange(mn):
+            endnode = fdir_i.flat[j]
+            if endnode != j:
+                out[endnode] += 1
+    return out
+
+@njit(float64[:,:](float64[:,:], int64[:,:,:], float64[:,:,:], uint8[:], int64[:]),
+      cache=True)
+def _mfd_accumulation_iter_numba(acc, fdir, props, indegree, startnodes):
+    n = startnodes.size
+    queue = [0]
+    _ = queue.pop()
+    for k in range(n):
+        startnode = startnodes.flat[k]
+        queue.append(startnode)
+        while queue:
+            startnode = queue.pop()
+            for i in range(8):
+                fdir_i = fdir[i]
+                props_i = props[i]
+                endnode = fdir_i.flat[startnode]
+                if endnode == startnode:
+                    continue
+                else:
+                    prop = props_i.flat[startnode]
+                    acc.flat[endnode] += (prop * acc.flat[startnode])
+                    indegree.flat[endnode] -= 1
+                    if (indegree.flat[endnode] == 0):
+                        queue.append(endnode)
+    return acc
+
+@njit(float64[:,:](float64[:,:], int64[:,:,:], float64[:,:,:], uint8[:], int64[:], float64[:,:]),
+      cache=True)
+def _mfd_accumulation_eff_iter_numba(acc, fdir, props, indegree, startnodes, eff):
+    n = startnodes.size
+    queue = [0]
+    _ = queue.pop()
+    for k in range(n):
+        startnode = startnodes.flat[k]
+        queue.append(startnode)
+        while queue:
+            startnode = queue.pop()
+            for i in range(8):
+                fdir_i = fdir[i]
+                props_i = props[i]
+                endnode = fdir_i.flat[startnode]
+                if endnode == startnode:
+                    continue
+                else:
+                    prop = props_i.flat[startnode]
+                    acc.flat[endnode] += (prop * acc.flat[startnode] * eff.flat[startnode])
+                    indegree.flat[endnode] -= 1
+                    if (indegree.flat[endnode] == 0):
+                        queue.append(endnode)
+    return acc
+
 # Functions for 'flow_distance'
 
 @njit(void(int64, int64[:,:], boolean[:,:], float64[:,:], float64[:,:],
@@ -702,6 +826,7 @@ def _dinf_flow_distance_recur_numba(fdir_0, fdir_1, weights_0, weights_1,
 def _dinf_flow_distance_iter_numba(fdir_0, fdir_1, weights_0, weights_1,
                                    pour_point, dirmap):
     dist = np.full(fdir_0.shape, np.inf, dtype=np.float64)
+    visited = np.zeros(fdir_0.shape, dtype=np.bool8)
     r_dirmap = np.array([dirmap[4], dirmap[5], dirmap[6],
                          dirmap[7], dirmap[0], dirmap[1],
                          dirmap[2], dirmap[3]])
@@ -712,72 +837,166 @@ def _dinf_flow_distance_iter_numba(fdir_0, fdir_1, weights_0, weights_1,
     i, j = pour_point
     ix = (i * n) + j
     dist.flat[ix] = 0.
-    queue = [ix]
+    queue = [(0., ix)]
     while queue:
-        parent = queue.pop()
-        parent_dist = dist.flat[parent]
+        parent_dist, parent = heappop(queue)
+        visited.flat[parent] = True
         neighbors = offsets + parent
         for k in range(8):
             neighbor = neighbors[k]
-            current_neighbor_dist = dist.flat[neighbor]
-            points_to_0 = (fdir_0.flat[neighbor] == r_dirmap[k])
-            points_to_1 = (fdir_1.flat[neighbor] == r_dirmap[k])
-            if points_to_0:
-                neighbor_dist_0 = parent_dist + weights_0.flat[neighbor]
-                if (neighbor_dist_0 < current_neighbor_dist):
-                    dist.flat[neighbor] = neighbor_dist_0
-                    queue.append(neighbor)
-            elif points_to_1:
-                neighbor_dist_1 = parent_dist + weights_1.flat[neighbor]
-                if (neighbor_dist_1 < current_neighbor_dist):
-                    dist.flat[neighbor] = neighbor_dist_1
-                    queue.append(neighbor)
+            if visited.flat[neighbor]:
+                continue
+            else:
+                current_neighbor_dist = dist.flat[neighbor]
+                points_to_0 = (fdir_0.flat[neighbor] == r_dirmap[k])
+                points_to_1 = (fdir_1.flat[neighbor] == r_dirmap[k])
+                if points_to_0:
+                    neighbor_dist_0 = parent_dist + weights_0.flat[neighbor]
+                    if (neighbor_dist_0 < current_neighbor_dist):
+                        dist.flat[neighbor] = neighbor_dist_0
+                        heappush(queue, (neighbor_dist_0, neighbor))
+                elif points_to_1:
+                    neighbor_dist_1 = parent_dist + weights_1.flat[neighbor]
+                    if (neighbor_dist_1 < current_neighbor_dist):
+                        dist.flat[neighbor] = neighbor_dist_1
+                        heappush(queue, (neighbor_dist_1, neighbor))
     return dist
 
-@njit(void(int64, int64, int64[:,:], int64[:,:], float64[:,:],
-           int64[:,:], uint8[:], float64[:,:]),
+# TODO: Weights should actually by (8, m, n)
+# neighbor_dist = parent_dist + weights.flat[kix]
+@njit(float64[:,:](float64[:,:,:], UniTuple(int64, 2), float64[:,:]),
       cache=True)
-def _d8_reverse_distance_recursion(startnode, endnode, min_order, max_order,
-                                   rdist, fdir, indegree, weights):
-    min_order.flat[endnode] = min(min_order.flat[endnode], rdist.flat[startnode])
-    max_order.flat[endnode] = max(max_order.flat[endnode], rdist.flat[startnode])
+def _mfd_flow_distance_iter_numba(fdir, pour_point, weights):
+    _, m, n = fdir.shape
+    mn = m * n
+    dist = np.full((m, n), np.inf, dtype=np.float64)
+    visited = np.zeros((m, n), dtype=np.bool8)
+    i, j = pour_point
+    ix = (i * n) + j
+    offsets = np.array([-n, 1 - n, 1,
+                        1 + n, n, - 1 + n,
+                        - 1, - 1 - n])
+    r_dirmap = np.array([4, 5, 6, 7,
+                         0, 1, 2, 3])
+    dist.flat[ix] = 0.
+    queue = [(0., ix)]
+    while queue:
+        parent_dist, parent = heappop(queue)
+        visited.flat[parent] = True
+        neighbors = offsets + parent
+        for k in range(8):
+            neighbor = neighbors[k]
+            if visited.flat[neighbor]:
+                continue
+            else:
+                neighbor_dir = r_dirmap[k]
+                current_neighbor_dist = dist.flat[neighbor]
+                kix = neighbor + (neighbor_dir * mn)
+                points_to = fdir.flat[kix] > 0.
+                if points_to:
+                    neighbor_dist = parent_dist + weights.flat[neighbor]
+                    if (neighbor_dist < current_neighbor_dist):
+                        dist.flat[neighbor] = neighbor_dist
+                        heappush(queue, (neighbor_dist, neighbor))
+    return dist
+
+# Functions for 'reverse_flow_distance'
+
+@njit(void(int64, int64, float64[:,:], int64[:,:], uint8[:], float64[:,:]),
+      cache=True)
+def _d8_reverse_distance_recursion(startnode, endnode, rdist, fdir, indegree,
+                                   weights):
+    rdist.flat[endnode] = max(rdist.flat[endnode],
+                              rdist.flat[startnode] + weights.flat[endnode])
     indegree.flat[endnode] -= 1
     if indegree.flat[endnode] == 0:
-        rdist.flat[endnode] = max_order.flat[endnode] + weights.flat[endnode]
         new_startnode = endnode
         new_endnode = fdir.flat[new_startnode]
-        _d8_reverse_distance_recursion(new_startnode, new_endnode, min_order,
-                                       max_order, rdist, fdir, indegree, weights)
+        _d8_reverse_distance_recursion(new_startnode, new_endnode, rdist, fdir,
+                                       indegree, weights)
 
-@njit(float64[:,:](int64[:,:], int64[:,:], float64[:,:], int64[:,:],
+@njit(float64[:,:](float64[:,:], int64[:,:],
                    uint8[:], int64[:], float64[:,:]),
       cache=True)
-def _d8_reverse_distance_recur_numba(min_order, max_order, rdist, fdir,
+def _d8_reverse_distance_recur_numba(rdist, fdir,
                                      indegree, startnodes, weights):
     n = startnodes.size
     for k in range(n):
         startnode = startnodes.flat[k]
         endnode = fdir.flat[startnode]
-        _d8_reverse_distance_recursion(startnode, endnode, min_order, max_order,
-                                       rdist, fdir, indegree, weights)
+        _d8_reverse_distance_recursion(startnode, endnode, rdist, fdir,
+                                       indegree, weights)
     return rdist
 
-@njit(float64[:,:](int64[:,:], int64[:,:], float64[:,:], int64[:,:],
+@njit(float64[:,:](float64[:,:], int64[:,:],
                    uint8[:], int64[:], float64[:,:]),
       cache=True)
-def _d8_reverse_distance_iter_numba(min_order, max_order, rdist, fdir,
-                                    indegree, startnodes, weights):
+def _d8_reverse_distance_iter_numba(rdist, fdir, indegree, startnodes, weights):
     n = startnodes.size
     for k in range(n):
         startnode = startnodes.flat[k]
         endnode = fdir.flat[startnode]
         while(indegree.flat[startnode] == 0):
-            min_order.flat[endnode] = min(min_order.flat[endnode], rdist.flat[startnode])
-            max_order.flat[endnode] = max(max_order.flat[endnode], rdist.flat[startnode])
+            rdist.flat[endnode] = max(rdist.flat[endnode],
+                                      rdist.flat[startnode] + weights.flat[endnode])
             indegree.flat[endnode] -= 1
-            rdist.flat[endnode] = max_order.flat[endnode] + weights.flat[endnode]
             startnode = endnode
             endnode = fdir.flat[startnode]
+    return rdist
+
+# TODO: This should probably have two weights vectors
+@njit(float64[:,:](float64[:,:], int64[:,:], int64[:,:],
+                   uint8[:], int64[:], float64[:,:]),
+      cache=True)
+def _dinf_reverse_distance_iter_numba(rdist, fdir_0, fdir_1,
+                                      indegree, startnodes, weights):
+    n = startnodes.size
+    queue = [0]
+    _ = queue.pop()
+    for k in range(n):
+        startnode = startnodes.flat[k]
+        queue.append(startnode)
+        while queue:
+            startnode = queue.pop()
+            endnode_0 = fdir_0.flat[startnode]
+            endnode_1 = fdir_1.flat[startnode]
+            rdist.flat[endnode_0] = max(rdist.flat[endnode_0],
+                                        rdist.flat[startnode] + weights.flat[endnode_0])
+            rdist.flat[endnode_1] = max(rdist.flat[endnode_1],
+                                        rdist.flat[startnode] + weights.flat[endnode_1])
+            indegree.flat[endnode_0] -= 1
+            indegree.flat[endnode_1] -= 1
+            if (indegree.flat[endnode_0] == 0):
+                queue.append(endnode_0)
+            if (indegree.flat[endnode_1] == 0):
+                # Account for cases where both fdirs point in same direction
+                if (endnode_0 != endnode_1):
+                    queue.append(endnode_1)
+    return rdist
+
+@njit(float64[:,:](float64[:,:], int64[:,:,:], uint8[:], int64[:], float64[:,:]),
+      cache=True)
+def _mfd_reverse_distance_iter_numba(rdist, fdir, indegree, startnodes, weights):
+    n = startnodes.size
+    queue = [0]
+    _ = queue.pop()
+    for k in range(n):
+        startnode = startnodes.flat[k]
+        queue.append(startnode)
+        while queue:
+            startnode = queue.pop()
+            for i in range(8):
+                fdir_i = fdir[i]
+                endnode = fdir_i.flat[startnode]
+                if endnode == startnode:
+                    continue
+                else:
+                    weight = weights.flat[startnode]
+                    rdist.flat[endnode] = max(rdist.flat[endnode],
+                                              rdist.flat[startnode] + weights.flat[endnode])
+                    indegree.flat[endnode] -= 1
+                    if (indegree.flat[endnode] == 0):
+                        queue.append(endnode)
     return rdist
 
 # Functions for 'resolve_flats'
@@ -1091,6 +1310,46 @@ def _dinf_hand_recur_numba(fdir_0, fdir_1, mask, dirmap):
         _dinf_hand_recursion(parent, parent, hand, offsets, r_dirmap, fdir_0, fdir_1)
     return hand
 
+@njit(int64[:,:](float64[:,:,:], boolean[:,:]),
+      cache=True)
+def _mfd_hand_iter_numba(fdir, mask):
+    _, m, n = fdir.shape
+    mn = m * n
+    offsets = np.array([-n, 1 - n, 1,
+                        1 + n, n, - 1 + n,
+                        - 1, - 1 - n])
+    r_dirmap = np.array([4, 5, 6, 7,
+                         0, 1, 2, 3])
+    hand = -np.ones((m, n), dtype=np.int64)
+    cur_queue = []
+    next_queue = []
+    for i in range(hand.size):
+        if mask.flat[i]:
+            hand.flat[i] = i
+            cur_queue.append(i)
+    while True:
+        if not cur_queue:
+            break
+        while cur_queue:
+            k = cur_queue.pop()
+            neighbors = offsets + k
+            for j in range(8):
+                neighbor = neighbors[j]
+                visited = (hand.flat[neighbor] >= 0)
+                if visited:
+                    continue
+                else:
+                    neighbor_dir = r_dirmap[j]
+                    kix = neighbor + (neighbor_dir * mn)
+                    points_to = fdir.flat[kix] > 0.
+                    if points_to:
+                        hand.flat[neighbor] = hand.flat[k]
+                        next_queue.append(neighbor)
+        while next_queue:
+            next_cell = next_queue.pop()
+            cur_queue.append(next_cell)
+    return hand
+
 @njit(float64[:,:](int64[:,:], float64[:,:], float64),
       parallel=True,
       cache=True)
@@ -1207,7 +1466,9 @@ def _d8_stream_network_iter_numba(fdir, indegree, orig_indegree, startnodes):
             endnode = fdir.flat[startnode]
     return profiles
 
-@njit(parallel=True)
+@njit(float64[:,:](int64[:,:], int64[:,:], float64[:,:]),
+      parallel=True,
+      cache=True)
 def _d8_cell_dh_numba(startnodes, endnodes, dem):
     n = startnodes.size
     dh = np.zeros_like(dem)
@@ -1217,7 +1478,9 @@ def _d8_cell_dh_numba(startnodes, endnodes, dem):
         dh.flat[k] = dem.flat[startnode] - dem.flat[endnode]
     return dh
 
-@njit(parallel=True)
+@njit(float64[:,:](int64[:,:], int64[:,:], int64[:,:], float64[:,:], float64[:,:], float64[:,:]),
+      parallel=True,
+      cache=True)
 def _dinf_cell_dh_numba(startnodes, endnodes_0, endnodes_1, props_0, props_1, dem):
     n = startnodes.size
     dh = np.zeros(dem.shape, dtype=np.float64)
@@ -1231,7 +1494,28 @@ def _dinf_cell_dh_numba(startnodes, endnodes_0, endnodes_1, props_0, props_1, de
                       prop_1 * (dem.flat[startnode] - dem.flat[endnode_1]))
     return dh
 
-@njit(parallel=True)
+@njit(float64[:,:](int64[:,:], int64[:,:,:], float64[:,:,:], float64[:,:]),
+      parallel=True,
+      cache=True)
+def _mfd_cell_dh_numba(startnodes, endnodes, props, dem):
+    k, m, n = props.shape
+    mn = m * n
+    N = startnodes.size
+    dh = np.zeros((m, n), dtype=np.float64)
+    for i in prange(N):
+        startnode = startnodes.flat[i]
+        elev = dem.flat[startnode]
+        for j in prange(k):
+            kix = startnode + (j * mn)
+            endnode = endnodes.flat[kix]
+            prop = props.flat[kix]
+            neighbor_elev = dem.flat[endnode]
+            dh.flat[startnode] += prop * (elev - neighbor_elev)
+    return dh
+
+@njit(float64[:,:](int64[:,:], UniTuple(int64, 8), float64, float64),
+      parallel=True,
+      cache=True)
 def _d8_cell_distances_numba(fdir, dirmap, dx, dy):
     n = fdir.size
     cdist = np.zeros(fdir.shape, dtype=np.float64)
@@ -1245,7 +1529,10 @@ def _d8_cell_distances_numba(fdir, dirmap, dx, dy):
         cdist.flat[k] = dist_map[fdir_k]
     return cdist
 
-@njit(parallel=True)
+@njit(float64[:,:](int64[:,:], int64[:,:], float64[:,:], float64[:,:], UniTuple(int64, 8),
+                   float64, float64),
+      parallel=True,
+      cache=True)
 def _dinf_cell_distances_numba(fdir_0, fdir_1, prop_0, prop_1, dirmap, dx, dy):
     n = fdir_0.size
     cdist = np.zeros(fdir_0.shape, dtype=np.float64)
@@ -1265,7 +1552,28 @@ def _dinf_cell_distances_numba(fdir_0, fdir_1, prop_0, prop_1, dirmap, dx, dy):
         cdist.flat[k] = dist_k
     return cdist
 
-@njit(parallel=True)
+@njit(float64[:,:](int64[:,:], int64[:,:,:], float64[:,:,:], float64, float64),
+      parallel=True,
+      cache=True)
+def _mfd_cell_distances_numba(startnodes, endnodes, props, dx, dy):
+    k, m, n = props.shape
+    mn = m * n
+    N = startnodes.size
+    dd = np.sqrt(dx**2 + dy**2)
+    distances = (dy, dd, dx, dd, dy, dd, dx, dd)
+    cdist = np.zeros((m, n), dtype=np.float64)
+    for i in prange(N):
+        startnode = startnodes.flat[i]
+        for j in prange(k):
+            kix = startnode + (j * mn)
+            endnode = endnodes.flat[kix]
+            prop = props.flat[kix]
+            cdist.flat[startnode] += prop * distances[j]
+    return cdist
+
+@njit(float64[:,:](float64[:,:], float64[:,:]),
+      parallel=True,
+      cache=True)
 def _cell_slopes_numba(dh, cdist):
     n = dh.size
     slopes = np.zeros(dh.shape, dtype=np.float64)
@@ -1365,6 +1673,8 @@ def _flatten_fdir_numba(fdir, dirmap):
         on_bottom = (k > (n - c - 1))
         on_boundary = (on_left | on_right | on_top | on_bottom)
         if on_boundary:
+            # TODO: This seems like it could cause errors at corner points
+            # TODO: Check if offset is already zero
             if on_left:
                 offset = left_map[cell_dir]
             if on_right:
@@ -1401,6 +1711,57 @@ def _flatten_fdir_no_boundary(fdir, dirmap):
         cell_dir = fdir.flat[k]
         offset = offset_map[cell_dir]
         flat_fdir.flat[k] = k + offset
+    return flat_fdir
+
+# TODO: Assumes pits and flats are removed
+@njit(int64[:,:,:](float64[:,:,:]),
+      parallel=True,
+      cache=True)
+def _flatten_mfd_fdir_numba(fdir):
+    p, r, c = fdir.shape
+    n = r * c
+    flat_fdir = np.zeros((p, r, c), dtype=np.int64)
+    offsets = np.array([0 - c, 1 - c, 1 + 0, 1 + c,
+                        0 + c, -1 + c, -1 + 0, -1 - c],
+                       dtype=np.int64)
+    left_map = np.array([offsets[0], offsets[1], offsets[2], offsets[3],
+                         offsets[4], 0, 0, 0],
+                        dtype=np.int64)
+    right_map = np.array([offsets[0], 0, 0, 0,
+                          offsets[4], offsets[5], offsets[6], offsets[7]],
+                         dtype=np.int64)
+    top_map = np.array([0, 0, offsets[2], offsets[3],
+                        offsets[4], offsets[5], offsets[6], 0],
+                       dtype=np.int64)
+    bottom_map = np.array([offsets[0], offsets[1], offsets[2], 0,
+                           0, 0, offsets[6], offsets[7]],
+                          dtype=np.int64)
+    for i in prange(8):
+        for k in prange(n):
+            kix = k + (i * n)
+            cell_value = fdir.flat[kix]
+            if cell_value == 0:
+                offset = 0
+            else:
+                on_left = ((k % c) == 0)
+                on_right = (((k + 1) % c) == 0)
+                on_top = (k < c)
+                on_bottom = (k > (n - c - 1))
+                on_boundary = (on_left | on_right | on_top | on_bottom)
+                if on_boundary:
+                    # TODO: This seems like it could cause errors at corner points
+                    # TODO: Check if offset is already zero
+                    if on_left:
+                        offset = left_map[i]
+                    if on_right and (offset != 0):
+                        offset = right_map[i]
+                    if on_top and (offset != 0):
+                        offset = top_map[i]
+                    if on_bottom and (offset != 0):
+                        offset = bottom_map[i]
+                else:
+                    offset = offsets[i]
+            flat_fdir.flat[kix] = k + offset
     return flat_fdir
 
 @njit

@@ -3,17 +3,19 @@ from numba import njit, prange
 from numba.types import float64, UniTuple
 
 @njit(parallel=True)
-def _view_fill_numba(data, out, y_ix, x_ix, y_passed, x_passed):
+def _view_fill_numba(data, out, y_ix, x_ix, y_passed, x_passed, nodata):
     n = x_ix.size
     m = y_ix.size
     for i in prange(m):
         for j in prange(n):
             if (y_passed[i]) & (x_passed[j]):
                 out[i, j] = data[y_ix[i], x_ix[j]]
+            else:
+                out[i, j] = nodata
     return out
 
 @njit(parallel=True)
-def _view_fill_by_axes_nearest_numba(data, out, y_ix, x_ix):
+def _view_fill_by_axes_nearest_numba(data, out, y_ix, x_ix, nodata):
     m, n = y_ix.size, x_ix.size
     M, N = data.shape
     # Currently need to use inplace form of round
@@ -27,10 +29,12 @@ def _view_fill_by_axes_nearest_numba(data, out, y_ix, x_ix):
         for j in prange(n):
             if (y_in_bounds[i]) & (x_in_bounds[j]):
                 out[i, j] = data[y_near[i], x_near[j]]
+            else:
+                out[i, j] = nodata
     return out
 
 @njit(parallel=True)
-def _view_fill_by_axes_linear_numba(data, out, y_ix, x_ix):
+def _view_fill_by_axes_linear_numba(data, out, y_ix, x_ix, nodata):
     m, n = y_ix.size, x_ix.size
     M, N = data.shape
     # Find which cells are in bounds
@@ -63,10 +67,12 @@ def _view_fill_by_axes_linear_numba(data, out, y_ix, x_ix):
                          + ( ( 1 - tx[j] ) * ty[i] * ll )
                          + ( tx[j] * ty[i] * lr ) )
                 out[i, j] = value
+            else:
+                out[i, j] = nodata
     return out
 
 @njit(parallel=True)
-def _view_fill_by_entries_nearest_numba(data, out, y_ix, x_ix):
+def _view_fill_by_entries_nearest_numba(data, out, y_ix, x_ix, nodata):
     m, n = y_ix.size, x_ix.size
     M, N = data.shape
     # Currently need to use inplace form of round
@@ -81,10 +87,12 @@ def _view_fill_by_entries_nearest_numba(data, out, y_ix, x_ix):
     for i in prange(n):
         if (y_in_bounds[i]) & (x_in_bounds[i]):
             out.flat[i] = data[y_near[i], x_near[i]]
+        else:
+            out.flat[i] = nodata
     return out
 
 @njit(parallel=True)
-def _view_fill_by_entries_linear_numba(data, out, y_ix, x_ix):
+def _view_fill_by_entries_linear_numba(data, out, y_ix, x_ix, nodata):
     m, n = y_ix.size, x_ix.size
     M, N = data.shape
     # Find which cells are in bounds
@@ -118,6 +126,8 @@ def _view_fill_by_entries_linear_numba(data, out, y_ix, x_ix):
                     + ( ( 1 - tx[i] ) * ty[i] * ll )
                     + ( tx[i] * ty[i] * lr ) )
             out.flat[i] = value
+        else:
+            out.flat[i] = nodata
     return out
 
 @njit(UniTuple(float64[:], 2)(UniTuple(float64, 9), float64[:], float64[:]), parallel=True)

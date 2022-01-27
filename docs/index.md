@@ -455,17 +455,24 @@ Performance benchmarks on a 2015 MacBook Pro (M: million, K: thousand):
 
 | Function                | Routing | Number of cells          | Run time |
 | ----------------------- | ------- | ------------------------ | -------- |
-| `flowdir`               | D8      |  36M                     | 1.09 [s] |
-| `flowdir`               | DINF    |  36M                     | 6.64 [s] |
-| `accumulation`          | D8      |  36M                     | 3.65 [s] |
-| `accumulation`          | DINF    |  36M                     | 16.2 [s] |
-| `catchment`             | D8      |  9.76M                   | 3.43 [s] |
-| `catchment`             | DINF    |  9.76M                   | 5.41 [s] |
-| `distance_to_outlet`    | D8      |  9.76M                   | 4.74 [s] |
-| `distance_to_outlet`    | DINF    |  9.76M                   | 1 [m] 13 [s] |
-| `distance_to_ridge`     | D8      |  36M                     | 6.83 [s] |
-| `hand`                  | D8      |  36M total, 730K channel | 12.9 [s] |
-| `hand`                  | DINF    |  36M total, 770K channel | 18.7 [s] |
+| `flowdir`               | D8      |  36M                     | 1.14 [s] |
+| `flowdir`               | DINF    |  36M                     | 7.01 [s] |
+| `flowdir`               | MFD     |  36M                     | 4.21 [s] |
+| `accumulation`          | D8      |  36M                     | 3.44 [s] |
+| `accumulation`          | DINF    |  36M                     | 14.9 [s] |
+| `accumulation`          | MFD     |  36M                     | 32.5 [s] |
+| `catchment`             | D8      |  9.76M                   | 2.19 [s] |
+| `catchment`             | DINF    |  9.76M                   | 3.5  [s] |
+| `catchment`             | MFD     |  9.76M                   | 17.1 [s] |
+| `distance_to_outlet`    | D8      |  9.76M                   | 2.98 [s] |
+| `distance_to_outlet`    | DINF    |  9.76M                   | 5.49 [s] |
+| `distance_to_outlet`    | MFD     |  9.76M                   | 13.1 [s] |
+| `distance_to_ridge`     | D8      |  36M                     | 4.53 [s] |
+| `distance_to_ridge`     | DINF    |  36M                     | 14.5 [s] |
+| `distance_to_ridge`     | MFD     |  36M                     | 31.3 [s] |
+| `hand`                  | D8      |  36M total, 730K channel | 12.3 [s] |
+| `hand`                  | DINF    |  36M total, 770K channel | 15.8 [s] |
+| `hand`                  | MFD     |  36M total, 770K channel | 29.8 [s] |
 | `stream_order`          | D8      |  36M total, 1M channel   | 3.99 [s] |
 | `extract_river_network` | D8      |  36M total, 345K channel | 4.07 [s] |
 | `detect_pits`           | N/A     |  36M                     | 1.80 [s] |
@@ -475,10 +482,13 @@ Performance benchmarks on a 2015 MacBook Pro (M: million, K: thousand):
 | `resolve_flats`         | N/A     |  36M                     | 9.56 [s] |
 | `cell_dh`               | D8      |  36M                     | 2.34 [s] |
 | `cell_dh`               | DINF    |  36M                     | 4.92 [s] |
+| `cell_dh`               | MFD     |  36M                     | 30.1 [s] |
 | `cell_distances`        | D8      |  36M                     | 1.11 [s] |
 | `cell_distances`        | DINF    |  36M                     | 2.16 [s] |
+| `cell_distances`        | MFD     |  36M                     | 26.8 [s] |
 | `cell_slopes`           | D8      |  36M                     | 4.01 [s] |
 | `cell_slopes`           | DINF    |  36M                     | 10.2 [s] |
+| `cell_slopes`           | MFD     |  36M                     | 58.7 [s] |
 
 Speed tests were run on a conditioned DEM from the HYDROSHEDS DEM repository
 (linked above as `elevation.tiff`).

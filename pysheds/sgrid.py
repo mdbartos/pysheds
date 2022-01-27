@@ -29,7 +29,7 @@ _pyproj_init = '+init=epsg:4326' if _OLD_PYPROJ else 'epsg:4326'
 import pysheds.io
 
 # Import viewing functions
-from pysheds.sview import Raster
+from pysheds.sview import Raster, MultiRaster
 from pysheds.sview import View, ViewFinder
 
 # Import numba functions
@@ -582,6 +582,7 @@ class sGrid():
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
                   'dinf' : D-infinity flow directions
+                  'mfd'  : Multiple flow directions
 
         Additional keyword arguments (**kwargs) are passed to self.view.
 
@@ -611,8 +612,14 @@ class sGrid():
             fdir = self._dinf_flowdir(dem=dem, nodata_cells=nodata_cells,
                                       nodata_out=nodata_out, flats=flats,
                                       pits=pits, dirmap=dirmap)
+        elif routing.lower() == 'mfd':
+            if nodata_out is None:
+                nodata_out = np.nan
+            fdir = self._mfd_flowdir(dem=dem, nodata_cells=nodata_cells,
+                                     nodata_out=nodata_out, flats=flats,
+                                     pits=pits, dirmap=dirmap)
         else:
-            raise ValueError('Routing method must be one of: `d8`, `dinf`')
+            raise ValueError('Routing method must be one of: `d8`, `dinf`, `mfd`')
         fdir.metadata.update(default_metadata)
         return fdir
 
@@ -639,6 +646,21 @@ class sGrid():
         fdir = _self._dinf_flowdir_numba(dem, dx, dy, nodata_out, flat=flats, pit=pits)
         return self._output_handler(data=fdir, viewfinder=dem.viewfinder,
                                     metadata=dem.metadata, nodata=nodata_out)
+
+    def _mfd_flowdir(self, dem, nodata_cells, nodata_out=np.nan, flats=-1, pits=-2,
+                     dirmap=(64, 128, 1, 2, 4, 8, 16, 32)):
+        # Make sure nothing flows to the nodata cells
+        dem[nodata_cells] = dem.max() + 1
+        dx = abs(dem.affine.a)
+        dy = abs(dem.affine.e)
+        # TODO: Allow p value to be changed
+        fdir = _self._mfd_flowdir_numba(dem, dx, dy, nodata_cells,
+                                        nodata_out, p=1)
+        # Create new mask to match new shape
+        new_mask = np.tile(dem.viewfinder.mask, (8, 1, 1))
+        return self._output_handler(data=fdir, viewfinder=dem.viewfinder,
+                                    metadata=dem.metadata, nodata=nodata_out,
+                                    mask=new_mask)
 
     def catchment(self, x, y, fdir, pour_value=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
                   nodata_out=False, xytype='coordinate', routing='d8', snap='corner',
@@ -673,6 +695,7 @@ class sGrid():
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
                   'dinf' : D-infinity flow directions
+                  'mfd'  : Multiple flow directions
         snap : str
                Function to use for self.nearest_cell:
                'corner' : numpy.around()
@@ -695,8 +718,10 @@ class sGrid():
             input_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
         elif routing.lower() == 'dinf':
             input_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
+        elif routing.lower() == 'mfd':
+            input_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
         else:
-            raise ValueError('Routing method must be one of: `d8`, `dinf`')
+            raise ValueError('Routing method must be one of: `d8`, `dinf`, `mfd`')
         kwargs.update(input_overrides)
         fdir = self._input_handler(fdir, **kwargs)
         xmin, ymin, xmax, ymax = fdir.bbox
@@ -705,7 +730,7 @@ class sGrid():
                 raise ValueError('Pour point ({}, {}) is out of bounds for dataset with bbox {}.'
                                 .format(x, y, (xmin, ymin, xmax, ymax)))
         elif xytype == 'index':
-            if (x < 0) or (y < 0) or (x >= fdir.shape[1]) or (y >= fdir.shape[0]):
+            if (x < 0) or (y < 0) or (x >= fdir.shape[-1]) or (y >= fdir.shape[-2]):
                 raise ValueError('Pour point ({}, {}) is out of bounds for dataset with shape {}.'
                                 .format(x, y, fdir.shape))
         if routing.lower() == 'd8':
@@ -714,6 +739,10 @@ class sGrid():
                                        algorithm=algorithm)
         elif routing.lower() == 'dinf':
             catch = self._dinf_catchment(x, y, fdir=fdir, pour_value=pour_value, dirmap=dirmap,
+                                         nodata_out=nodata_out, xytype=xytype, snap=snap,
+                                         algorithm=algorithm)
+        elif routing.lower() == 'mfd':
+            catch = self._mfd_catchment(x, y, fdir=fdir, pour_value=pour_value, dirmap=dirmap,
                                          nodata_out=nodata_out, xytype=xytype, snap=snap,
                                          algorithm=algorithm)
         return catch
@@ -767,6 +796,31 @@ class sGrid():
                                      metadata=fdir.metadata, nodata=nodata_out)
         return catch
 
+    def _mfd_catchment(self, x, y, fdir, pour_value=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                       nodata_out=False, xytype='coordinate', snap='corner',
+                       algorithm='iterative'):
+        # Pad the rim
+        left, right, top, bottom = self._pop_rim(fdir, nodata=0)
+        # If xytype is 'coordinate', delineate catchment based on cell nearest
+        # to given geographic coordinate
+        if xytype in {'label', 'coordinate'}:
+            x, y = self.nearest_cell(x, y, fdir.affine, snap)
+        # Delineate the catchment
+        if algorithm.lower() == 'iterative':
+            catch = _self._mfd_catchment_iter_numba(fdir, (y, x))
+        elif algorithm.lower() == 'recursive':
+            raise NotImplementedError('Recursive algorithm not implemented.')
+        else:
+            raise ValueError('Algorithm must be `iterative` or `recursive`.')
+        if pour_value is not None:
+            catch[y, x] = pour_value
+        # Create new mask because dimension reduced
+        new_mask = fdir.mask[0]
+        catch = self._output_handler(data=catch, viewfinder=fdir.viewfinder,
+                                     metadata=fdir.metadata, nodata=nodata_out,
+                                     mask=new_mask)
+        return catch
+
     def accumulation(self, fdir, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
                      nodata_out=0., efficiency=None, routing='d8', cycle_size=1,
                      algorithm='iterative', **kwargs):
@@ -795,6 +849,7 @@ class sGrid():
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
                   'dinf' : D-infinity flow directions
+                  'mfd'  : Multiple flow directions
         cycle_size : int
                      Maximum length of cycles to check for in d-infinity grids. (Note
                      that d-infinity routing can generate cycles that will cause
@@ -816,8 +871,10 @@ class sGrid():
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
         elif routing.lower() == 'dinf':
             fdir_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
+        elif routing.lower() == 'mfd':
+            fdir_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
         else:
-            raise ValueError('Routing method must be one of: `d8`, `dinf`')
+            raise ValueError('Routing method must be one of: `d8`, `dinf`, `mfd`')
         kwargs.update(fdir_overrides)
         fdir = self._input_handler(fdir, **kwargs)
         if weights is not None:
@@ -837,6 +894,10 @@ class sGrid():
                                           nodata_out=nodata_out,
                                           efficiency=efficiency,
                                           cycle_size=cycle_size, algorithm=algorithm)
+        elif routing.lower() == 'mfd':
+            acc = self._mfd_accumulation(fdir, weights=weights, dirmap=dirmap,
+                                         nodata_out=nodata_out,
+                                         efficiency=efficiency, algorithm=algorithm)
         return acc
 
     def _d8_accumulation(self, fdir, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
@@ -944,6 +1005,54 @@ class sGrid():
                                    metadata=fdir.metadata, nodata=nodata_out)
         return acc
 
+    def _mfd_accumulation(self, fdir, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                          nodata_out=0., efficiency=None, algorithm='iterative', **kwargs):
+        # Find nodata cells and invalid cells
+        nodata_cells = self._get_nodata_cells(fdir)
+        # Set nodata cells to zero
+        fdir[nodata_cells] = 0.
+        # Start and end nodes
+        startnodes = np.arange(fdir[0].size, dtype=np.int64)
+        props = fdir
+        endnodes = _self._flatten_mfd_fdir_numba(props)
+        if weights is not None:
+            acc = weights.astype(np.float64).reshape(fdir[0].shape)
+        # Otherwise, initialize accumulation array to ones where valid cells exist
+        else:
+            acc = np.ones(fdir[0].shape, dtype=np.float64)
+        acc = np.asarray(acc)
+        # If using efficiency, initialize array
+        if efficiency is not None:
+            eff = efficiency.astype(np.float64).reshape(fdir[0].shape)
+            eff = np.asarray(eff)
+        # Find indegree of all cells
+        indegree = _self._mfd_bincount(endnodes)
+        # Set starting nodes to those with no predecessors
+        startnodes = startnodes[(indegree == 0)]
+        # Compute accumulation for no efficiency case
+        if efficiency is None:
+            if algorithm.lower() == 'iterative':
+                acc = _self._mfd_accumulation_iter_numba(acc, endnodes, props,
+                                                         indegree, startnodes)
+            elif algorithm.lower() == 'recursive':
+                raise NotImplementedError('Not Implemented.')
+            else:
+                raise ValueError('Algorithm must be `iterative` or `recursive`.')
+        # Compute accumulation for efficiency case
+        else:
+            if algorithm.lower() == 'iterative':
+                acc = _self._mfd_accumulation_eff_iter_numba(acc, endnodes, props,
+                                                             indegree, startnodes, eff)
+            elif algorithm.lower() == 'recursive':
+                raise NotImplementedError('Not Implemented.')
+            else:
+                raise ValueError('Algorithm must be `iterative` or `recursive`.')
+        new_mask = fdir.mask[0]
+        acc = self._output_handler(data=acc, viewfinder=fdir.viewfinder,
+                                   metadata=fdir.metadata, nodata=nodata_out,
+                                   mask=new_mask)
+        return acc
+
     def distance_to_outlet(self, x, y, fdir, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
                            nodata_out=np.nan, routing='d8', method='shortest',
                            xytype='coordinate', snap='corner', algorithm='iterative', **kwargs):
@@ -972,6 +1081,7 @@ class sGrid():
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
                   'dinf' : D-infinity flow directions
+                  'mfd'  : Multiple flow directions
         xytype : 'coordinate' or 'index'
                  How to interpret parameters 'x' and 'y'.
                      'coordinate' : x and y represent geographic coordinates
@@ -1001,8 +1111,10 @@ class sGrid():
             input_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
         elif routing.lower() == 'dinf':
             input_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
+        elif routing.lower() == 'mfd':
+            input_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
         else:
-            raise ValueError('Routing method must be one of: `d8`, `dinf`')
+            raise ValueError('Routing method must be one of: `d8`, `dinf`, `mfd`')
         kwargs.update(input_overrides)
         fdir = self._input_handler(fdir, **kwargs)
         if weights is not None:
@@ -1015,7 +1127,7 @@ class sGrid():
                 raise ValueError('Pour point ({}, {}) is out of bounds for dataset with bbox {}.'
                                 .format(x, y, (xmin, ymin, xmax, ymax)))
         elif xytype == 'index':
-            if (x < 0) or (y < 0) or (x >= fdir.shape[1]) or (y >= fdir.shape[0]):
+            if (x < 0) or (y < 0) or (x >= fdir.shape[-1]) or (y >= fdir.shape[-2]):
                 raise ValueError('Pour point ({}, {}) is out of bounds for dataset with shape {}.'
                                 .format(x, y, fdir.shape))
         if routing.lower() == 'd8':
@@ -1028,6 +1140,11 @@ class sGrid():
                                             dirmap=dirmap, nodata_out=nodata_out,
                                             method=method, xytype=xytype,
                                             snap=snap, algorithm=algorithm)
+        elif routing.lower() == 'mfd':
+            dist = self._mfd_flow_distance(x=x, y=y, fdir=fdir, weights=weights,
+                                           dirmap=dirmap, nodata_out=nodata_out,
+                                           method=method, xytype=xytype,
+                                           snap=snap, algorithm=algorithm)
         return dist
 
     def _d8_flow_distance(self, x, y, fdir, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
@@ -1041,6 +1158,7 @@ class sGrid():
         fdir[invalid_cells] = 0
         if xytype in {'label', 'coordinate'}:
             x, y = self.nearest_cell(x, y, fdir.affine, snap)
+        # TODO: Should this be ones for all cells?
         if weights is None:
             weights = (~nodata_cells).reshape(fdir.shape).astype(np.float64)
         if algorithm.lower() == 'iterative':
@@ -1066,6 +1184,7 @@ class sGrid():
             weights_0 = weights
             weights_1 = weights
         else:
+            # TODO: Should this be ones for all cells?
             weights_0 = (~nodata_cells).reshape(fdir.shape).astype(np.float64)
             weights_1 = weights_0
         if method.lower() == 'shortest':
@@ -1082,6 +1201,35 @@ class sGrid():
         # Prepare output
         dist = self._output_handler(data=dist, viewfinder=fdir.viewfinder,
                                    metadata=fdir.metadata, nodata=nodata_out)
+        return dist
+
+    def _mfd_flow_distance(self, x, y, fdir, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                           nodata_out=np.nan, method='shortest', xytype='coordinate',
+                           snap='corner', algorithm='iterative', **kwargs):
+        # Pad the rim
+        left, right, top, bottom = self._pop_rim(fdir, nodata=0)
+        # Populate weights
+        if weights is None:
+            weights = np.ones(fdir[0].shape, dtype=np.float64)
+        # If xytype is 'coordinate', delineate catchment based on cell nearest
+        # to given geographic coordinate
+        if xytype in {'label', 'coordinate'}:
+            x, y = self.nearest_cell(x, y, fdir.affine, snap)
+        # Compute flow distances
+        if method.lower() == 'shortest':
+            if algorithm.lower() == 'iterative':
+                dist = _self._mfd_flow_distance_iter_numba(fdir, (y, x), weights)
+            elif algorithm.lower() == 'recursive':
+                raise NotImplementedError('Recursive algorithm not implemented.')
+            else:
+                raise ValueError('Algorithm must be `iterative` or `recursive`.')
+        else:
+            raise NotImplementedError("Only implemented for shortest path distance.")
+        # Create new mask because dimension reduced
+        new_mask = fdir.mask[0]
+        dist = self._output_handler(data=dist, viewfinder=fdir.viewfinder,
+                                    metadata=fdir.metadata, nodata=nodata_out,
+                                    mask=new_mask)
         return dist
 
     def compute_hand(self, fdir, dem, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
@@ -1109,7 +1257,8 @@ class sGrid():
         routing : str
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
-                  'dinf' : D-infinity flow directions (not implemented)
+                  'dinf' : D-infinity flow directions
+                  'mfd'  : Multiple flow directions
         return_index : bool
                        Boolean value indicating desired output.
                        - If True, return a Raster where each cell indicates the index
@@ -1133,8 +1282,10 @@ class sGrid():
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
         elif routing.lower() == 'dinf':
             fdir_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
+        elif routing.lower() == 'mfd':
+            fdir_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
         else:
-            raise ValueError('Routing method must be one of: `d8`, `dinf`')
+            raise ValueError('Routing method must be one of: `d8`, `dinf`, `mfd`')
         dem_overrides = {'dtype' : np.float64, 'nodata' : dem.nodata}
         mask_overrides = {'dtype' : np.bool8, 'nodata' : False}
         kwargs.update(fdir_overrides)
@@ -1158,11 +1309,16 @@ class sGrid():
             hand = self._dinf_compute_hand(fdir=fdir, mask=mask,
                                            nodata_out=nodata_out,
                                            algorithm=algorithm)
+        elif routing.lower() == 'mfd':
+            hand = self._mfd_compute_hand(fdir=fdir, mask=mask,
+                                           nodata_out=nodata_out,
+                                           algorithm=algorithm)
         # If index is not desired, return heights
         if not return_index:
-            hand = _self._assign_hand_heights_numba(hand, dem, nodata_out)
-            hand = self._output_handler(data=hand, viewfinder=fdir.viewfinder,
-                                        metadata=fdir.metadata, nodata=nodata_out)
+            hand_idx = hand
+            hand = _self._assign_hand_heights_numba(hand_idx, dem, nodata_out)
+            hand = self._output_handler(data=hand, viewfinder=hand_idx.viewfinder,
+                                        metadata=hand_idx.metadata, nodata=nodata_out)
         return hand
 
     def _d8_compute_hand(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
@@ -1207,6 +1363,25 @@ class sGrid():
                                     metadata=fdir.metadata, nodata=-1)
         return hand
 
+    def _mfd_compute_hand(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                          nodata_out=-1, algorithm='iterative'):
+        # Get nodata cells
+        nodata_cells = self._get_nodata_cells(fdir)
+        # Pad the rim
+        dirleft, dirright, dirtop, dirbottom = self._pop_rim(fdir, nodata=0.)
+        maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=False)
+        if algorithm.lower() == 'iterative':
+            hand = _self._mfd_hand_iter_numba(fdir, mask)
+        elif algorithm.lower() == 'recursive':
+            raise NotImplementedError('Recursive algorithm not implemented.')
+        else:
+            raise ValueError('Algorithm must be `iterative` or `recursive`.')
+        new_mask = fdir.mask[0]
+        hand = self._output_handler(data=hand, viewfinder=fdir.viewfinder,
+                                    metadata=fdir.metadata, nodata=-1,
+                                    mask=new_mask)
+        return hand
+
     def extract_river_network(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
                               routing='d8', algorithm='iterative', **kwargs):
         """
@@ -1241,7 +1416,7 @@ class sGrid():
         if routing.lower() == 'd8':
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
         else:
-            raise NotImplementedError('Only implemented for D8 routing.')
+            raise NotImplementedError('Only implemented for `d8` routing.')
         mask_overrides = {'dtype' : np.bool8, 'nodata' : False}
         kwargs.update(fdir_overrides)
         fdir = self._input_handler(fdir, **kwargs)
@@ -1313,7 +1488,7 @@ class sGrid():
         if routing.lower() == 'd8':
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
         else:
-            raise NotImplementedError('Only implemented for D8 routing.')
+            raise NotImplementedError('Only implemented for `d8` routing.')
         mask_overrides = {'dtype' : np.bool8, 'nodata' : False}
         kwargs.update(fdir_overrides)
         fdir = self._input_handler(fdir, **kwargs)
@@ -1347,8 +1522,9 @@ class sGrid():
                                      metadata=fdir.metadata, nodata=nodata_out)
         return order
 
-    def distance_to_ridge(self, fdir, mask, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                          nodata_out=0, routing='d8', algorithm='iterative', **kwargs):
+    def distance_to_ridge(self, fdir, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                          nodata_out=np.nan, routing='d8', algorithm='iterative', cycle_size=1,
+                          **kwargs):
         """
         Generates a raster representing the (weighted) topological distance from each cell
         to its originating drainage divide, moving upstream.
@@ -1368,6 +1544,8 @@ class sGrid():
         routing : str
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
+                  'dinf' : D-infinity flow directions
+                  'mfd'  : Multiple flow directions
         algorithm : str
                     Algorithm type to use:
                     'iterative' : Use an iterative algorithm (recommended).
@@ -1383,47 +1561,130 @@ class sGrid():
         """
         if routing.lower() == 'd8':
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
+        elif routing.lower() == 'dinf':
+            fdir_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
+        elif routing.lower() == 'mfd':
+            fdir_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
         else:
-            raise NotImplementedError('Only implemented for D8 routing.')
-        mask_overrides = {'dtype' : np.bool8, 'nodata' : False}
+            raise NotImplementedError('Routing method must be one of: `d8`, `dinf`, `mfd`')
         kwargs.update(fdir_overrides)
         fdir = self._input_handler(fdir, **kwargs)
-        kwargs.update(mask_overrides)
-        mask = self._input_handler(mask, **kwargs)
         if weights is not None:
             weights_overrides = {'dtype' : np.float64, 'nodata' : weights.nodata}
             kwargs.update(weights_overrides)
             weights = self._input_handler(weights, **kwargs)
+        if routing.lower() == 'd8':
+            rdist = self._d8_distance_to_ridge(fdir=fdir, weights=weights,
+                                               dirmap=dirmap, algorithm=algorithm,
+                                               nodata_out=nodata_out)
+        elif routing.lower() == 'dinf':
+            rdist = self._dinf_distance_to_ridge(fdir=fdir, weights=weights,
+                                                 dirmap=dirmap, algorithm=algorithm,
+                                                 nodata_out=nodata_out, cycle_size=cycle_size)
+        elif routing.lower() == 'mfd':
+            rdist = self._mfd_distance_to_ridge(fdir=fdir, weights=weights,
+                                                dirmap=dirmap, algorithm=algorithm,
+                                                nodata_out=nodata_out, cycle_size=cycle_size)
+        return rdist
+
+    def _d8_distance_to_ridge(self, fdir, weights, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                              algorithm='iterative', nodata_out=np.nan, **kwargs):
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
         invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
         fdir[nodata_cells] = 0
         fdir[invalid_cells] = 0
+        # TODO: Should this be ones for all cells?
         if weights is None:
             weights = (~nodata_cells).reshape(fdir.shape).astype(np.float64)
-        maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=0)
-        masked_fdir = np.where(mask, fdir, 0).astype(np.int64)
         startnodes = np.arange(fdir.size, dtype=np.int64)
-        endnodes = _self._flatten_fdir_numba(masked_fdir, dirmap).reshape(fdir.shape)
+        endnodes = _self._flatten_fdir_numba(fdir, dirmap).reshape(fdir.shape)
         indegree = np.bincount(endnodes.ravel()).astype(np.uint8)
-        orig_indegree = np.copy(indegree)
         startnodes = startnodes[(indegree == 0)]
-        min_order = np.full(fdir.shape, np.iinfo(np.int64).max, dtype=np.int64)
-        max_order = np.ones(fdir.shape, dtype=np.int64)
         rdist = np.zeros(fdir.shape, dtype=np.float64)
         if algorithm.lower() == 'iterative':
-            rdist = _self._d8_reverse_distance_iter_numba(min_order, max_order, rdist,
-                                                        endnodes, indegree, startnodes,
-                                                        weights)
+            rdist = _self._d8_reverse_distance_iter_numba(rdist, endnodes,
+                                                          indegree, startnodes,
+                                                          weights)
         elif algorithm.lower() == 'recursive':
-            rdist = _self._d8_reverse_distance_recur_numba(min_order, max_order, rdist,
-                                                           endnodes, indegree, startnodes,
+            rdist = _self._d8_reverse_distance_recur_numba(rdist, endnodes,
+                                                           indegree, startnodes,
                                                            weights)
         else:
             raise ValueError('Algorithm must be `iterative` or `recursive`.')
         rdist = self._output_handler(data=rdist, viewfinder=fdir.viewfinder,
                                      metadata=fdir.metadata, nodata=nodata_out)
+        return rdist
+
+    def _dinf_distance_to_ridge(self, fdir, weights, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                                algorithm='iterative', nodata_out=np.nan, cycle_size=1,
+                                **kwargs):
+        # Find nodata cells and invalid cells
+        nodata_cells = self._get_nodata_cells(fdir)
+        # Split d-infinity grid
+        fdir_0, fdir_1, prop_0, prop_1 = _self._angle_to_d8_numba(fdir, dirmap, nodata_cells)
+        # Get matching of start and end nodes
+        startnodes = np.arange(fdir.size, dtype=np.int64)
+        endnodes_0 = _self._flatten_fdir_numba(fdir_0, dirmap).reshape(fdir.shape)
+        endnodes_1 = _self._flatten_fdir_numba(fdir_1, dirmap).reshape(fdir.shape)
+        # Remove cycles
+        _self._dinf_fix_cycles_numba(endnodes_0, endnodes_1, cycle_size)
+        # Find indegree of all cells
+        indegree_0 = np.bincount(endnodes_0.ravel(), minlength=fdir.size)
+        indegree_1 = np.bincount(endnodes_1.ravel(), minlength=fdir.size)
+        indegree = (indegree_0 + indegree_1).astype(np.uint8)
+        # Set starting nodes to those with no predecessors
+        startnodes = startnodes[(indegree == 0)]
+        # TODO: Should this be ones for all cells?
+        if weights is None:
+            weights = np.ones(fdir_0.shape, dtype=np.float64)
+        rdist = np.zeros(fdir_0.shape, dtype=np.float64)
+        if algorithm.lower() == 'iterative':
+            rdist = _self._dinf_reverse_distance_iter_numba(rdist,
+                                                            endnodes_0,
+                                                            endnodes_1,
+                                                            indegree,
+                                                            startnodes,
+                                                            weights)
+        elif algorithm.lower() == 'recursive':
+            raise NotImplementedError('Recursive algorithm not implemented for distance_to_ridge.')
+        else:
+            raise ValueError('Algorithm must be `iterative` or `recursive`.')
+        rdist = self._output_handler(data=rdist, viewfinder=fdir.viewfinder,
+                                     metadata=fdir.metadata, nodata=nodata_out)
+        return rdist
+
+    def _mfd_distance_to_ridge(self, fdir, weights, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                               algorithm='iterative', nodata_out=np.nan, cycle_size=1,
+                               **kwargs):
+        # Find nodata cells and invalid cells
+        nodata_cells = self._get_nodata_cells(fdir)
+        # Set nodata cells to zero
+        fdir[nodata_cells] = 0.
+        # Start and end nodes
+        startnodes = np.arange(fdir[0].size, dtype=np.int64)
+        props = fdir
+        endnodes = _self._flatten_mfd_fdir_numba(props)
+        if weights is None:
+            weights = np.ones(fdir[0].shape, dtype=np.float64)
+        # Find indegree of all cells
+        indegree = _self._mfd_bincount(endnodes)
+        # Set starting nodes to those with no predecessors
+        startnodes = startnodes[(indegree == 0)]
+        # Compute distance to ridge
+        rdist = np.zeros(fdir[0].shape, dtype=np.float64)
+        if algorithm.lower() == 'iterative':
+            rdist = _self._mfd_reverse_distance_iter_numba(rdist, endnodes, indegree,
+                                                           startnodes, weights)
+        elif algorithm.lower() == 'recursive':
+            raise NotImplementedError('Not Implemented.')
+        else:
+            raise ValueError('Algorithm must be `iterative` or `recursive`.')
+        new_mask = fdir.mask[0]
+        rdist = self._output_handler(data=rdist, viewfinder=fdir.viewfinder,
+                                     metadata=fdir.metadata, nodata=nodata_out,
+                                     mask=new_mask)
         return rdist
 
     def cell_dh(self, dem, fdir, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
@@ -1447,7 +1708,8 @@ class sGrid():
         routing : str
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
-                  'dinf' : D-infinity flow directions (not implemented)
+                  'dinf' : D-infinity flow directions
+                  'mfd'  : Multiple flow directions
 
         Additional keyword arguments (**kwargs) are passed to self.view.
 
@@ -1460,8 +1722,10 @@ class sGrid():
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
         elif routing.lower() == 'dinf':
             fdir_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
+        elif routing.lower() == 'mfd':
+            fdir_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
         else:
-            raise ValueError('Routing method must be one of: `d8`, `dinf`')
+            raise ValueError('Routing method must be one of: `d8`, `dinf`, `mfd`')
         dem_overrides = {'dtype' : np.float64, 'nodata' : dem.nodata}
         kwargs.update(fdir_overrides)
         fdir = self._input_handler(fdir, **kwargs)
@@ -1472,6 +1736,9 @@ class sGrid():
                                   nodata_out=nodata_out)
         elif routing.lower() == 'dinf':
             dh = self._dinf_cell_dh(dem=dem, fdir=fdir, dirmap=dirmap,
+                                    nodata_out=nodata_out)
+        elif routing.lower() == 'mfd':
+            dh = self._mfd_cell_dh(dem=dem, fdir=fdir, dirmap=dirmap,
                                     nodata_out=nodata_out)
         return dh
 
@@ -1484,7 +1751,7 @@ class sGrid():
         fdir[nodata_cells] = 0
         fdir[invalid_cells] = 0
         dirleft, dirright, dirtop, dirbottom = self._pop_rim(fdir, nodata=0)
-        startnodes = np.arange(fdir.size, dtype=np.int64)
+        startnodes = np.arange(fdir.size, dtype=np.int64).reshape(fdir.shape)
         endnodes = _self._flatten_fdir_numba(fdir, dirmap).reshape(fdir.shape)
         dh = _self._d8_cell_dh_numba(startnodes, endnodes, dem)
         dh = self._output_handler(data=dh, viewfinder=fdir.viewfinder,
@@ -1492,7 +1759,7 @@ class sGrid():
         return dh
 
     def _dinf_cell_dh(self, dem, fdir, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                         nodata_out=np.nan):
+                      nodata_out=np.nan):
         # Get nodata cells
         nodata_cells = self._get_nodata_cells(fdir)
         # Split dinf flowdir
@@ -1502,12 +1769,29 @@ class sGrid():
                                                                      nodata=0)
         dirleft_1, dirright_1, dirtop_1, dirbottom_1 = self._pop_rim(fdir_1,
                                                                      nodata=0)
-        startnodes = np.arange(fdir.size, dtype=np.int64)
+        startnodes = np.arange(fdir.size, dtype=np.int64).reshape(fdir.shape)
         endnodes_0 = _self._flatten_fdir_numba(fdir_0, dirmap).reshape(fdir.shape)
         endnodes_1 = _self._flatten_fdir_numba(fdir_1, dirmap).reshape(fdir.shape)
         dh = _self._dinf_cell_dh_numba(startnodes, endnodes_0, endnodes_1, prop_0, prop_1, dem)
         dh = self._output_handler(data=dh, viewfinder=fdir.viewfinder,
                                   metadata=fdir.metadata, nodata=nodata_out)
+        return dh
+
+    def _mfd_cell_dh(self, dem, fdir, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                     nodata_out=np.nan):
+        # Find nodata cells and invalid cells
+        nodata_cells = self._get_nodata_cells(fdir)
+        # Set nodata cells to zero
+        fdir[nodata_cells] = 0.
+        # Start and end nodes
+        startnodes = np.arange(fdir[0].size, dtype=np.int64).reshape(fdir[0].shape)
+        props = fdir
+        endnodes = _self._flatten_mfd_fdir_numba(props)
+        dh = _self._mfd_cell_dh_numba(startnodes, endnodes, props, dem)
+        new_mask = fdir.mask[0]
+        dh = self._output_handler(data=dh, viewfinder=fdir.viewfinder,
+                                  metadata=fdir.metadata, nodata=nodata_out,
+                                  mask=new_mask)
         return dh
 
     def cell_distances(self, fdir, dirmap=(64, 128, 1, 2, 4, 8, 16, 32), nodata_out=np.nan,
@@ -1528,7 +1812,8 @@ class sGrid():
         routing : str
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
-                  'dinf' : D-infinity flow directions (not implemented)
+                  'dinf' : D-infinity flow directions
+                  'mfd'  : Multiple flow directions
 
         Additional keyword arguments (**kwargs) are passed to self.view.
 
@@ -1542,8 +1827,10 @@ class sGrid():
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
         elif routing.lower() == 'dinf':
             fdir_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
+        elif routing.lower() == 'mfd':
+            fdir_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
         else:
-            raise ValueError('Routing method must be one of: `d8`, `dinf`')
+            raise ValueError('Routing method must be one of: `d8`, `dinf`, `mfd`')
         kwargs.update(fdir_overrides)
         fdir = self._input_handler(fdir, **kwargs)
         if routing.lower() == 'd8':
@@ -1552,6 +1839,9 @@ class sGrid():
         elif routing.lower() == 'dinf':
             cdist = self._dinf_cell_distances(fdir=fdir, dirmap=dirmap,
                                            nodata_out=nodata_out)
+        elif routing.lower() == 'mfd':
+            cdist = self._mfd_cell_distances(fdir=fdir, dirmap=dirmap,
+                                             nodata_out=nodata_out)
         return cdist
 
     def _d8_cell_distances(self, fdir, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
@@ -1588,6 +1878,25 @@ class sGrid():
                                      metadata=fdir.metadata, nodata=nodata_out)
         return cdist
 
+    def _mfd_cell_distances(self, fdir, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                            nodata_out=np.nan):
+        # Find nodata cells and invalid cells
+        nodata_cells = self._get_nodata_cells(fdir)
+        # Set nodata cells to zero
+        fdir[nodata_cells] = 0.
+        # Start and end nodes
+        startnodes = np.arange(fdir[0].size, dtype=np.int64).reshape(fdir[0].shape)
+        props = fdir
+        endnodes = _self._flatten_mfd_fdir_numba(props)
+        dx = abs(fdir.affine.a)
+        dy = abs(fdir.affine.e)
+        cdist = _self._mfd_cell_distances_numba(startnodes, endnodes, props, dx, dy)
+        new_mask = fdir.mask[0]
+        cdist = self._output_handler(data=cdist, viewfinder=fdir.viewfinder,
+                                     metadata=fdir.metadata, nodata=nodata_out,
+                                     mask=new_mask)
+        return cdist
+
     def cell_slopes(self, dem, fdir, dirmap=(64, 128, 1, 2, 4, 8, 16, 32), nodata_out=np.nan,
                     routing='d8', **kwargs):
         """
@@ -1609,7 +1918,8 @@ class sGrid():
         routing : str
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
-                  'dinf' : D-infinity flow directions (not implemented)
+                  'dinf' : D-infinity flow directions
+                  'mfd'  : Multiple flow directions
 
         Additional keyword arguments (**kwargs) are passed to self.view.
 
@@ -1623,8 +1933,10 @@ class sGrid():
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
         elif routing.lower() == 'dinf':
             fdir_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
+        elif routing.lower() == 'mfd':
+            fdir_overrides = {'dtype' : np.float64, 'nodata' : fdir.nodata}
         else:
-            raise ValueError('Routing method must be one of: `d8`, `dinf`')
+            raise ValueError('Routing method must be one of: `d8`, `dinf`, `mfd`')
         dem_overrides = {'dtype' : np.float64, 'nodata' : dem.nodata}
         kwargs.update(fdir_overrides)
         fdir = self._input_handler(fdir, **kwargs)
@@ -2021,7 +2333,10 @@ class sGrid():
         for param, value in kwargs.items():
             if (value is not None) and (hasattr(new_view, param)):
                 setattr(new_view, param, value)
-        dataset = Raster(data, new_view, metadata=metadata)
+        if (data.ndim == 2):
+            dataset = Raster(data, new_view, metadata=metadata)
+        elif (data.ndim == 3):
+            dataset = MultiRaster(data, new_view, metadata=metadata)
         return dataset
 
     def _get_nodata_cells(self, data):
@@ -2039,15 +2354,15 @@ class sGrid():
     def _pop_rim(self, data, nodata=0):
         left, right, top, bottom = (data[:,0].copy(), data[:,-1].copy(),
                                     data[0,:].copy(), data[-1,:].copy())
-        data[:,0] = nodata
-        data[:,-1] = nodata
-        data[0,:] = nodata
-        data[-1,:] = nodata
+        data[...,  :,  0] = nodata
+        data[...,  :, -1] = nodata
+        data[...,  0,  :] = nodata
+        data[..., -1,  :] = nodata
         return left, right, top, bottom
 
     def _replace_rim(self, data, left, right, top, bottom):
-        data[:,0] = left
-        data[:,-1] = right
-        data[0,:] = top
-        data[-1,:] = bottom
+        data[...,  :,  0] = left
+        data[...,  :, -1] = right
+        data[...,  0,  :] = top
+        data[..., -1,  :] = bottom
         return None

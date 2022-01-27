@@ -826,44 +826,6 @@ def _dinf_flow_distance_recur_numba(fdir_0, fdir_1, weights_0, weights_1,
 def _dinf_flow_distance_iter_numba(fdir_0, fdir_1, weights_0, weights_1,
                                    pour_point, dirmap):
     dist = np.full(fdir_0.shape, np.inf, dtype=np.float64)
-    r_dirmap = np.array([dirmap[4], dirmap[5], dirmap[6],
-                         dirmap[7], dirmap[0], dirmap[1],
-                         dirmap[2], dirmap[3]])
-    m, n = fdir_0.shape
-    offsets = np.array([-n, 1 - n, 1,
-                        1 + n, n, - 1 + n,
-                        - 1, - 1 - n])
-    i, j = pour_point
-    ix = (i * n) + j
-    dist.flat[ix] = 0.
-    queue = [ix]
-    while queue:
-        parent = queue.pop()
-        parent_dist = dist.flat[parent]
-        neighbors = offsets + parent
-        for k in range(8):
-            neighbor = neighbors[k]
-            current_neighbor_dist = dist.flat[neighbor]
-            points_to_0 = (fdir_0.flat[neighbor] == r_dirmap[k])
-            points_to_1 = (fdir_1.flat[neighbor] == r_dirmap[k])
-            if points_to_0:
-                neighbor_dist_0 = parent_dist + weights_0.flat[neighbor]
-                if (neighbor_dist_0 < current_neighbor_dist):
-                    dist.flat[neighbor] = neighbor_dist_0
-                    queue.append(neighbor)
-            elif points_to_1:
-                neighbor_dist_1 = parent_dist + weights_1.flat[neighbor]
-                if (neighbor_dist_1 < current_neighbor_dist):
-                    dist.flat[neighbor] = neighbor_dist_1
-                    queue.append(neighbor)
-    return dist
-
-@njit(float64[:,:](int64[:,:], int64[:,:], float64[:,:], float64[:,:],
-                   UniTuple(int64, 2), UniTuple(int64, 8)),
-      cache=True)
-def _dinf_flow_distance_heap_numba(fdir_0, fdir_1, weights_0, weights_1,
-                                   pour_point, dirmap):
-    dist = np.full(fdir_0.shape, np.inf, dtype=np.float64)
     visited = np.zeros(fdir_0.shape, dtype=np.bool8)
     r_dirmap = np.array([dirmap[4], dirmap[5], dirmap[6],
                          dirmap[7], dirmap[0], dirmap[1],
@@ -905,40 +867,6 @@ def _dinf_flow_distance_heap_numba(fdir_0, fdir_1, weights_0, weights_1,
 @njit(float64[:,:](float64[:,:,:], UniTuple(int64, 2), float64[:,:]),
       cache=True)
 def _mfd_flow_distance_iter_numba(fdir, pour_point, weights):
-    _, m, n = fdir.shape
-    mn = m * n
-    dist = np.full((m, n), np.inf, dtype=np.float64)
-    i, j = pour_point
-    ix = (i * n) + j
-    offsets = np.array([-n, 1 - n, 1,
-                        1 + n, n, - 1 + n,
-                        - 1, - 1 - n])
-    r_dirmap = np.array([4, 5, 6, 7,
-                         0, 1, 2, 3])
-    dist.flat[ix] = 0.
-    queue = [ix]
-    while queue:
-        parent = queue.pop()
-        parent_dist = dist.flat[parent]
-        neighbors = offsets + parent
-        for k in range(8):
-            neighbor = neighbors[k]
-            neighbor_dir = r_dirmap[k]
-            current_neighbor_dist = dist.flat[neighbor]
-            kix = neighbor + (neighbor_dir * mn)
-            points_to = fdir.flat[kix] > 0.
-            if points_to:
-                neighbor_dist = parent_dist + weights.flat[neighbor]
-                if (neighbor_dist < current_neighbor_dist):
-                    dist.flat[neighbor] = neighbor_dist
-                    queue.append(neighbor)
-    return dist
-
-# TODO: Weights should actually by (8, m, n)
-# neighbor_dist = parent_dist + weights.flat[kix]
-@njit(float64[:,:](float64[:,:,:], UniTuple(int64, 2), float64[:,:]),
-      cache=True)
-def _mfd_flow_distance_heap_numba(fdir, pour_point, weights):
     _, m, n = fdir.shape
     mn = m * n
     dist = np.full((m, n), np.inf, dtype=np.float64)

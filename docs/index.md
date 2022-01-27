@@ -482,10 +482,13 @@ Performance benchmarks on a 2015 MacBook Pro (M: million, K: thousand):
 | `resolve_flats`         | N/A     |  36M                     | 9.56 [s] |
 | `cell_dh`               | D8      |  36M                     | 2.34 [s] |
 | `cell_dh`               | DINF    |  36M                     | 4.92 [s] |
+| `cell_dh`               | MFD     |  36M                     | 30.1 [s] |
 | `cell_distances`        | D8      |  36M                     | 1.11 [s] |
 | `cell_distances`        | DINF    |  36M                     | 2.16 [s] |
+| `cell_distances`        | MFD     |  36M                     | 26.8 [s] |
 | `cell_slopes`           | D8      |  36M                     | 4.01 [s] |
 | `cell_slopes`           | DINF    |  36M                     | 10.2 [s] |
+| `cell_slopes`           | MFD     |  36M                     | 58.7 [s] |
 
 Speed tests were run on a conditioned DEM from the HYDROSHEDS DEM repository
 (linked above as `elevation.tiff`).

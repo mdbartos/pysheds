@@ -480,8 +480,6 @@ class ViewFinder():
         target_view = self
         return View.view(raster, data_view, target_view, **kwargs)
 
-# TODO: Ensure that target_view cannot be 3-dimensional
-# TODO: Or use only last two entries of viewfinder.shape
 class View():
     """
     Class containing methods for manipulating views of gridded datasets.
@@ -585,7 +583,7 @@ class View():
         # Mask input data if desired
         has_input_mask = not data_view.mask.all()
         if apply_input_mask and has_input_mask:
-            # TODO: Is this necessary?
+            # TODO: Rewrite to avoid copying.
             arr = np.where(data_view.mask, data, target_view.nodata).astype(dtype)
             data = Raster(arr, data.viewfinder, metadata=data.metadata)
         if is_multiraster or is_3d_array:
@@ -738,10 +736,10 @@ class View():
         y, x : tuple
                y- and x-coordinates of axes
         """
-        y_ix = np.arange(shape[0])
-        x_ix = np.arange(shape[1])
-        x_null = np.zeros(shape[0])
-        y_null = np.zeros(shape[1])
+        y_ix = np.arange(shape[-2])
+        x_ix = np.arange(shape[-1])
+        x_null = np.zeros(shape[-2])
+        y_null = np.zeros(shape[-1])
         x, _ = cls.affine_transform(affine, x_ix, y_null)
         _, y = cls.affine_transform(affine, x_null, y_ix)
         return y, x
@@ -922,7 +920,6 @@ class View():
             raise TypeError('`object` and `flexible` dtypes not allowed.')
         return dtype
 
-    # TODO: Can speed this up by giving option to not copy
     @classmethod
     def _view_same_viewfinder(cls, data, data_view, target_view, out, dtype,
                               apply_output_mask=True):
@@ -936,7 +933,6 @@ class View():
     @classmethod
     def _view_different_viewfinder(cls, data, data_view, target_view, out, dtype,
                                    apply_output_mask=True, interpolation='nearest'):
-        # TODO: May need to fill with nodata here
         if (data_view.crs == target_view.crs):
             out = cls._view_same_crs(out, data, data_view,
                                      target_view, interpolation)
@@ -954,13 +950,13 @@ class View():
         y, x = target_view.axes
         inv_affine = ~data_view.affine
         _, y_ix = cls.affine_transform(inv_affine,
-                                       np.zeros(target_view.shape[0],
+                                       np.zeros(target_view.shape[-2],
                                                 dtype=np.float64), y)
         x_ix, _ = cls.affine_transform(inv_affine, x,
-                                       np.zeros(target_view.shape[1],
+                                       np.zeros(target_view.shape[-1],
                                                 dtype=np.float64))
         nodata = target_view.nodata
-        # TODO: Does this work for rotated data? Or is it for axis-aligned data only?
+        # TODO: Check that this works for rotated data.
         if interpolation == 'nearest':
             view = _self._view_fill_by_axes_nearest_numba(data, view, y_ix, x_ix, nodata)
         elif interpolation == 'linear':

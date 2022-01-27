@@ -1745,6 +1745,8 @@ def _flatten_fdir_numba(fdir, dirmap):
         on_bottom = (k > (n - c - 1))
         on_boundary = (on_left | on_right | on_top | on_bottom)
         if on_boundary:
+            # TODO: This seems like it could cause errors at corner points
+            # TODO: Check if offset is already zero
             if on_left:
                 offset = left_map[cell_dir]
             if on_right:

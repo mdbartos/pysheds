@@ -1385,7 +1385,7 @@ class sGrid():
     def extract_river_network(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
                               routing='d8', algorithm='iterative', **kwargs):
         """
-        Generates river segments from accumulation and flow_direction arrays.
+        Generates river segments from flow direction and mask.
 
         Parameters
         ----------
@@ -1452,6 +1452,74 @@ class sGrid():
             featurelist.append(geojson.Feature(geometry=line, id=index))
         geo = geojson.FeatureCollection(featurelist)
         return geo
+
+    def extract_profiles(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
+                         routing='d8', algorithm='iterative', **kwargs):
+        """
+        Generates river segments from flow direction and mask.
+
+        Parameters
+        ----------
+        fdir : Raster
+               Flow direction data.
+        mask : Raster
+               Boolean raster indicating channelized regions
+        dirmap : list or tuple (length 8)
+                 List of integer values representing the following
+                 cardinal and intercardinal directions (in order):
+                 [N, NE, E, SE, S, SW, W, NW]
+        routing : str
+                  Routing algorithm to use:
+                  'd8'   : D8 flow directions
+        algorithm : str
+                    Algorithm type to use:
+                    'iterative' : Use an iterative algorithm (recommended).
+                    'recursive' : Use a recursive algorithm.
+
+        Additional keyword arguments (**kwargs) are passed to self.view.
+
+        Returns
+        -------
+        profiles : list of lists of ints
+                   A list containing a collection of river profiles. Each river profile
+                   is a list containing the flat indices of the grid cells inside the
+                   river segment.
+        connections : dict (int : int)
+                      A dictionary describing the connectivity of the profiles. Each key
+                      and value corresponds to the index of the river profile in profiles.
+                      The key represents the upstream profile and the value represents the
+                      downstream profile that it drains to.
+        """
+        if routing.lower() == 'd8':
+            fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
+        else:
+            raise NotImplementedError('Only implemented for `d8` routing.')
+        mask_overrides = {'dtype' : np.bool8, 'nodata' : False}
+        kwargs.update(fdir_overrides)
+        fdir = self._input_handler(fdir, **kwargs)
+        kwargs.update(mask_overrides)
+        mask = self._input_handler(mask, **kwargs)
+        # Find nodata cells and invalid cells
+        nodata_cells = self._get_nodata_cells(fdir)
+        invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
+        # Set nodata cells to zero
+        fdir[nodata_cells] = 0
+        fdir[invalid_cells] = 0
+        maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=False)
+        masked_fdir = np.where(mask, fdir, 0).astype(np.int64)
+        startnodes = np.arange(fdir.size, dtype=np.int64)
+        endnodes = _self._flatten_fdir_numba(masked_fdir, dirmap).reshape(fdir.shape)
+        indegree = np.bincount(endnodes.ravel(), minlength=fdir.size).astype(np.uint8)
+        orig_indegree = np.copy(indegree)
+        startnodes = startnodes[(indegree == 0)]
+        profiles, connections = _self._d8_stream_connection_iter_numba(endnodes, indegree,
+                                                                       orig_indegree,
+                                                                       startnodes)
+        connections = dict(connections)
+        indices = {profile[0] : index for index, profile in enumerate(profiles)}
+        connections = {indices[key] : indices.setdefault(value, indices[key])
+                       for key, value in connections.items()}
+        return profiles, connections
 
     def stream_order(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
                      nodata_out=0, routing='d8', algorithm='iterative', **kwargs):

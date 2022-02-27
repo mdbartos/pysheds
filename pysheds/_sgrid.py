@@ -1467,9 +1467,10 @@ def _d8_stream_network_iter_numba(fdir, indegree, orig_indegree, startnodes):
     return profiles
 
 @njit(Tuple((List(List(int64)), DictType(int64, int64)))(int64[:,:], uint8[:],
-                                                         uint8[:], int64[:]),
-      cache=False)
-def _d8_stream_connection_iter_numba(fdir, indegree, orig_indegree, startnodes):
+                                                         uint8[:], int64[:], boolean),
+      cache=True)
+def _d8_stream_connection_iter_numba(fdir, indegree, orig_indegree, startnodes,
+                                     include_endpoint):
     n = startnodes.size
     profiles = [[0]]
     connections = {0 : 0}
@@ -1483,11 +1484,12 @@ def _d8_stream_connection_iter_numba(fdir, indegree, orig_indegree, startnodes):
             profile.append(endnode)
             indegree.flat[endnode] -= 1
             if (orig_indegree.flat[endnode] > 1):
-                profiles.append(profile)
                 chain_start = profile[0]
                 chain_end = profile[-1]
                 connections[chain_start] = chain_end
-                # This might be inefficient if indegree still nonzero
+                if not include_endpoint:
+                    _ = profile.pop()
+                profiles.append(profile)
                 if (indegree.flat[endnode] == 0):
                     profile = [endnode]
             startnode = endnode

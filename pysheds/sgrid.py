@@ -1454,9 +1454,10 @@ class sGrid():
         return geo
 
     def extract_profiles(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                         routing='d8', algorithm='iterative', **kwargs):
+                         include_endpoint=True, routing='d8', algorithm='iterative',
+                         **kwargs):
         """
-        Generates river segments from flow direction and mask.
+        Extracts river segments and connectivity of river segments from flow direction and mask.
 
         Parameters
         ----------
@@ -1468,6 +1469,10 @@ class sGrid():
                  List of integer values representing the following
                  cardinal and intercardinal directions (in order):
                  [N, NE, E, SE, S, SW, W, NW]
+        include_endpoint : bool
+                           If True, include last cell in each river segment.
+                           If False, do not include last cell (such that
+                           cell indices in each profile are unique).
         routing : str
                   Routing algorithm to use:
                   'd8'   : D8 flow directions
@@ -1482,13 +1487,14 @@ class sGrid():
         -------
         profiles : list of lists of ints
                    A list containing a collection of river profiles. Each river profile
-                   is a list containing the flat indices of the grid cells inside the
-                   river segment.
+                   is a list containing the indices of the grid cells inside the
+                   river segment. Indices correspond to the flattened index of river segment
+                   cells.
         connections : dict (int : int)
-                      A dictionary describing the connectivity of the profiles. Each key
-                      and value corresponds to the index of the river profile in profiles.
-                      The key represents the upstream profile and the value represents the
-                      downstream profile that it drains to.
+                      A dictionary describing the connectivity of the profiles. For each
+                      key-value pair, the key represents index of the upstream profile and
+                      the value represents the index of the downstream profile that it drains to.
+                      Indices correspond to the ordered elements of the `profiles` object.
         """
         if routing.lower() == 'd8':
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
@@ -1514,7 +1520,8 @@ class sGrid():
         startnodes = startnodes[(indegree == 0)]
         profiles, connections = _self._d8_stream_connection_iter_numba(endnodes, indegree,
                                                                        orig_indegree,
-                                                                       startnodes)
+                                                                       startnodes,
+                                                                       include_endpoint)
         connections = dict(connections)
         indices = {profile[0] : index for index, profile in enumerate(profiles)}
         connections = {indices[key] : indices.setdefault(value, indices[key])

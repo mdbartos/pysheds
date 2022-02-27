@@ -408,6 +408,13 @@ def test_extract_river_network():
     grid.extract_river_network(catch, acc > 20, algorithm='recursive')
     # TODO: Need more checks here. Check if endnodes equals next startnode
 
+def test_extract_profiles():
+    fdir = d.fdir
+    catch = d.catch
+    acc = d.acc
+    grid.clip_to(catch)
+    profiles, connections = grid.extract_profiles(catch, acc > 20)
+
 def test_view_methods():
     dem = d.dem
     catch = d.catch

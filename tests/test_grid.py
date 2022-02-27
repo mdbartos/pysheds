@@ -11,6 +11,7 @@ data_dir = os.path.abspath(os.path.join(current_dir, '../data'))
 dir_path = os.path.join(data_dir, 'dir.asc')
 dem_path = os.path.join(data_dir, 'dem.tif')
 roi_path = os.path.join(data_dir, 'roi.tif')
+multiband_path = os.path.join(data_dir, 'cogeo.tiff')
 feature_geometry = [{'type': 'Polygon',
                       'coordinates': (((-97.29749977660477, 32.74000135435936),
                         (-97.29083107907053, 32.74000328969928),
@@ -331,20 +332,21 @@ def test_cell_slopes():
     slopes_dinf = grid.cell_slopes(dem, fdir_dinf, routing='dinf')
     slopes_mfd = grid.cell_slopes(dem, fdir_mfd, routing='mfd')
 
-# def test_set_nodata():
-#     grid.set_nodata('dir', 0)
-
 def test_to_ascii():
     catch = d.catch
     fdir = d.fdir
     grid.clip_to(catch)
-    # np.float is depreciated
     grid.to_ascii(fdir, 'test_dir.asc', target_view=fdir.viewfinder, dtype=np.float64)
     fdir_out = grid.read_ascii('test_dir.asc', dtype=np.uint8)
     assert((fdir_out == fdir).all())
     grid.to_ascii(fdir, 'test_dir.asc', dtype=np.uint8)
     fdir_out = grid.read_ascii('test_dir.asc', dtype=np.uint8)
     assert((fdir_out == grid.view(fdir)).all())
+
+def test_read_raster():
+    band_1 = grid.read_raster(multiband_path, band=1)
+    band_2 = grid.read_raster(multiband_path, band=2)
+    band_3 = grid.read_raster(multiband_path, band=3)
 
 def test_to_raster():
     catch = d.catch
@@ -405,6 +407,13 @@ def test_extract_river_network():
     assert(isinstance(rivers, dict))
     grid.extract_river_network(catch, acc > 20, algorithm='recursive')
     # TODO: Need more checks here. Check if endnodes equals next startnode
+
+def test_extract_profiles():
+    fdir = d.fdir
+    catch = d.catch
+    acc = d.acc
+    grid.clip_to(catch)
+    profiles, connections = grid.extract_profiles(catch, acc > 20)
 
 def test_view_methods():
     dem = d.dem

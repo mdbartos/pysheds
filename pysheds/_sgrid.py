@@ -1,7 +1,7 @@
 from heapq import heappop, heappush
 import numpy as np
 from numba import njit, prange
-from numba.types import float64, int64, uint32, uint16, uint8, boolean, UniTuple, Tuple, List, void
+from numba.types import float64, int64, uint32, uint16, uint8, boolean, UniTuple, Tuple, List, DictType, void
 
 # Functions for 'flowdir'
 
@@ -1465,6 +1465,36 @@ def _d8_stream_network_iter_numba(fdir, indegree, orig_indegree, startnodes):
             startnode = endnode
             endnode = fdir.flat[startnode]
     return profiles
+
+@njit(Tuple((List(List(int64)), DictType(int64, int64)))(int64[:,:], uint8[:],
+                                                         uint8[:], int64[:], boolean),
+      cache=True)
+def _d8_stream_connection_iter_numba(fdir, indegree, orig_indegree, startnodes,
+                                     include_endpoint):
+    n = startnodes.size
+    profiles = [[0]]
+    connections = {0 : 0}
+    _ = profiles.pop()
+    _ = connections.pop(0)
+    for k in range(n):
+        startnode = startnodes.flat[k]
+        endnode = fdir.flat[startnode]
+        profile = [startnode]
+        while (indegree.flat[startnode] == 0):
+            profile.append(endnode)
+            indegree.flat[endnode] -= 1
+            if (orig_indegree.flat[endnode] > 1):
+                chain_start = profile[0]
+                chain_end = profile[-1]
+                connections[chain_start] = chain_end
+                if not include_endpoint:
+                    _ = profile.pop()
+                profiles.append(profile)
+                if (indegree.flat[endnode] == 0):
+                    profile = [endnode]
+            startnode = endnode
+            endnode = fdir.flat[startnode]
+    return profiles, connections
 
 @njit(float64[:,:](int64[:,:], int64[:,:], float64[:,:]),
       parallel=True,

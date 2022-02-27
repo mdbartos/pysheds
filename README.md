@@ -376,6 +376,7 @@ ax.set_title('Soil types (raster)', size=14)
   - `stream_order` : Compute the (strahler) stream order.
   - `extract_river_network` : Extract river segments from a catchment and return a geojson
                         object.
+  - `extract_profiles` : Extract river segments and return a list of channel indices along with a dictionary describing connectivity.
   - `cell_dh` : Compute the drop in elevation from each cell to its downstream neighbor.
   - `cell_distances` : Compute the distance from each cell to its downstream neighbor.
   - `cell_slopes` : Compute the slope between each cell and its downstream neighbor.
@@ -471,6 +472,7 @@ Performance benchmarks on a 2015 MacBook Pro (M: million, K: thousand):
 | `hand`                  | MFD     |  36M total, 770K channel | 29.8 [s] |
 | `stream_order`          | D8      |  36M total, 1M channel   | 3.99 [s] |
 | `extract_river_network` | D8      |  36M total, 345K channel | 4.07 [s] |
+| `extract_profiles`      | D8      |  36M total, 345K channel | 2.89 [s] |
 | `detect_pits`           | N/A     |  36M                     | 1.80 [s] |
 | `detect_flats`          | N/A     |  36M                     | 1.84 [s] |
 | `fill_pits`             | N/A     |  36M                     | 2.52 [s] |

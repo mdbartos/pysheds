@@ -47,7 +47,7 @@ plt.tight_layout()
 ![Unconditioned DEM](https://s3.us-east-2.amazonaws.com/pysheds/img/roi_raw_dem.png)
 
 ### Detecting pits
-Pits can be detected using the `grid.detect_depressions` method:
+Pits can be detected using the `grid.detect_pits` method:
 
 ```python
 # Detect pits
@@ -75,7 +75,7 @@ plt.tight_layout()
 
 ### Filling pits
 
-Pits can be filled using the `grid.fill_depressions` method:
+Pits can be filled using the `grid.fill_pits` method:
 
 ```python
 # Fill pits

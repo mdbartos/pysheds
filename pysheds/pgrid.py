@@ -156,7 +156,7 @@ class Grid(object):
                 mask = data.mask
         else:
             if mask is None:
-                mask = np.ones(shape, dtype=np.bool)
+                mask = np.ones(shape, dtype=bool)
             if shape is None:
                 shape = data.shape
         if not isinstance(data, np.ndarray):
@@ -617,7 +617,7 @@ class Grid(object):
         self.affine = new_affine
         self.shape = shape
         #TODO: For now, simply reset mask
-        self.mask = np.ones(shape, dtype=np.bool)
+        self.mask = np.ones(shape, dtype=bool)
 
     def set_indices(self, new_indices):
         """
@@ -640,7 +640,7 @@ class Grid(object):
         self.affine = new_affine
         self.shape = shape
         #TODO: For now, simply reset mask
-        self.mask = np.ones(shape, dtype=np.bool)
+        self.mask = np.ones(shape, dtype=bool)
 
     def flowdir(self, data, out_name='dir', nodata_in=None, nodata_out=None,
                 pits=-1, flats=-1, dirmap=(64, 128, 1, 2, 4, 8, 16, 32), routing='d8',
@@ -1039,8 +1039,8 @@ class Grid(object):
             fdir_1[invalid_cells] = 0
             # Create indexing arrays for convenience
             domain = np.arange(fdir.size, dtype=np.min_scalar_type(fdir.size))
-            unique = np.zeros(fdir.size, dtype=np.bool)
-            visited = np.zeros(fdir.size, dtype=np.bool)
+            unique = np.zeros(fdir.size, dtype=bool)
+            visited = np.zeros(fdir.size, dtype=bool)
             # if xytype is 'label', delineate catchment based on cell nearest
             # to given geographic coordinate
             # TODO: This relies on the bbox of the grid instance, not the dataset
@@ -1809,7 +1809,7 @@ class Grid(object):
                 fdir_0[invalid_cells] = 0
                 fdir_1[invalid_cells] = 0
                 # Create indexing arrays for convenience
-                visited = np.zeros(fdir.size, dtype=np.bool)
+                visited = np.zeros(fdir.size, dtype=bool)
                 # nvisited = np.zeros(fdir.size, dtype=int)
                 r_dirmap = np.array(dirmap)[[4, 5, 6, 7, 0, 1, 2, 3]].tolist()
                 source = np.flatnonzero(mask)
@@ -2822,7 +2822,7 @@ class Grid(object):
         inside = self._inside_indices(dem, mask=dem_mask)
         inner_neighbors, diff, fdir_defined = self._d8_diff(dem, inside)
         pits_bool = (diff < 0).all(axis=0)
-        pits = np.zeros(dem.shape, dtype=np.bool)
+        pits = np.zeros(dem.shape, dtype=bool)
         pits.flat[inside] = pits_bool
         return pits
 
@@ -2866,7 +2866,7 @@ class Grid(object):
         inner_neighbors, diff, fdir_defined = self._d8_diff(dem, inside)
         pits_bool = (diff < 0).all(axis=0)
         flats_bool = (~fdir_defined & ~pits_bool)
-        flats = np.zeros(dem.shape, dtype=np.bool)
+        flats = np.zeros(dem.shape, dtype=bool)
         flats.flat[inside] = flats_bool
         return flats
 
@@ -2973,7 +2973,7 @@ class Grid(object):
         inside = self._inside_indices(dem, mask=dem_mask)
         inner_neighbors, diff, fdir_defined = self._d8_diff(dem, inside)
         pits_bool = (diff < 0).all(axis=0)
-        pits = np.zeros(dem.shape, dtype=np.bool)
+        pits = np.zeros(dem.shape, dtype=bool)
         pits.flat[inside] = pits_bool
         dem_out = dem.copy()
         dem_out.flat[inside[pits_bool]] = (dem.flat[inner_neighbors[:, pits_bool]
@@ -3160,7 +3160,7 @@ class Grid(object):
         inner_neighbors, diff, fdir_defined = self._d8_diff(dem, inside)
         pits_bool = (diff < 0).all(axis=0)
         flats_bool = (~fdir_defined & ~pits_bool)
-        flats = np.zeros(dem.shape, dtype=np.bool)
+        flats = np.zeros(dem.shape, dtype=bool)
         flats.flat[inside] = flats_bool
         high_edge_cells = self._get_high_edge_cells(diff, fdir_defined)
         low_edge_cells = self._get_low_edge_cells(diff, fdir_defined, inner_neighbors,
@@ -3289,7 +3289,7 @@ class Grid(object):
                                   properties=grid_props, ignore_metadata=ignore_metadata,
                                   **kwargs)
         if nodata_in is None:
-            dem_mask = np.ones(dem.shape, dtype=np.bool)
+            dem_mask = np.ones(dem.shape, dtype=bool)
         else:
             if np.isnan(nodata_in):
                 dem_mask = np.isnan(dem)
@@ -3412,7 +3412,7 @@ class Grid(object):
             self._get_nondraining_flats(dem, nodata_in=nodata_in, nodata_out=nodata_out,
                                         inplace=inplace, apply_mask=apply_mask,
                                         ignore_metadata=ignore_metadata, **kwargs))
-        bool_map = np.zeros(numlabels + 1, dtype=np.bool)
+        bool_map = np.zeros(numlabels + 1, dtype=bool)
         bool_map[no_lec] = 1
         nondraining_flats = bool_map[labels]
         return nondraining_flats
@@ -3430,7 +3430,7 @@ class Grid(object):
         inner_neighbors, diff, fdir_defined = self._d8_diff(dem, inside)
         pits_bool = (diff < 0).all(axis=0)
         flats_bool = (~fdir_defined & ~pits_bool)
-        flats = np.zeros(dem.shape, dtype=np.bool)
+        flats = np.zeros(dem.shape, dtype=bool)
         flats.flat[inside] = flats_bool
         low_edge_cells = self._get_low_edge_cells(diff, fdir_defined, inner_neighbors,
                                                   shape=dem.shape, inside=inside)

@@ -3236,7 +3236,7 @@ class Grid(object):
         inside = self._inside_indices(dem, mask=dem_mask)
         drainage_result = self._drainage_gradient(dem, inside)
         drainage_grad, flats, high_edge_cells, low_edge_cells, labels, diff = drainage_result
-        drainage_grad = drainage_grad.astype(np.float)
+        drainage_grad = drainage_grad.astype(np.float64)
         flatlabels = labels.flat[inside][flats.flat[inside]]
         flat_diffs = diff[:, flats.flat[inside].ravel()].astype(float)
         flat_diffs[flat_diffs == 0] = np.nan
@@ -3249,7 +3249,7 @@ class Grid(object):
         gradfactor = (0.9 * (minsteps / gradmax)).replace(np.inf, 0).append(pd.Series({0 : 0}))
         drainage_grad.flat[inside[flats.flat[inside]]] *= gradfactor[flatlabels].values
         drainage_grad.flat[inside[low_edge_cells]] = 0
-        dem_out = dem.astype(np.float) + drainage_grad
+        dem_out = dem.astype(np.float64) + drainage_grad
         return self._output_handler(data=dem_out, out_name=out_name, properties=grid_props,
                                     inplace=inplace, metadata=metadata)
 

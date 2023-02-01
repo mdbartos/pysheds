@@ -540,9 +540,9 @@ class Grid(object):
                           If False, require a valid affine transform and crs.
         """
         # Filter warnings due to invalid values
-        np.warnings.filterwarnings(action='ignore', message='The default mode',
+        warnings.filterwarnings(action='ignore', message='The default mode',
                                    category=UserWarning)
-        np.warnings.filterwarnings(action='ignore', message='Anti-aliasing',
+        warnings.filterwarnings(action='ignore', message='Anti-aliasing',
                                    category=UserWarning)
         nodata_in = self._check_nodata_in(data, nodata_in)
         if isinstance(data, str):
@@ -718,7 +718,7 @@ class Grid(object):
                     pits=-1, flats=-1, dirmap=(64, 128, 1, 2, 4, 8, 16, 32), inplace=True,
                     as_crs=None, apply_mask=False, ignore_metadata=False, properties={},
                     metadata={}, **kwargs):
-        np.warnings.filterwarnings(action='ignore', message='Invalid value encountered',
+        warnings.filterwarnings(action='ignore', message='Invalid value encountered',
                                    category=RuntimeWarning)
         try:
             # Make sure nothing flows to the nodata cells
@@ -768,7 +768,7 @@ class Grid(object):
                       as_crs=None, apply_mask=False, ignore_metadata=False, properties={},
                       metadata={}, **kwargs):
         # Filter warnings due to invalid values
-        np.warnings.filterwarnings(action='ignore', message='Invalid value encountered',
+        warnings.filterwarnings(action='ignore', message='Invalid value encountered',
                                    category=RuntimeWarning)
         try:
             # Make sure nothing flows to the nodata cells
@@ -997,7 +997,7 @@ class Grid(object):
                         inplace=True, apply_mask=False, ignore_metadata=False, properties={},
                         metadata={}, snap='corner', **kwargs):
         # Filter warnings due to invalid values
-        np.warnings.filterwarnings(action='ignore', message='Invalid value encountered',
+        warnings.filterwarnings(action='ignore', message='Invalid value encountered',
                                    category=RuntimeWarning)
         # Vectorized Recursive algorithm:
         # for each cell j, recursively search through grid to determine
@@ -1327,7 +1327,7 @@ class Grid(object):
                            out_name='acc', inplace=True, pad=False, apply_mask=False,
                            ignore_metadata=False, properties={}, metadata={}, **kwargs):
         # Filter warnings due to invalid values
-        np.warnings.filterwarnings(action='ignore', message='Invalid value encountered',
+        warnings.filterwarnings(action='ignore', message='Invalid value encountered',
                                    category=RuntimeWarning)
         # Pad the rim
         if pad:
@@ -1651,7 +1651,7 @@ class Grid(object):
                             xytype='index', apply_mask=True, ignore_metadata=False,
                             properties={}, metadata={}, snap='corner', **kwargs):
         # Filter warnings due to invalid values
-        np.warnings.filterwarnings(action='ignore', message='Invalid value encountered',
+        warnings.filterwarnings(action='ignore', message='Invalid value encountered',
                                    category=RuntimeWarning)
         # Construct flat index onto flow direction array
         mintype = np.min_scalar_type(fdir.size)
@@ -2113,9 +2113,9 @@ class Grid(object):
                           If False, require a valid affine transform and CRS.
         """
         # Filter warnings due to invalid values
-        np.warnings.filterwarnings(action='ignore', message='Invalid value encountered',
+        warnings.filterwarnings(action='ignore', message='Invalid value encountered',
                                    category=RuntimeWarning)
-        np.warnings.filterwarnings(action='ignore', message='divide by zero',
+        warnings.filterwarnings(action='ignore', message='divide by zero',
                                    category=RuntimeWarning)
         if routing.lower() != 'd8':
             raise NotImplementedError('Only implemented for D8 routing.')
@@ -3182,7 +3182,7 @@ class Grid(object):
         return drainage_grad, flats, high_edge_cells, low_edge_cells, labels, diff
 
     def _d8_diff(self, dem, inside):
-        np.warnings.filterwarnings(action='ignore', message='Invalid value encountered',
+        warnings.filterwarnings(action='ignore', message='Invalid value encountered',
                                    category=RuntimeWarning)
         inner_neighbors = self._select_surround_ravel(inside, dem.shape).T
         inner_neighbors_elev = dem.flat[inner_neighbors]
@@ -3217,7 +3217,7 @@ class Grid(object):
                           If False, require a valid affine transform and CRS.
         """
         # handle nodata values in dem
-        np.warnings.filterwarnings(action='ignore', message='All-NaN axis encountered',
+        warnings.filterwarnings(action='ignore', message='All-NaN axis encountered',
                                    category=RuntimeWarning)
         nodata_in = self._check_nodata_in(data, nodata_in)
         if nodata_out is None:

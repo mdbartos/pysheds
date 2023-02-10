@@ -2591,35 +2591,19 @@ class Grid(object):
         dtype: numpy datatype
                Desired datatype of the output array.
         """
-        # TODO: Should probably replace with input handler to remain consistent
-        if view:
-            data = self.view(data_name, apply_mask=apply_mask, nodata=nodata,
-                             interpolation=interpolation, as_crs=as_crs, kx=kx, ky=ky, s=s,
-                             tolerance=tolerance, dtype=dtype, **kwargs)
-        else:
-            data = getattr(self, data_name)
-        height, width = data.shape
-        default_blockx = width
-        default_profile = {
-            'driver' : 'GTiff',
-            'blockxsize' : blockxsize,
-            'blockysize' : blockysize,
-            'count': 1,
-            'tiled' : True
-        }
-        if not profile:
-            profile = default_profile
-        profile_updates = {
-            'crs' : data.crs.srs,
-            'transform' : data.affine,
-            'dtype' : data.dtype.name,
-            'nodata' : data.nodata,
-            'height' : height,
-            'width' : width
-        }
-        profile.update(profile_updates)
-        with rasterio.open(file_name, 'w', **profile) as dst:
-            dst.write(np.asarray(data), 1)
+        if target_view is None:
+            target_view = self.viewfinder
+        return pysheds.io.to_raster(data, file_name, target_view=target_view,
+                                    profile=profile, blockxsize=blockxsize,
+                                    blockysize=blockysize,
+                                    interpolation=interpolation,
+                                    apply_input_mask=apply_input_mask,
+                                    apply_output_mask=apply_output_mask,
+                                    inherit_nodata=inherit_nodata,
+                                    affine=affine, shape=shape, crs=crs,
+                                    mask=mask, nodata=nodata, dtype=dtype,
+                                    **kwargs)
+
 
     def extract_profiles(self, fdir, mask, dirmap=None, nodata_in=None, routing='d8',
                          apply_mask=True, ignore_metadata=False, **kwargs):

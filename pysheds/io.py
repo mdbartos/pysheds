@@ -299,7 +299,8 @@ def to_raster(data, file_name, target_view=None, profile=None, blockxsize=256,
         'height' : height,
         'width' : width
     }
-    profile.update(profile_updates | kwargs)
+    profile.update(profile_updates)
+    profile.update(kwargs)
     with rasterio.open(file_name, 'w', **profile) as dst:
         dst.write(np.asarray(data), 1)
 

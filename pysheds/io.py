@@ -1,19 +1,14 @@
 import ast
 import warnings
 import numpy as np
-import pyproj
 import rasterio
 import rasterio.features
 from affine import Affine
-from distutils.version import LooseVersion
 from pysheds.sview import Raster, ViewFinder, View
 
-_OLD_PYPROJ = LooseVersion(pyproj.__version__) < LooseVersion('2.2')
-_pyproj_crs = lambda Proj: Proj.crs if not _OLD_PYPROJ else Proj
-_pyproj_crs_is_geographic = 'is_latlong' if _OLD_PYPROJ else 'is_geographic'
-_pyproj_init = '+init=epsg:4326' if _OLD_PYPROJ else 'epsg:4326'
+from . import projection
 
-def read_ascii(data, skiprows=6, mask=None, crs=pyproj.Proj(_pyproj_init),
+def read_ascii(data, skiprows=6, mask=None, crs=projection.init(),
                xll='lower', yll='lower', metadata={}, **kwargs):
     """
     Reads data from an ascii file and returns a Raster.
@@ -97,7 +92,7 @@ def read_raster(data, band=1, window=None, window_crs=None, mask_geometry=False,
     """
     mask = None
     with rasterio.open(data, **kwargs) as f:
-        crs = pyproj.Proj(f.crs, preserve_units=True)
+        crs = projection.to_proj(f.crs)
         if window is None:
             shape = f.shape
             if len(f.indexes) > 1:
@@ -110,13 +105,9 @@ def read_raster(data, band=1, window=None, window_crs=None, mask_geometry=False,
             if window_crs is not None:
                 if window_crs.srs != crs.srs:
                     xmin, ymin, xmax, ymax = window
-                    if _OLD_PYPROJ:
-                        extent = pyproj.transform(window_crs, crs, (xmin, xmax),
-                                                (ymin, ymax))
-                    else:
-                        extent = pyproj.transform(window_crs, crs, (xmin, xmax),
-                                                    (ymin, ymax), errcheck=True,
-                                                    always_xy=True)
+                    extent = projection.transform(window_crs, crs, (xmin, xmax),
+                                                (ymin, ymax), errcheck=True,
+                                                always_xy=True)
                     window = (extent[0][0], extent[1][0], extent[0][1], extent[1][1])
             # If window crs not specified, assume it is in raster crs
             ix_window = f.window(*window)

@@ -1,6 +1,6 @@
 import copy
 import numpy as np
-import pyproj
+from . import projection
 from affine import Affine
 from distutils.version import LooseVersion
 try:
@@ -11,8 +11,6 @@ except:
 
 import pysheds._sview as _self
 
-_OLD_PYPROJ = LooseVersion(pyproj.__version__) < LooseVersion('2.2')
-_pyproj_init = '+init=epsg:4326' if _OLD_PYPROJ else 'epsg:4326'
 
 class Raster(np.ndarray):
     """
@@ -234,7 +232,7 @@ class Raster(np.ndarray):
         boundary = np.vstack([top, bottom, left, right])
         xi, yi = boundary[:,0], boundary[:,1]
         xb, yb = View.affine_transform(self.affine, xi, yi)
-        xb_p, yb_p = pyproj.transform(old_crs, new_crs, xb, yb,
+        xb_p, yb_p = projection.transform(old_crs, new_crs, xb, yb,
                                       errcheck=True, always_xy=True)
         x0_p = xb_p.min() if (dx > 0) else xb_p.max()
         y0_p = yb_p.min() if (dy > 0) else yb_p.max()
@@ -331,7 +329,7 @@ class ViewFinder():
     dy_dx : Tuple describing the cell size in the y and x directions.
     """
     def __init__(self, affine=Affine(1., 0., 0., 0., 1., 0.), shape=(1,1),
-                 nodata=0, mask=None, crs=pyproj.Proj(_pyproj_init)):
+                 nodata=0, mask=None, crs=projection.init()):
         self.affine = affine
         self.crs = crs
         self.nodata = nodata
@@ -411,11 +409,7 @@ class ViewFinder():
 
     @crs.setter
     def crs(self, new_crs):
-        try:
-            assert (isinstance(new_crs, pyproj.Proj))
-        except:
-            raise TypeError('`crs` must be a `pyproj.Proj` object.')
-        self._crs = new_crs
+        self._crs = projection.to_proj(new_crs)
 
     @property
     def size(self):
@@ -968,7 +962,7 @@ class View():
     @classmethod
     def _view_different_crs(cls, view, data, data_view, target_view, interpolation='nearest'):
         y, x = target_view.coords.T
-        xt, yt = pyproj.transform(target_view.crs, data_view.crs, x=x, y=y,
+        xt, yt = projection.transform(target_view.crs, data_view.crs, x=x, y=y,
                                   errcheck=True, always_xy=True)
         inv_affine = ~data_view.affine
         x_ix, y_ix = cls.affine_transform(inv_affine, xt, yt)

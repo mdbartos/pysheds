@@ -1,12 +1,11 @@
 import sys
 import ast
 import copy
-import pyproj
+# import pyproj
 import numpy as np
 import pandas as pd
 import geojson
 from affine import Affine
-from distutils.version import LooseVersion
 try:
     import skimage.measure
     import skimage.morphology
@@ -20,11 +19,6 @@ try:
 except:
     _HAS_RASTERIO = False
 
-_OLD_PYPROJ = LooseVersion(pyproj.__version__) < LooseVersion('2.2')
-_pyproj_crs = lambda Proj: Proj.crs if not _OLD_PYPROJ else Proj
-_pyproj_crs_is_geographic = 'is_latlong' if _OLD_PYPROJ else 'is_geographic'
-_pyproj_init = '+init=epsg:4326' if _OLD_PYPROJ else 'epsg:4326'
-
 # Import input/output functions
 import pysheds.io
 
@@ -34,6 +28,7 @@ from pysheds.sview import View, ViewFinder
 
 # Import numba functions
 import pysheds._sgrid as _self
+from . import projection
 
 class sGrid():
     """
@@ -133,7 +128,7 @@ class sGrid():
             'affine' : Affine(1.,0.,0.,0.,1.,0.),
             'shape' : (1,1),
             'nodata' : 0,
-            'crs' : pyproj.Proj(_pyproj_init),
+            'crs' : projection.init(),
         }
         return props
 
@@ -192,7 +187,7 @@ class sGrid():
         return extent
 
     def read_ascii(self, data, skiprows=6, mask=None,
-                   crs=pyproj.Proj(_pyproj_init), xll='lower', yll='lower',
+                   crs=projection.init(), xll='lower', yll='lower',
                    metadata={}, **kwargs):
         """
         Reads data from an ascii file and returns a Raster.

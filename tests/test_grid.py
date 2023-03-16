@@ -361,6 +361,18 @@ def test_to_raster():
     fdir_out = grid.read_raster('test_dir.tif')
     assert((fdir_out == grid.view(fdir)).all())
 
+def test_to_raster_kwargs():
+    """
+    Test if kwargs of the "to_raster" method are passed to rasterio
+    """
+    import rasterio as rio
+    catch = d.catch
+    grid.clip_to(catch)
+    grid.to_raster(fdir, 'test_dir.tif', target_view=fdir.viewfinder,
+                   blockxsize=16, blockysize=16, compress='LZW')
+    with rio.open('test_dir.tif') as ds:
+        assert ds.profile['compress'] == 'lzw'
+
 # def test_from_raster():
 #     grid.clip_to('catch')
 #     grid.to_raster('dir', 'test_dir.tif', view=False, apply_mask=False, blockxsize=16, blockysize=16)

@@ -271,6 +271,7 @@ def to_raster(data, file_name, target_view=None, profile=None, blockxsize=256,
                 Value indicating no data in output Raster (overrides target_view.nodata)
     dtype : numpy datatype
             Desired datatype of the output array.
+    kwargs : Keyword arguments passed to rasterio.open together with the profile, eg. compress='lzw'
     """
     if target_view is None:
         target_view = data.viewfinder
@@ -299,6 +300,7 @@ def to_raster(data, file_name, target_view=None, profile=None, blockxsize=256,
         'width' : width
     }
     profile.update(profile_updates)
+    profile.update(kwargs)
     with rasterio.open(file_name, 'w', **profile) as dst:
         dst.write(np.asarray(data), 1)
 

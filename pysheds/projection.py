@@ -107,6 +107,8 @@ else:
     def init():
         return pyproj.Proj('epsg:4326').crs
     def to_proj(source: pyproj.Proj):
+        if isinstance(source, pyproj.Proj):
+            source = source.crs
         return pyproj.Proj(source, preserve_units=True).crs
 
 

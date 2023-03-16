@@ -5,7 +5,8 @@ import numpy as np
 from pysheds.grid import Grid
 from pysheds.view import Raster, ViewFinder
 from pysheds.rfsm import RFSM
-
+import pysheds
+print(pysheds.__version__)
 current_dir = os.path.dirname(os.path.realpath(__file__))
 data_dir = os.path.abspath(os.path.join(current_dir, '../data'))
 dir_path = os.path.join(data_dir, 'dir.asc')

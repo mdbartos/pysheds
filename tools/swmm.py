@@ -1,5 +1,3 @@
-import sys
-import ast
 import numpy as np
 import pandas as pd
 import pyproj
@@ -7,7 +5,7 @@ from pysheds.grid import Grid
 try:
     import scipy.signal
     _HAS_SCIPY = True
-except:
+except ModuleNotFoundError:
     _HAS_SCIPY = False
 
 class SwmmIngester(object):
@@ -538,6 +536,7 @@ class SwmmIngester(object):
     def to_file(self, filename, **kwargs):
         with open(filename, 'w') as outfile:
             outfile.writelines(self.lines)
+
 
 if __name__ == "__main__":
     grid = Grid.from_raster('../data/n30w100_con',

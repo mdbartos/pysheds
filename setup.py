@@ -2,10 +2,6 @@
 
 from setuptools import setup
 
-REQUIREMENTS = [
-    dependency for dependency in open("requirements.txt").readlines()
-]
-print(REQUIREMENTS)
 
 setup(
     name="pysheds",
@@ -29,8 +25,18 @@ setup(
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
-        "Topic :: Scientific/Engineering :: Atmospheric Science"
+        "Topic :: Scientific/Engineering :: Atmospheric Science",
     ],
     include_package_data=True,
-    install_requires=REQUIREMENTS,
+    install_requires=[
+        "affine",
+        "geojson",
+        "numba",
+        "numpy",
+        "pandas",
+        "pyproj",
+        "rasterio>=1",
+        "scikit-image",
+        "scipy",
+    ],
 )

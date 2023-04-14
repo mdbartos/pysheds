@@ -1,9 +1,0 @@
-affine
-geojson
-numba
-numpy
-pandas
-pyproj
-rasterio>=1
-scikit-image
-scipy

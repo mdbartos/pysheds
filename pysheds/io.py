@@ -2,7 +2,6 @@ import ast
 import warnings
 import numpy as np
 import pyproj
-import rasterio
 import rasterio.features
 from affine import Affine
 from distutils.version import LooseVersion

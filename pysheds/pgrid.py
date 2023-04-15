@@ -1,6 +1,5 @@
 import sys
 import ast
-import copy
 import warnings
 import pyproj
 import numpy as np

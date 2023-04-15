@@ -39,4 +39,8 @@ setup(
         "scikit-image",
         "scipy",
     ],
+    extras_require=dict(
+        dev=["pytest", "pytest-cov"],
+        recipes=["geopandas", "ipython", "matplotlib", "seaborn"]
+    ),
 )

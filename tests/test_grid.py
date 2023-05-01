@@ -2,6 +2,34 @@ import numpy as np
 import pyproj
 import pytest
 from pysheds.grid import Grid
+from pysheds.view import Raster, ViewFinder
+from pysheds.rfsm import RFSM
+import pysheds
+print(pysheds.__version__)
+current_dir = os.path.dirname(os.path.realpath(__file__))
+data_dir = os.path.abspath(os.path.join(current_dir, '../data'))
+dir_path = os.path.join(data_dir, 'dir.asc')
+dem_path = os.path.join(data_dir, 'dem.tif')
+roi_path = os.path.join(data_dir, 'roi.tif')
+multiband_path = os.path.join(data_dir, 'cogeo.tiff')
+feature_geometry = [{'type': 'Polygon',
+                      'coordinates': (((-97.29749977660477, 32.74000135435936),
+                        (-97.29083107907053, 32.74000328969928),
+                        (-97.29083343776601, 32.734166727851886),
+                        (-97.29749995804616, 32.73416660689317),
+                        (-97.29749977660477, 32.74000135435936)),)}]
+out_of_bounds = [{'type': 'Polygon',
+                      'coordinates': (((-97.29304075342363, 32.847513357726825),
+                        (-97.28637205588939, 32.84751529306675),
+                        (-97.28637441458487, 32.84167873121935),
+                        (-97.29304093486502, 32.84167861026064),
+                        (-97.29304075342363, 32.847513357726825)),)}]
+
+class Datasets():
+    pass
+
+# Initialize dataset holder
+d = Datasets()
 
 feature_geometry = [
     {

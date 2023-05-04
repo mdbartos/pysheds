@@ -1,2 +1,2 @@
-llvmlite @ git+https://github.com/numba/llvmlite@v0.41.0dev0
+llvmlite @ git+https://github.com/numba/llvmlite@main
 numba @ git+https://github.com/numba/numba.git@main

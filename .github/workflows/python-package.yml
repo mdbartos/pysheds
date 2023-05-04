@@ -24,15 +24,21 @@ jobs:
       uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
+    - name: Update pip
+      run: |
+        python -m pip install --upgrade pip
     - name: Install upstream dependencies
       if: ${{ matrix.python-version == '3.11' }}
       run: |
+        sudo apt-get install llvm-11-dev
         python -m pip install -r requirements_upstream.txt
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
         python -m pip install flake8 pytest
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    - name: Install pysheds
+      run: |
+        python -m pip install --editable .
     - name: Lint with flake8
       run: |
         # stop the build if there are Python syntax errors or undefined names

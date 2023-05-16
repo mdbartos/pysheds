@@ -10,13 +10,13 @@ try:
     import skimage.measure
     import skimage.morphology
     _HAS_SKIMAGE = True
-except:
+except ModuleNotFoundError:
     _HAS_SKIMAGE = False
 try:
     import rasterio
     import rasterio.features
     _HAS_RASTERIO = True
-except:
+except ModuleNotFoundError:
     _HAS_RASTERIO = False
 
 # Import input/output functions

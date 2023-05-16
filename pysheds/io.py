@@ -1,10 +1,11 @@
 import ast
 import warnings
 import numpy as np
+import pyproj
 import rasterio
-import rasterio.features
 from affine import Affine
 from pysheds.sview import Raster, ViewFinder, View
+from rasterio.features import geometry_mask
 
 from . import projection
 
@@ -119,7 +120,7 @@ def read_raster(data, band=1, window=None, window_crs=None, mask_geometry=False,
             data = np.squeeze(data)
             shape = data.shape
         if mask_geometry:
-            mask = rasterio.features.geometry_mask(mask_geometry, shape, affine, invert=True)
+            mask = geometry_mask(mask_geometry, shape, affine, invert=True)
             # No mask was applied if all False, out of bounds
             if not mask.any():
                 # Return mask to all True and deliver warning

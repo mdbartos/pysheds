@@ -6,7 +6,7 @@ from distutils.version import LooseVersion
 try:
     import scipy.spatial
     _HAS_SCIPY = True
-except:
+except ModuleNotFoundError:
     _HAS_SCIPY = False
 
 import pysheds._sview as _self
@@ -786,16 +786,15 @@ class View():
 
     @classmethod
     def trim_zeros(cls, data, pad=(0,0,0,0)):
-        """
-        Clip a Raster to the smallest area that contains all non-null data.
+        """Clip a Raster to the smallest area that contains all non-null data.
 
         Parameters
         ----------
         data : Raster
-               A Raster dataset.
+            A Raster dataset.
         pad : tuple of int (length 4)
-              Apply padding to edges of new view (left, bottom, right, top). A pad of
-              (1,1,1,1), for instance, will add a one-cell rim around the new view.
+            Apply padding to edges of new view (left, bottom, right, top).
+            A pad of (1,1,1,1), for instance, will add a one-cell rim around the new view.
 
         Returns
         -------
@@ -820,19 +819,17 @@ class View():
 
     @classmethod
     def clip_to_mask(cls, data, mask=None, pad=(0,0,0,0)):
-        """
-        Clip a Raster to the smallest area that contains all nonzero entries for a
-        given boolean mask.
+        """Clip a Raster to the smallest area that contains all nonzero entries for a given boolean mask.
 
         Parameters
         ----------
         data : Raster
-               A Raster dataset.
+            A Raster dataset.
         mask : Raster
-               A Raster dataset representing a boolean mask. Defaults to data.mask.
+            A Raster dataset representing a boolean mask. Defaults to data.mask.
         pad : tuple of int (length 4)
-              Apply padding to edges of new view (left, bottom, right, top). A pad of
-              (1,1,1,1), for instance, will add a one-cell rim around the new view.
+            Apply padding to edges of new view (left, bottom, right, top).
+            A pad of (1,1,1,1), for instance, will add a one-cell rim around the new view.
 
         Returns
         -------

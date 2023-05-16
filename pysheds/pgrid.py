@@ -1,6 +1,5 @@
 import sys
 import ast
-import copy
 import warnings
 import pyproj
 import numpy as np
@@ -14,20 +13,20 @@ try:
     from scipy.sparse import csgraph
     import scipy.interpolate
     _HAS_SCIPY = True
-except:
+except (ModuleNotFoundError, ImportError):
     _HAS_SCIPY = False
 try:
     import skimage.measure
     import skimage.transform
     import skimage.morphology
     _HAS_SKIMAGE = True
-except:
+except ModuleNotFoundError:
     _HAS_SKIMAGE = False
 try:
     import rasterio
     import rasterio.features
     _HAS_RASTERIO = True
-except:
+except ModuleNotFoundError:
     _HAS_RASTERIO = False
 
 _OLD_PYPROJ = LooseVersion(pyproj.__version__) < LooseVersion('2.2')

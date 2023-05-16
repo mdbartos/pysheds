@@ -6,6 +6,8 @@ setup(
     name="pysheds",
     version="0.3.4",
     description="🌎 Simple and fast watershed delineation in python.",
+    long_description="🌎 Simple and fast watershed delineation in python.",
+    long_description_content_type="text/x-rst",
     author="Matt Bartos",
     author_email="mdbartos@umich.edu",
     url="http://open-storm.org",

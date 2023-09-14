@@ -82,7 +82,7 @@ class Raster(np.ndarray):
         except:
             raise TypeError('`object` and `flexible` dtypes not allowed.')
         try:
-            assert np.min_scalar_type(viewfinder.nodata) <= obj.dtype
+            assert np.can_cast(viewfinder.nodata, obj.dtype, casting='safe')
         except:
             raise TypeError('`nodata` value not representable in dtype of array.')
         # Don't allow original viewfinder and metadata to be modified
@@ -288,7 +288,7 @@ class MultiRaster(Raster):
         except:
             raise TypeError('`object` and `flexible` dtypes not allowed.')
         try:
-            assert np.min_scalar_type(viewfinder.nodata) <= obj.dtype
+            assert np.can_cast(viewfinder.nodata, obj.dtype, casting='safe')
         except:
             raise TypeError('`nodata` value not representable in dtype of array.')
         # Don't allow original viewfinder and metadata to be modified

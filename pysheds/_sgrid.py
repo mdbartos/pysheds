@@ -24,6 +24,9 @@ def _d8_flowdir_numba(dem, dx, dy, dirmap, nodata_cells, nodata_out, flat=-1, pi
                 for k in range(8):
                     row_offset = row_offsets[k]
                     col_offset = col_offsets[k]
+                    if nodata_cells[i + row_offset, j + col_offset]:
+                        # this neighbor is nodata, skip
+                        continue
                     distance = distances[k]
                     slope = (elev - dem[i + row_offset, j + col_offset]) / distance
                     if slope > max_slope:

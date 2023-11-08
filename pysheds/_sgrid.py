@@ -10,7 +10,7 @@ from numba.types import float64, int64, uint32, uint16, uint8, boolean, UniTuple
       parallel=True,
       cache=True)
 def _d8_flowdir_numba(dem, dx, dy, dirmap, nodata_cells, nodata_out, flat=-1, pit=-2):
-    fdir = np.zeros(dem.shape, dtype=np.int64)
+    fdir = np.full(dem.shape, nodata_out, dtype=np.int64)
     m, n = dem.shape
     dd = np.sqrt(dx**2 + dy**2)
     row_offsets = np.array([-1, -1, 0, 1, 1, 1, 0, -1])
@@ -18,9 +18,7 @@ def _d8_flowdir_numba(dem, dx, dy, dirmap, nodata_cells, nodata_out, flat=-1, pi
     distances = np.array([dy, dd, dx, dd, dy, dd, dx, dd])
     for i in prange(1, m - 1):
         for j in prange(1, n - 1):
-            if nodata_cells[i, j]:
-                fdir[i, j] = nodata_out
-            else:
+            if not nodata_cells[i, j]:
                 elev = dem[i, j]
                 max_slope = -np.inf
                 for k in range(8):

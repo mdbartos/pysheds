@@ -17,19 +17,22 @@ def _d8_flowdir_numba(dem, dx, dy, dirmap, nodata_cells, nodata_out, flat=-1, pi
     row_offsets = np.array([-1, -1, 0, 1, 1, 1, 0, -1])
     col_offsets = np.array([0, 1, 1, 1, 0, -1, -1, -1])
     distances = np.array([dy, dd, dx, dd, dy, dd, dx, dd])
-    for i in prange(1, m - 1):
-        for j in prange(1, n - 1):
+    for i in prange(m):
+        for j in prange(n):
             if not nodata_cells[i, j]:
                 elev = dem[i, j]
                 max_slope = -np.inf
                 for k in range(8):
-                    row_offset = row_offsets[k]
-                    col_offset = col_offsets[k]
-                    if nodata_cells[i + row_offset, j + col_offset]:
+                    row = i + row_offsets[k]
+                    col = j + col_offsets[k]
+                    if row < 0 or row >= m or col < 0 or col >= n:
+                        # out of bounds, skip
+                        continue
+                    elif nodata_cells[row, col]:
                         # this neighbor is nodata, skip
                         continue
                     distance = distances[k]
-                    slope = (elev - dem[i + row_offset, j + col_offset]) / distance
+                    slope = (elev - dem[row, col]) / distance
                     if slope > max_slope:
                         fdir[i, j] = dirmap[k]
                         max_slope = slope

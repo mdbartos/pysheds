@@ -52,22 +52,25 @@ def _d8_flowdir_irregular_numba(dem, x_arr, y_arr, dirmap, nodata_cells,
     m, n = dem.shape
     row_offsets = np.array([-1, -1, 0, 1, 1, 1, 0, -1])
     col_offsets = np.array([0, 1, 1, 1, 0, -1, -1, -1])
-    for i in prange(1, m - 1):
-        for j in prange(1, n - 1):
+    for i in prange(m):
+        for j in prange(n):
             if not nodata_cells[i, j]:
                 elev = dem[i, j]
                 x_center = x_arr[i, j]
                 y_center = y_arr[i, j]
                 max_slope = -np.inf
                 for k in range(8):
-                    row_offset = row_offsets[k]
-                    col_offset = col_offsets[k]
-                    if nodata_cells[i + row_offset, j + col_offset]:
+                    row = i + row_offsets[k]
+                    col = j + col_offsets[k]
+                    if row < 0 or row >= m or col < 0 or col >= n:
+                        # out of bounds, skip
+                        continue
+                    elif nodata_cells[row, col]:
                         # this neighbor is nodata, skip
                         continue
-                    dh = elev - dem[i + row_offset, j + col_offset]
-                    dx = np.abs(x_center - x_arr[i + row_offset, j + col_offset])
-                    dy = np.abs(y_center - y_arr[i + row_offset, j + col_offset])
+                    dh = elev - dem[row, col]
+                    dx = np.abs(x_center - x_arr[row, col])
+                    dy = np.abs(y_center - y_arr[row, col])
                     distance = math.sqrt(dx**2 + dy**2)
                     slope = dh / distance
                     if slope > max_slope:

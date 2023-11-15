@@ -44,15 +44,13 @@ def _d8_flowdir_numba(dem, dx, dy, dirmap, nodata_cells, nodata_out, flat=-1, pi
       cache=True)
 def _d8_flowdir_irregular_numba(dem, x_arr, y_arr, dirmap, nodata_cells,
                                 nodata_out, flat=-1, pit=-2):
-    fdir = np.zeros(dem.shape, dtype=np.int64)
+    fdir = np.full(dem.shape, nodata_out, dtype=np.int64)
     m, n = dem.shape
     row_offsets = np.array([-1, -1, 0, 1, 1, 1, 0, -1])
     col_offsets = np.array([0, 1, 1, 1, 0, -1, -1, -1])
     for i in prange(1, m - 1):
         for j in prange(1, n - 1):
-            if nodata_cells[i, j]:
-                fdir[i, j] = nodata_out
-            else:
+            if not nodata_cells[i, j]:
                 elev = dem[i, j]
                 x_center = x_arr[i, j]
                 y_center = y_arr[i, j]
@@ -60,6 +58,9 @@ def _d8_flowdir_irregular_numba(dem, x_arr, y_arr, dirmap, nodata_cells,
                 for k in range(8):
                     row_offset = row_offsets[k]
                     col_offset = col_offsets[k]
+                    if nodata_cells[i + row_offset, j + col_offset]:
+                        # this neighbor is nodata, skip
+                        continue
                     dh = elev - dem[i + row_offset, j + col_offset]
                     dx = np.abs(x_center - x_arr[i + row_offset, j + col_offset])
                     dy = np.abs(y_center - y_arr[i + row_offset, j + col_offset])
@@ -259,21 +260,22 @@ def _angle_to_d8_numba(angles, dirmap, nodata_cells):
       cache=True)
 def _mfd_flowdir_numba(dem, dx, dy, nodata_cells, nodata_out, p=1):
     m, n = dem.shape
-    fdir = np.zeros((8, m, n), dtype=np.float64)
+    fdir = np.full((8, m, n), nodata_out, dtype=np.float64)
     row_offsets = np.array([-1, -1, 0, 1, 1, 1, 0, -1])
     col_offsets = np.array([0, 1, 1, 1, 0, -1, -1, -1])
     dd = np.sqrt(dx**2 + dy**2)
     distances = np.array([dy, dd, dx, dd, dy, dd, dx, dd])
     for i in prange(1, m - 1):
         for j in prange(1, n - 1):
-            if nodata_cells[i, j]:
-                fdir[:, i, j] = nodata_out
-            else:
+            if not nodata_cells[i, j]:
                 elev = dem[i, j]
                 den = 0.
                 for k in range(8):
                     row_offset = row_offsets[k]
                     col_offset = col_offsets[k]
+                    if nodata_cells[i + row_offset, j + col_offset]:
+                        # neighbor is nodata, skip
+                        continue
                     distance = distances[k]
                     num = (elev - dem[i + row_offset, j + col_offset])**p / distance
                     if num > 0:

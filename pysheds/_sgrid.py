@@ -69,8 +69,8 @@ def _d8_flowdir_irregular_numba(dem, x_arr, y_arr, dirmap, nodata_cells,
                         # this neighbor is nodata, skip
                         continue
                     dh = elev - dem[row, col]
-                    dx = math.abs(x_center - x_arr[row, col])
-                    dy = math.abs(y_center - y_arr[row, col])
+                    dx = abs(x_center - x_arr[row, col])
+                    dy = abs(y_center - y_arr[row, col])
                     distance = math.sqrt(dx**2 + dy**2)
                     slope = dh / distance
                     if slope > max_slope:

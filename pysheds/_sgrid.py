@@ -272,19 +272,22 @@ def _mfd_flowdir_numba(dem, dx, dy, nodata_cells, nodata_out, p=1):
     col_offsets = np.array([0, 1, 1, 1, 0, -1, -1, -1])
     dd = math.sqrt(dx**2 + dy**2)
     distances = np.array([dy, dd, dx, dd, dy, dd, dx, dd])
-    for i in prange(1, m - 1):
-        for j in prange(1, n - 1):
+    for i in prange(m):
+        for j in prange(n):
             if not nodata_cells[i, j]:
                 elev = dem[i, j]
                 den = 0.
                 for k in range(8):
-                    row_offset = row_offsets[k]
-                    col_offset = col_offsets[k]
-                    if nodata_cells[i + row_offset, j + col_offset]:
-                        # neighbor is nodata, skip
+                    row = i + row_offsets[k]
+                    col = j + col_offsets[k]
+                    if row < 0 or row >= m or col < 0 or col >= n:
+                        # out of bounds, skip
+                        continue
+                    elif nodata_cells[row, col]:
+                        # this neighbor is nodata, skip
                         continue
                     distance = distances[k]
-                    num = (elev - dem[i + row_offset, j + col_offset])**p / distance
+                    num = (elev - dem[row, col])**p / distance
                     if num > 0:
                         fdir[k, i, j] = num
                         den += num

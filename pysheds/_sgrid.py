@@ -1,4 +1,5 @@
 from heapq import heappop, heappush
+import math
 import numpy as np
 from numba import njit, prange
 from numba.types import float64, int64, uint32, uint16, uint8, boolean, UniTuple, Tuple, List, DictType, void
@@ -12,23 +13,26 @@ from numba.types import float64, int64, uint32, uint16, uint8, boolean, UniTuple
 def _d8_flowdir_numba(dem, dx, dy, dirmap, nodata_cells, nodata_out, flat=-1, pit=-2):
     fdir = np.full(dem.shape, nodata_out, dtype=np.int64)
     m, n = dem.shape
-    dd = np.sqrt(dx**2 + dy**2)
+    dd = math.sqrt(dx**2 + dy**2)
     row_offsets = np.array([-1, -1, 0, 1, 1, 1, 0, -1])
     col_offsets = np.array([0, 1, 1, 1, 0, -1, -1, -1])
     distances = np.array([dy, dd, dx, dd, dy, dd, dx, dd])
-    for i in prange(1, m - 1):
-        for j in prange(1, n - 1):
+    for i in prange(m):
+        for j in prange(n):
             if not nodata_cells[i, j]:
                 elev = dem[i, j]
                 max_slope = -np.inf
                 for k in range(8):
-                    row_offset = row_offsets[k]
-                    col_offset = col_offsets[k]
-                    if nodata_cells[i + row_offset, j + col_offset]:
+                    row = i + row_offsets[k]
+                    col = j + col_offsets[k]
+                    if row < 0 or row >= m or col < 0 or col >= n:
+                        # out of bounds, skip
+                        continue
+                    elif nodata_cells[row, col]:
                         # this neighbor is nodata, skip
                         continue
                     distance = distances[k]
-                    slope = (elev - dem[i + row_offset, j + col_offset]) / distance
+                    slope = (elev - dem[row, col]) / distance
                     if slope > max_slope:
                         fdir[i, j] = dirmap[k]
                         max_slope = slope
@@ -44,26 +48,30 @@ def _d8_flowdir_numba(dem, dx, dy, dirmap, nodata_cells, nodata_out, flat=-1, pi
       cache=True)
 def _d8_flowdir_irregular_numba(dem, x_arr, y_arr, dirmap, nodata_cells,
                                 nodata_out, flat=-1, pit=-2):
-    fdir = np.zeros(dem.shape, dtype=np.int64)
+    fdir = np.full(dem.shape, nodata_out, dtype=np.int64)
     m, n = dem.shape
     row_offsets = np.array([-1, -1, 0, 1, 1, 1, 0, -1])
     col_offsets = np.array([0, 1, 1, 1, 0, -1, -1, -1])
-    for i in prange(1, m - 1):
-        for j in prange(1, n - 1):
-            if nodata_cells[i, j]:
-                fdir[i, j] = nodata_out
-            else:
+    for i in prange(m):
+        for j in prange(n):
+            if not nodata_cells[i, j]:
                 elev = dem[i, j]
                 x_center = x_arr[i, j]
                 y_center = y_arr[i, j]
                 max_slope = -np.inf
                 for k in range(8):
-                    row_offset = row_offsets[k]
-                    col_offset = col_offsets[k]
-                    dh = elev - dem[i + row_offset, j + col_offset]
-                    dx = np.abs(x_center - x_arr[i + row_offset, j + col_offset])
-                    dy = np.abs(y_center - y_arr[i + row_offset, j + col_offset])
-                    distance = np.sqrt(dx**2 + dy**2)
+                    row = i + row_offsets[k]
+                    col = j + col_offsets[k]
+                    if row < 0 or row >= m or col < 0 or col >= n:
+                        # out of bounds, skip
+                        continue
+                    elif nodata_cells[row, col]:
+                        # this neighbor is nodata, skip
+                        continue
+                    dh = elev - dem[row, col]
+                    dx = abs(x_center - x_arr[row, col])
+                    dy = abs(y_center - y_arr[row, col])
+                    distance = math.sqrt(dx**2 + dy**2)
                     slope = dh / distance
                     if slope > max_slope:
                         fdir[i, j] = dirmap[k]
@@ -79,10 +87,10 @@ def _d8_flowdir_irregular_numba(dem, x_arr, y_arr, dirmap, nodata_cells,
 def _facet_flow(e0, e1, e2, d1=1., d2=1.):
     s1 = (e0 - e1) / d1
     s2 = (e1 - e2) / d2
-    r = np.arctan2(s2, s1)
-    s = np.hypot(s1, s2)
-    diag_angle    = np.arctan2(d2, d1)
-    diag_distance = np.hypot(d1, d2)
+    r = math.atan2(s2, s1)
+    s = math.hypot(s1, s2)
+    diag_angle = math.atan2(d2, d1)
+    diag_distance = math.hypot(d1, d2)
     b0 = (r < 0)
     b1 = (r > diag_angle)
     if b0:
@@ -105,7 +113,7 @@ def _dinf_flowdir_numba(dem, x_dist, y_dist, nodata, flat=-1., pit=-2.):
     ac = np.array([0, 1, 1, 2, 2, 3, 3, 4])
     af = np.array([1, -1, 1, -1, 1, -1, 1, -1])
     angle = np.full(dem.shape, nodata, dtype=np.float64)
-    diag_dist = np.sqrt(x_dist**2 + y_dist**2)
+    diag_dist = math.sqrt(x_dist**2 + y_dist**2)
     cell_dists = np.array([x_dist, diag_dist, y_dist, diag_dist,
                            x_dist, diag_dist, y_dist, diag_dist])
     row_offsets = np.array([0, -1, -1, -1, 0, 1, 1, 1])
@@ -179,8 +187,8 @@ def _dinf_flowdir_irregular_numba(dem, x_arr, y_arr, nodata, flat=-1., pit=-2.):
                 x2 = x_arr[i + row_offset_2, j + col_offset_2]
                 y1 = y_arr[i + row_offset_1, j + col_offset_1]
                 y2 = y_arr[i + row_offset_2, j + col_offset_2]
-                d1 = np.sqrt(x1**2 + y1**2)
-                d2 = np.sqrt(x2**2 + y2**2)
+                d1 = math.sqrt(x1**2 + y1**2)
+                d2 = math.sqrt(x2**2 + y2**2)
                 r, s = _facet_flow(e0, e1, e2, d1, d2)
                 if s > s_max:
                     s_max = s
@@ -259,23 +267,27 @@ def _angle_to_d8_numba(angles, dirmap, nodata_cells):
       cache=True)
 def _mfd_flowdir_numba(dem, dx, dy, nodata_cells, nodata_out, p=1):
     m, n = dem.shape
-    fdir = np.zeros((8, m, n), dtype=np.float64)
+    fdir = np.full((8, m, n), nodata_out, dtype=np.float64)
     row_offsets = np.array([-1, -1, 0, 1, 1, 1, 0, -1])
     col_offsets = np.array([0, 1, 1, 1, 0, -1, -1, -1])
-    dd = np.sqrt(dx**2 + dy**2)
+    dd = math.sqrt(dx**2 + dy**2)
     distances = np.array([dy, dd, dx, dd, dy, dd, dx, dd])
-    for i in prange(1, m - 1):
-        for j in prange(1, n - 1):
-            if nodata_cells[i, j]:
-                fdir[:, i, j] = nodata_out
-            else:
+    for i in prange(m):
+        for j in prange(n):
+            if not nodata_cells[i, j]:
                 elev = dem[i, j]
                 den = 0.
                 for k in range(8):
-                    row_offset = row_offsets[k]
-                    col_offset = col_offsets[k]
+                    row = i + row_offsets[k]
+                    col = j + col_offsets[k]
+                    if row < 0 or row >= m or col < 0 or col >= n:
+                        # out of bounds, skip
+                        continue
+                    elif nodata_cells[row, col]:
+                        # this neighbor is nodata, skip
+                        continue
                     distance = distances[k]
-                    num = (elev - dem[i + row_offset, j + col_offset])**p / distance
+                    num = (elev - dem[row, col])**p / distance
                     if num > 0:
                         fdir[k, i, j] = num
                         den += num
@@ -1550,7 +1562,7 @@ def _mfd_cell_dh_numba(startnodes, endnodes, props, dem):
 def _d8_cell_distances_numba(fdir, dirmap, dx, dy):
     n = fdir.size
     cdist = np.zeros(fdir.shape, dtype=np.float64)
-    dd = np.sqrt(dx**2 + dy**2)
+    dd = math.sqrt(dx**2 + dy**2)
     distances = (dy, dd, dx, dd, dy, dd, dx, dd)
     dist_map = {0 : 0.}
     for i in range(8):
@@ -1567,7 +1579,7 @@ def _d8_cell_distances_numba(fdir, dirmap, dx, dy):
 def _dinf_cell_distances_numba(fdir_0, fdir_1, prop_0, prop_1, dirmap, dx, dy):
     n = fdir_0.size
     cdist = np.zeros(fdir_0.shape, dtype=np.float64)
-    dd = np.sqrt(dx**2 + dy**2)
+    dd = math.sqrt(dx**2 + dy**2)
     distances = (dy, dd, dx, dd, dy, dd, dx, dd)
     dist_map = {0 : 0.}
     for i in range(8):
@@ -1590,7 +1602,7 @@ def _mfd_cell_distances_numba(startnodes, endnodes, props, dx, dy):
     k, m, n = props.shape
     mn = m * n
     N = startnodes.size
-    dd = np.sqrt(dx**2 + dy**2)
+    dd = math.sqrt(dx**2 + dy**2)
     distances = (dy, dd, dx, dd, dy, dd, dx, dd)
     cdist = np.zeros((m, n), dtype=np.float64)
     for i in prange(N):

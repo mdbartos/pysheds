@@ -2,7 +2,7 @@ import copy
 import numpy as np
 from . import projection
 from affine import Affine
-from distutils.version import LooseVersion
+from looseversion import LooseVersion
 try:
     import scipy.spatial
     _HAS_SCIPY = True

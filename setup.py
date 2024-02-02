@@ -26,6 +26,7 @@ setup(
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
         "Topic :: Scientific/Engineering :: GIS",
         "Topic :: Scientific/Engineering :: Hydrology",
     ],
@@ -33,6 +34,7 @@ setup(
     install_requires=[
         "affine",
         "geojson",
+        "looseversion",
         "numba",
         "numpy",
         "pandas",

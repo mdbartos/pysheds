@@ -1919,7 +1919,7 @@ def count(start=0, step=1):
         yield n
         n += step
 
-@njit
+@njit(cache=True)
 def _priority_flood(dem, dem_mask, tuple_type):
     open_cells = typedlist.List.empty_list(tuple_type)  # Priority queue
     pits = typedlist.List.empty_list(tuple_type)  # FIFO queue

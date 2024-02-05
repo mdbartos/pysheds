@@ -1,8 +1,9 @@
-from heapq import heappop, heappush
+from heapq import heappop, heappush, heapify
 import math
 import numpy as np
 from numba import njit, prange
 from numba.types import float64, int64, uint32, uint16, uint8, boolean, UniTuple, Tuple, List, DictType, void
+from numba.typed import typedlist
 
 # Functions for 'flowdir'
 
@@ -1856,3 +1857,131 @@ def _fill_pits_numba(dem, pit_indices):
             adjustment = min(diff, adjustment)
         pits_filled.flat[k] += (adjustment)
     return pits_filled
+
+@njit(boundscheck=True, cache=True)
+def _first_true1d(arr, start=0, end=None, step=1, invert=False):
+    if end is None:
+        end = len(arr)
+
+    if invert:
+        for i in range(start, end, step):
+            if not arr[i]:
+                return i
+        else:
+            return -1
+    else:
+        for i in range(start, end, step):
+            if arr[i]:
+                return i
+        else:
+            return -1
+
+@njit(parallel=True, cache=True)
+def _top(mask):
+    nc = mask.shape[1]
+    rv = np.zeros(nc, dtype='int64')
+    for i in prange(nc):
+        rv[i] = _first_true1d(mask[:, i], invert=True)
+    return rv
+
+@njit(parallel=True, cache=True)
+def _bottom(mask):
+    nr, nc = mask.shape[0], mask.shape[1]
+    rv = np.zeros(nc, dtype='int64')
+    for i in prange(nc):
+        rv[i] = _first_true1d(mask[:, i], start=nr - 1, end=-1, step=-1, invert=True)
+    return rv
+
+@njit(parallel=True, cache=True)
+def _left(mask):
+    nr = mask.shape[0]
+    rv = np.zeros(nr, dtype='int64')
+    for i in prange(nr):
+        rv[i] = _first_true1d(mask[i, :], invert=True)
+    return rv
+
+@njit(parallel=True, cache=True)
+def _right(mask):
+    nr, nc = mask.shape[0], mask.shape[1]
+    rv = np.zeros(nr, dtype='int64')
+    for i in prange(nr):
+        rv[i] = _first_true1d(mask[i, :], start=nc - 1, end=-1, step=-1, invert=True)
+    return rv
+
+
+@njit(cache=True)
+def count(start=0, step=1):
+    # Numba accelerated count() from itertools
+    # count(10) --> 10 11 12 13 14 ...
+    # count(2.5, 0.5) --> 2.5 3.0 3.5 ...
+    n = start
+    while True:
+        yield n
+        n += step
+
+@njit
+def _priority_flood(dem, dem_mask, tuple_type):
+    open_cells = typedlist.List.empty_list(tuple_type)  # Priority queue
+    pits = typedlist.List.empty_list(tuple_type)  # FIFO queue
+    closed_cells = dem_mask.copy()
+
+    # Push the edges onto priority queue
+    y, x = dem.shape
+
+    edge = _left(dem_mask)[:-1]
+    for row, col in zip(count(), edge):
+        if col >= 0:
+            open_cells.append((dem[row, col], row, col))
+            closed_cells[row, col] = True
+    edge = _bottom(dem_mask)[:-1]
+    for row, col in zip(edge, count()):
+        if row >= 0:
+            open_cells.append((dem[row, col], row, col))
+            closed_cells[row, col] = True
+    edge = np.flip(_right(dem_mask))[:-1]
+    for row, col in zip(count(y - 1, step=-1), edge):
+        if col >= 0:
+            open_cells.append((dem[row, col], row, col))
+            closed_cells[row, col] = True
+    edge = np.flip(_top(dem_mask))[:-1]
+    for row, col in zip(edge, count(x - 1, step=-1)):
+        if row >= 0:
+            open_cells.append((dem[row, col], row, col))
+            closed_cells[row, col] = True
+    heapify(open_cells)
+
+    row_offsets = np.array([-1, -1, 0, 1, 1, 1, 0, -1])
+    col_offsets = np.array([0, 1, 1, 1, 0, -1, -1, -1])
+
+    pits_pos = 0
+    while open_cells or pits_pos < len(pits):
+        if pits_pos < len(pits):
+            elv, i, j = pits[pits_pos]
+            pits_pos += 1
+        else:
+            elv, i, j = heappop(open_cells)
+
+        for n in range(8):
+            row = i + row_offsets[n]
+            col = j + col_offsets[n]
+
+            if row < 0 or row >= y or col < 0 or col >= x:
+                continue
+
+            if dem_mask[row, col] or closed_cells[row, col]:
+                continue
+
+            if dem[row, col] <= elv:
+                dem[row, col] = elv
+                pits.append((elv, row, col))
+            else:
+                heappush(open_cells, (dem[row, col], row, col))
+            closed_cells[row, col] = True
+
+        # pits book-keeping
+        if pits_pos == len(pits) and len(pits) > 1024:
+            # Queue is empty, lets clear it out
+            pits.clear()
+            pits_pos = 0
+
+    return dem

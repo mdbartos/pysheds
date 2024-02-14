@@ -2148,11 +2148,13 @@ class sGrid():
                       Raster representing digital elevation data with multi-celled
                       depressions removed.
         """
-        # Implementation detail of priority flood algorithm.
-        tuple_type = Tuple([from_dtype(dem.dtype), int64, int64])
         dem_mask = self._get_nodata_cells(dem)
-        return _self._priority_flood(dem, dem_mask, tuple_type)
-
+        result = _self._priority_flood(dem, dem_mask)
+        dem_filled = self._output_handler(data=result,
+                                        viewfinder=dem.viewfinder,
+                                        metadata=dem.metadata,
+                                        nodata=dem.nodata)
+        return dem_filled
 
     def detect_flats(self, dem, **kwargs):
         """

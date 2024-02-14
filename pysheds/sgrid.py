@@ -706,7 +706,7 @@ class sGrid():
         -------
         catch : Raster
                 Raster indicating cells that lie in the catchment. The dtype will be
-                np.bool8, unless `pour_value` is specified, in which case the dtype will
+                np.bool_, unless `pour_value` is specified, in which case the dtype will
                 be the smallest dtype capable of representing the pour value.
         """
         if routing.lower() == 'd8':
@@ -1282,7 +1282,7 @@ class sGrid():
         else:
             raise ValueError('Routing method must be one of: `d8`, `dinf`, `mfd`')
         dem_overrides = {'dtype' : np.float64, 'nodata' : dem.nodata}
-        mask_overrides = {'dtype' : np.bool8, 'nodata' : False}
+        mask_overrides = {'dtype' : np.bool_, 'nodata' : False}
         kwargs.update(fdir_overrides)
         fdir = self._input_handler(fdir, **kwargs)
         kwargs.update(dem_overrides)
@@ -1412,7 +1412,7 @@ class sGrid():
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
         else:
             raise NotImplementedError('Only implemented for `d8` routing.')
-        mask_overrides = {'dtype' : np.bool8, 'nodata' : False}
+        mask_overrides = {'dtype' : np.bool_, 'nodata' : False}
         kwargs.update(fdir_overrides)
         fdir = self._input_handler(fdir, **kwargs)
         kwargs.update(mask_overrides)
@@ -1495,7 +1495,7 @@ class sGrid():
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
         else:
             raise NotImplementedError('Only implemented for `d8` routing.')
-        mask_overrides = {'dtype' : np.bool8, 'nodata' : False}
+        mask_overrides = {'dtype' : np.bool_, 'nodata' : False}
         kwargs.update(fdir_overrides)
         fdir = self._input_handler(fdir, **kwargs)
         kwargs.update(mask_overrides)
@@ -1559,7 +1559,7 @@ class sGrid():
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
         else:
             raise NotImplementedError('Only implemented for `d8` routing.')
-        mask_overrides = {'dtype' : np.bool8, 'nodata' : False}
+        mask_overrides = {'dtype' : np.bool_, 'nodata' : False}
         kwargs.update(fdir_overrides)
         fdir = self._input_handler(fdir, **kwargs)
         kwargs.update(mask_overrides)
@@ -2119,7 +2119,7 @@ class sGrid():
         kwargs.update(input_overrides)
         dem = self._input_handler(dem, **kwargs)
         filled_dem = self.fill_depressions(dem, **kwargs)
-        depressions = np.zeros(filled_dem.shape, dtype=np.bool8)
+        depressions = np.zeros(filled_dem.shape, dtype=np.bool_)
         depressions[dem != filled_dem] = True
         depressions[np.isnan(dem) | np.isnan(filled_dem)] = False
         depressions = self._output_handler(data=depressions,
@@ -2382,7 +2382,7 @@ class sGrid():
             assert isinstance(mask, Raster)
         except:
             raise TypeError('`mask` must be a Raster instance.')
-        mask_overrides = {'dtype' : np.bool8, 'nodata' : False}
+        mask_overrides = {'dtype' : np.bool_, 'nodata' : False}
         kwargs.update(mask_overrides)
         mask = self._input_handler(mask, **kwargs)
         affine = mask.affine
@@ -2416,9 +2416,9 @@ class sGrid():
             raise TypeError('Data must be a Raster.')
         nodata = data.nodata
         if np.isnan(nodata):
-            nodata_cells = np.isnan(data).astype(np.bool8)
+            nodata_cells = np.isnan(data).astype(np.bool_)
         else:
-            nodata_cells = (data == nodata).astype(np.bool8)
+            nodata_cells = (data == nodata).astype(np.bool_)
         return nodata_cells
 
     def _pop_rim(self, data, nodata=0):

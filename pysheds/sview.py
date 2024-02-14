@@ -334,7 +334,7 @@ class ViewFinder():
         self.crs = crs
         self.nodata = nodata
         if mask is None:
-            self.mask = np.ones(shape, dtype=np.bool8)
+            self.mask = np.ones(shape, dtype=np.bool_)
         else:
             self.mask = mask
 
@@ -385,10 +385,10 @@ class ViewFinder():
     @mask.setter
     def mask(self, new_mask):
         try:
-            assert (np.min_scalar_type(new_mask) <= np.dtype(np.bool8))
+            assert (np.min_scalar_type(new_mask) <= np.dtype(np.bool_))
         except:
             raise TypeError('`mask` must be of boolean type')
-        new_mask = np.asarray(new_mask).astype(np.bool8)
+        new_mask = np.asarray(new_mask).astype(np.bool_)
         self._mask = new_mask
 
     @property
@@ -621,7 +621,7 @@ class View():
         k, m, n = data.shape
         if out is None:
             out = np.empty((k, *target_view.shape), dtype=dtype)
-        out_mask = np.ones((k, *target_view.shape), dtype=np.bool8)
+        out_mask = np.ones((k, *target_view.shape), dtype=np.bool_)
         for i in range(k):
             slice_viewfinder = ViewFinder(affine=data_view.affine, mask=data_view.mask[i],
                                           nodata=data_view.nodata, crs=data_view.crs)
@@ -971,4 +971,3 @@ class View():
         else:
             raise ValueError('Interpolation method must be one of: `nearest`, `linear`')
         return view
-

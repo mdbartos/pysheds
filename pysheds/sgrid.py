@@ -6,9 +6,11 @@ import numpy as np
 import pandas as pd
 import geojson
 from affine import Affine
+from numba.types import Tuple, int64
+from numba import from_dtype
+
 try:
     import skimage.measure
-    import skimage.morphology
     _HAS_SKIMAGE = True
 except ModuleNotFoundError:
     _HAS_SKIMAGE = False
@@ -2113,8 +2115,6 @@ class sGrid():
         depressions : Raster
                       Boolean Raster indicating locations of depressions.
         """
-        if not _HAS_SKIMAGE:
-            raise ImportError('detect_depressions requires skimage.morphology module')
         input_overrides = {'dtype' : np.float64, 'nodata' : dem.nodata}
         kwargs.update(input_overrides)
         dem = self._input_handler(dem, **kwargs)
@@ -2148,23 +2148,13 @@ class sGrid():
                       Raster representing digital elevation data with multi-celled
                       depressions removed.
         """
-        if not _HAS_SKIMAGE:
-            raise ImportError('resolve_flats requires skimage.morphology module')
-        input_overrides = {'dtype' : np.float64, 'nodata' : dem.nodata}
-        kwargs.update(input_overrides)
-        dem = self._input_handler(dem, **kwargs)
         dem_mask = self._get_nodata_cells(dem)
-        dem_mask[0, :] = True
-        dem_mask[-1, :] = True
-        dem_mask[:, 0] = True
-        dem_mask[:, -1] = True
-        # Make sure nothing flows to the nodata cells
-        seed = np.copy(dem)
-        seed[~dem_mask] = np.nanmax(dem)
-        dem_out = skimage.morphology.reconstruction(seed, dem, method='erosion')
-        dem_out = self._output_handler(data=dem_out, viewfinder=dem.viewfinder,
-                                     metadata=dem.metadata, nodata=nodata_out)
-        return dem_out
+        result = _self._priority_flood(dem, dem_mask)
+        dem_filled = self._output_handler(data=result,
+                                        viewfinder=dem.viewfinder,
+                                        metadata=dem.metadata,
+                                        nodata=dem.nodata)
+        return dem_filled
 
     def detect_flats(self, dem, **kwargs):
         """

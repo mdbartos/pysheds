@@ -3,7 +3,7 @@ from scipy import spatial
 from scipy import interpolate
 import pyproj
 from affine import Affine
-from distutils.version import LooseVersion
+from looseversion import LooseVersion
 
 _OLD_PYPROJ = LooseVersion(pyproj.__version__) < LooseVersion('2.2')
 _pyproj_init = '+init=epsg:4326' if _OLD_PYPROJ else 'epsg:4326'

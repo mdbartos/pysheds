@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import geojson
 from affine import Affine
-from distutils.version import LooseVersion
+from looseversion import LooseVersion
 try:
     import scipy.sparse
     import scipy.spatial

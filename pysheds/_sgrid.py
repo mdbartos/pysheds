@@ -315,7 +315,7 @@ def _d8_catchment_recursion(ix, catch, fdir, offsets, r_dirmap):
 @njit(boolean[:,:](int64[:,:], UniTuple(int64, 2), UniTuple(int64, 8)),
       cache=True)
 def _d8_catchment_recur_numba(fdir, pour_point, dirmap):
-    catch = np.zeros(fdir.shape, dtype=np.bool8)
+    catch = np.zeros(fdir.shape, dtype=np.bool_)
     offset = fdir.shape[1]
     i, j = pour_point
     ix = (i * offset) + j
@@ -329,7 +329,7 @@ def _d8_catchment_recur_numba(fdir, pour_point, dirmap):
 
 @njit(boolean[:,:](int64[:,:], UniTuple(int64, 2), UniTuple(int64, 8)))
 def _d8_catchment_iter_numba(fdir, pour_point, dirmap):
-    catch = np.zeros(fdir.shape, dtype=np.bool8)
+    catch = np.zeros(fdir.shape, dtype=np.bool_)
     offset = fdir.shape[1]
     i, j = pour_point
     ix = (i * offset) + j
@@ -372,7 +372,7 @@ def _dinf_catchment_recursion(ix, catch, fdir_0, fdir_1, offsets, r_dirmap):
 @njit(boolean[:,:](int64[:,:], int64[:,:], UniTuple(int64, 2), UniTuple(int64, 8)),
       cache=True)
 def _dinf_catchment_recur_numba(fdir_0, fdir_1, pour_point, dirmap):
-    catch = np.zeros(fdir_0.shape, dtype=np.bool8)
+    catch = np.zeros(fdir_0.shape, dtype=np.bool_)
     dirmap = np.array(dirmap)
     offset = fdir_0.shape[1]
     i, j = pour_point
@@ -389,7 +389,7 @@ def _dinf_catchment_recur_numba(fdir_0, fdir_1, pour_point, dirmap):
 @njit(boolean[:,:](int64[:,:], int64[:,:], UniTuple(int64, 2), UniTuple(int64, 8)),
       cache=True)
 def _dinf_catchment_iter_numba(fdir_0, fdir_1, pour_point, dirmap):
-    catch = np.zeros(fdir_0.shape, dtype=np.bool8)
+    catch = np.zeros(fdir_0.shape, dtype=np.bool_)
     dirmap = np.array(dirmap)
     offset = fdir_0.shape[1]
     i, j = pour_point
@@ -423,7 +423,7 @@ def _dinf_catchment_iter_numba(fdir_0, fdir_1, pour_point, dirmap):
 def _mfd_catchment_iter_numba(fdir, pour_point):
     _, m, n = fdir.shape
     mn = m * n
-    catch = np.zeros((m, n), dtype=np.bool8)
+    catch = np.zeros((m, n), dtype=np.bool_)
     i, j = pour_point
     ix = (i * n) + j
     offsets = np.array([-n, 1 - n, 1,
@@ -544,7 +544,7 @@ def _dinf_accumulation_recursion(startnode, endnode, acc, fdir_0, fdir_1,
 def _dinf_accumulation_recur_numba(acc, fdir_0, fdir_1, indegree, startnodes,
                                    props_0, props_1):
     n = startnodes.size
-    visited = np.zeros(acc.shape, dtype=np.bool8)
+    visited = np.zeros(acc.shape, dtype=np.bool_)
     for k in range(n):
         startnode = startnodes.flat[k]
         endnode_0 = fdir_0.flat[startnode]
@@ -613,7 +613,7 @@ def _dinf_accumulation_eff_recursion(startnode, endnode, acc, fdir_0, fdir_1,
 def _dinf_accumulation_eff_numba(acc, fdir_0, fdir_1, indegree, startnodes,
                                  props_0, props_1, eff):
     n = startnodes.size
-    visited = np.zeros(acc.shape, dtype=np.bool8)
+    visited = np.zeros(acc.shape, dtype=np.bool_)
     for k in range(n):
         startnode = startnodes.flat[k]
         endnode_0 = fdir_0.flat[startnode]
@@ -744,7 +744,7 @@ def _d8_flow_distance_recursion(ix, fdir, visits, dist, weights, r_dirmap,
 @njit(float64[:,:](int64[:,:], float64[:,:], UniTuple(int64, 2), UniTuple(int64, 8)),
       cache=True)
 def _d8_flow_distance_recur_numba(fdir, weights, pour_point, dirmap):
-    visits = np.zeros(fdir.shape, dtype=np.bool8)
+    visits = np.zeros(fdir.shape, dtype=np.bool_)
     dist = np.full(fdir.shape, np.inf, dtype=np.float64)
     r_dirmap = np.array([dirmap[4], dirmap[5], dirmap[6],
                          dirmap[7], dirmap[0], dirmap[1],
@@ -762,7 +762,7 @@ def _d8_flow_distance_recur_numba(fdir, weights, pour_point, dirmap):
 @njit(float64[:,:](int64[:,:], float64[:,:], UniTuple(int64, 2), UniTuple(int64, 8)),
       cache=True)
 def _d8_flow_distance_iter_numba(fdir, weights, pour_point, dirmap):
-    visits = np.zeros(fdir.shape, dtype=np.bool8)
+    visits = np.zeros(fdir.shape, dtype=np.bool_)
     dist = np.full(fdir.shape, np.inf, dtype=np.float64)
     r_dirmap = np.array([dirmap[4], dirmap[5], dirmap[6],
                          dirmap[7], dirmap[0], dirmap[1],
@@ -820,7 +820,7 @@ def _dinf_flow_distance_recursion(ix, fdir_0, fdir_1, visits, dist,
       cache=True)
 def _dinf_flow_distance_recur_numba(fdir_0, fdir_1, weights_0, weights_1,
                               pour_point, dirmap):
-    visits = np.zeros(fdir_0.shape, dtype=np.bool8)
+    visits = np.zeros(fdir_0.shape, dtype=np.bool_)
     dist = np.full(fdir_0.shape, np.inf, dtype=np.float64)
     r_dirmap = np.array([dirmap[4], dirmap[5], dirmap[6],
                          dirmap[7], dirmap[0], dirmap[1],
@@ -841,7 +841,7 @@ def _dinf_flow_distance_recur_numba(fdir_0, fdir_1, weights_0, weights_1,
 def _dinf_flow_distance_iter_numba(fdir_0, fdir_1, weights_0, weights_1,
                                    pour_point, dirmap):
     dist = np.full(fdir_0.shape, np.inf, dtype=np.float64)
-    visited = np.zeros(fdir_0.shape, dtype=np.bool8)
+    visited = np.zeros(fdir_0.shape, dtype=np.bool_)
     r_dirmap = np.array([dirmap[4], dirmap[5], dirmap[6],
                          dirmap[7], dirmap[0], dirmap[1],
                          dirmap[2], dirmap[3]])
@@ -885,7 +885,7 @@ def _mfd_flow_distance_iter_numba(fdir, pour_point, weights):
     _, m, n = fdir.shape
     mn = m * n
     dist = np.full((m, n), np.inf, dtype=np.float64)
-    visited = np.zeros((m, n), dtype=np.bool8)
+    visited = np.zeros((m, n), dtype=np.bool_)
     i, j = pour_point
     ix = (i * n) + j
     offsets = np.array([-n, 1 - n, 1,
@@ -1022,9 +1022,9 @@ def _mfd_reverse_distance_iter_numba(rdist, fdir, indegree, startnodes, weights)
 def _par_get_candidates_numba(dem, inside):
     n = inside.size
     offset = dem.shape[1]
-    fdirs_defined = np.zeros(dem.shape, dtype=np.bool8)
-    flats = np.zeros(dem.shape, dtype=np.bool8)
-    higher_cells = np.zeros(dem.shape, dtype=np.bool8)
+    fdirs_defined = np.zeros(dem.shape, dtype=np.bool_)
+    flats = np.zeros(dem.shape, dtype=np.bool_)
+    higher_cells = np.zeros(dem.shape, dtype=np.bool_)
     offsets = np.array([-offset, 1 - offset, 1,
                         1 + offset, offset, - 1 + offset,
                         - 1, - 1 - offset])
@@ -1658,7 +1658,7 @@ def _dinf_fix_cycles_recursion(node, fdir_0, fdir_1, ancestor,
       cache=True)
 def _dinf_fix_cycles_numba(fdir_0, fdir_1, max_cycle_size):
     n = fdir_0.size
-    visited = np.zeros(fdir_0.shape, dtype=np.bool8)
+    visited = np.zeros(fdir_0.shape, dtype=np.bool_)
     depth = 0
     for node in range(n):
         _dinf_fix_cycles_recursion(node, fdir_0, fdir_1, node,
@@ -1822,7 +1822,7 @@ def _construct_matching(fdir, dirmap):
 def _find_pits_numba(dem, inside):
     n = inside.size
     offset = dem.shape[1]
-    pits = np.zeros(dem.shape, dtype=np.bool8)
+    pits = np.zeros(dem.shape, dtype=np.bool_)
     offsets = np.array([-offset, 1 - offset, 1,
                         1 + offset, offset, - 1 + offset,
                         - 1, - 1 - offset])

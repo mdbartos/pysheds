@@ -1,4 +1,4 @@
-# pysheds [![Build Status](https://github.com/mdbartos/pysheds/actions/workflows/python-package.yml/badge.svg)](https://github.com/mdbartos/pysheds/actions) [![Coverage Status](https://coveralls.io/repos/github/mdbartos/pysheds/badge.svg?branch=master&service=github)](https://coveralls.io/github/mdbartos/pysheds?branch=master) [![Python Versions](https://img.shields.io/badge/python-3.7%7C3.8%7C3.9%7C3.10%7C3.11-blue.svg)](https://www.python.org/downloads/)
+# pysheds [![Build Status](https://github.com/mdbartos/pysheds/actions/workflows/python-package.yml/badge.svg)](https://github.com/mdbartos/pysheds/actions) [![Coverage Status](https://coveralls.io/repos/github/mdbartos/pysheds/badge.svg?branch=master&service=github)](https://coveralls.io/github/mdbartos/pysheds?branch=master) [![Python Versions](https://img.shields.io/pypi/pyversions/pysheds)](https://pypi.python.org/pypi/pysheds)
 🌎 Simple and fast watershed delineation in python.
 
 ## Documentation

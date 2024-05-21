@@ -155,7 +155,7 @@ class Grid(object):
                 mask = data.mask
         else:
             if mask is None:
-                mask = np.ones(shape, dtype=np.bool)
+                mask = np.ones(shape, dtype=bool)
             if shape is None:
                 shape = data.shape
         if not isinstance(data, np.ndarray):
@@ -539,9 +539,9 @@ class Grid(object):
                           If False, require a valid affine transform and crs.
         """
         # Filter warnings due to invalid values
-        np.warnings.filterwarnings(action='ignore', message='The default mode',
+        warnings.filterwarnings(action='ignore', message='The default mode',
                                    category=UserWarning)
-        np.warnings.filterwarnings(action='ignore', message='Anti-aliasing',
+        warnings.filterwarnings(action='ignore', message='Anti-aliasing',
                                    category=UserWarning)
         nodata_in = self._check_nodata_in(data, nodata_in)
         if isinstance(data, str):
@@ -616,7 +616,7 @@ class Grid(object):
         self.affine = new_affine
         self.shape = shape
         #TODO: For now, simply reset mask
-        self.mask = np.ones(shape, dtype=np.bool)
+        self.mask = np.ones(shape, dtype=bool)
 
     def set_indices(self, new_indices):
         """
@@ -639,7 +639,7 @@ class Grid(object):
         self.affine = new_affine
         self.shape = shape
         #TODO: For now, simply reset mask
-        self.mask = np.ones(shape, dtype=np.bool)
+        self.mask = np.ones(shape, dtype=bool)
 
     def flowdir(self, data, out_name='dir', nodata_in=None, nodata_out=None,
                 pits=-1, flats=-1, dirmap=(64, 128, 1, 2, 4, 8, 16, 32), routing='d8',
@@ -717,7 +717,7 @@ class Grid(object):
                     pits=-1, flats=-1, dirmap=(64, 128, 1, 2, 4, 8, 16, 32), inplace=True,
                     as_crs=None, apply_mask=False, ignore_metadata=False, properties={},
                     metadata={}, **kwargs):
-        np.warnings.filterwarnings(action='ignore', message='Invalid value encountered',
+        warnings.filterwarnings(action='ignore', message='Invalid value encountered',
                                    category=RuntimeWarning)
         try:
             # Make sure nothing flows to the nodata cells
@@ -767,7 +767,7 @@ class Grid(object):
                       as_crs=None, apply_mask=False, ignore_metadata=False, properties={},
                       metadata={}, **kwargs):
         # Filter warnings due to invalid values
-        np.warnings.filterwarnings(action='ignore', message='Invalid value encountered',
+        warnings.filterwarnings(action='ignore', message='Invalid value encountered',
                                    category=RuntimeWarning)
         try:
             # Make sure nothing flows to the nodata cells
@@ -996,7 +996,7 @@ class Grid(object):
                         inplace=True, apply_mask=False, ignore_metadata=False, properties={},
                         metadata={}, snap='corner', **kwargs):
         # Filter warnings due to invalid values
-        np.warnings.filterwarnings(action='ignore', message='Invalid value encountered',
+        warnings.filterwarnings(action='ignore', message='Invalid value encountered',
                                    category=RuntimeWarning)
         # Vectorized Recursive algorithm:
         # for each cell j, recursively search through grid to determine
@@ -1038,8 +1038,8 @@ class Grid(object):
             fdir_1[invalid_cells] = 0
             # Create indexing arrays for convenience
             domain = np.arange(fdir.size, dtype=np.min_scalar_type(fdir.size))
-            unique = np.zeros(fdir.size, dtype=np.bool)
-            visited = np.zeros(fdir.size, dtype=np.bool)
+            unique = np.zeros(fdir.size, dtype=bool)
+            visited = np.zeros(fdir.size, dtype=bool)
             # if xytype is 'label', delineate catchment based on cell nearest
             # to given geographic coordinate
             # TODO: This relies on the bbox of the grid instance, not the dataset
@@ -1326,7 +1326,7 @@ class Grid(object):
                            out_name='acc', inplace=True, pad=False, apply_mask=False,
                            ignore_metadata=False, properties={}, metadata={}, **kwargs):
         # Filter warnings due to invalid values
-        np.warnings.filterwarnings(action='ignore', message='Invalid value encountered',
+        warnings.filterwarnings(action='ignore', message='Invalid value encountered',
                                    category=RuntimeWarning)
         # Pad the rim
         if pad:
@@ -1650,7 +1650,7 @@ class Grid(object):
                             xytype='index', apply_mask=True, ignore_metadata=False,
                             properties={}, metadata={}, snap='corner', **kwargs):
         # Filter warnings due to invalid values
-        np.warnings.filterwarnings(action='ignore', message='Invalid value encountered',
+        warnings.filterwarnings(action='ignore', message='Invalid value encountered',
                                    category=RuntimeWarning)
         # Construct flat index onto flow direction array
         mintype = np.min_scalar_type(fdir.size)
@@ -1808,7 +1808,7 @@ class Grid(object):
                 fdir_0[invalid_cells] = 0
                 fdir_1[invalid_cells] = 0
                 # Create indexing arrays for convenience
-                visited = np.zeros(fdir.size, dtype=np.bool)
+                visited = np.zeros(fdir.size, dtype=bool)
                 # nvisited = np.zeros(fdir.size, dtype=int)
                 r_dirmap = np.array(dirmap)[[4, 5, 6, 7, 0, 1, 2, 3]].tolist()
                 source = np.flatnonzero(mask)
@@ -2112,9 +2112,9 @@ class Grid(object):
                           If False, require a valid affine transform and CRS.
         """
         # Filter warnings due to invalid values
-        np.warnings.filterwarnings(action='ignore', message='Invalid value encountered',
+        warnings.filterwarnings(action='ignore', message='Invalid value encountered',
                                    category=RuntimeWarning)
-        np.warnings.filterwarnings(action='ignore', message='divide by zero',
+        warnings.filterwarnings(action='ignore', message='divide by zero',
                                    category=RuntimeWarning)
         if routing.lower() != 'd8':
             raise NotImplementedError('Only implemented for D8 routing.')
@@ -2821,7 +2821,7 @@ class Grid(object):
         inside = self._inside_indices(dem, mask=dem_mask)
         inner_neighbors, diff, fdir_defined = self._d8_diff(dem, inside)
         pits_bool = (diff < 0).all(axis=0)
-        pits = np.zeros(dem.shape, dtype=np.bool)
+        pits = np.zeros(dem.shape, dtype=bool)
         pits.flat[inside] = pits_bool
         return pits
 
@@ -2865,7 +2865,7 @@ class Grid(object):
         inner_neighbors, diff, fdir_defined = self._d8_diff(dem, inside)
         pits_bool = (diff < 0).all(axis=0)
         flats_bool = (~fdir_defined & ~pits_bool)
-        flats = np.zeros(dem.shape, dtype=np.bool)
+        flats = np.zeros(dem.shape, dtype=bool)
         flats.flat[inside] = flats_bool
         return flats
 
@@ -2972,7 +2972,7 @@ class Grid(object):
         inside = self._inside_indices(dem, mask=dem_mask)
         inner_neighbors, diff, fdir_defined = self._d8_diff(dem, inside)
         pits_bool = (diff < 0).all(axis=0)
-        pits = np.zeros(dem.shape, dtype=np.bool)
+        pits = np.zeros(dem.shape, dtype=bool)
         pits.flat[inside] = pits_bool
         dem_out = dem.copy()
         dem_out.flat[inside[pits_bool]] = (dem.flat[inner_neighbors[:, pits_bool]
@@ -3159,7 +3159,7 @@ class Grid(object):
         inner_neighbors, diff, fdir_defined = self._d8_diff(dem, inside)
         pits_bool = (diff < 0).all(axis=0)
         flats_bool = (~fdir_defined & ~pits_bool)
-        flats = np.zeros(dem.shape, dtype=np.bool)
+        flats = np.zeros(dem.shape, dtype=bool)
         flats.flat[inside] = flats_bool
         high_edge_cells = self._get_high_edge_cells(diff, fdir_defined)
         low_edge_cells = self._get_low_edge_cells(diff, fdir_defined, inner_neighbors,
@@ -3181,7 +3181,7 @@ class Grid(object):
         return drainage_grad, flats, high_edge_cells, low_edge_cells, labels, diff
 
     def _d8_diff(self, dem, inside):
-        np.warnings.filterwarnings(action='ignore', message='Invalid value encountered',
+        warnings.filterwarnings(action='ignore', message='Invalid value encountered',
                                    category=RuntimeWarning)
         inner_neighbors = self._select_surround_ravel(inside, dem.shape).T
         inner_neighbors_elev = dem.flat[inner_neighbors]
@@ -3216,7 +3216,7 @@ class Grid(object):
                           If False, require a valid affine transform and CRS.
         """
         # handle nodata values in dem
-        np.warnings.filterwarnings(action='ignore', message='All-NaN axis encountered',
+        warnings.filterwarnings(action='ignore', message='All-NaN axis encountered',
                                    category=RuntimeWarning)
         nodata_in = self._check_nodata_in(data, nodata_in)
         if nodata_out is None:
@@ -3235,7 +3235,7 @@ class Grid(object):
         inside = self._inside_indices(dem, mask=dem_mask)
         drainage_result = self._drainage_gradient(dem, inside)
         drainage_grad, flats, high_edge_cells, low_edge_cells, labels, diff = drainage_result
-        drainage_grad = drainage_grad.astype(np.float)
+        drainage_grad = drainage_grad.astype(np.float64)
         flatlabels = labels.flat[inside][flats.flat[inside]]
         flat_diffs = diff[:, flats.flat[inside].ravel()].astype(float)
         flat_diffs[flat_diffs == 0] = np.nan
@@ -3248,7 +3248,7 @@ class Grid(object):
         gradfactor = (0.9 * (minsteps / gradmax)).replace(np.inf, 0).append(pd.Series({0 : 0}))
         drainage_grad.flat[inside[flats.flat[inside]]] *= gradfactor[flatlabels].values
         drainage_grad.flat[inside[low_edge_cells]] = 0
-        dem_out = dem.astype(np.float) + drainage_grad
+        dem_out = dem.astype(np.float64) + drainage_grad
         return self._output_handler(data=dem_out, out_name=out_name, properties=grid_props,
                                     inplace=inplace, metadata=metadata)
 
@@ -3288,7 +3288,7 @@ class Grid(object):
                                   properties=grid_props, ignore_metadata=ignore_metadata,
                                   **kwargs)
         if nodata_in is None:
-            dem_mask = np.ones(dem.shape, dtype=np.bool)
+            dem_mask = np.ones(dem.shape, dtype=bool)
         else:
             if np.isnan(nodata_in):
                 dem_mask = np.isnan(dem)
@@ -3411,7 +3411,7 @@ class Grid(object):
             self._get_nondraining_flats(dem, nodata_in=nodata_in, nodata_out=nodata_out,
                                         inplace=inplace, apply_mask=apply_mask,
                                         ignore_metadata=ignore_metadata, **kwargs))
-        bool_map = np.zeros(numlabels + 1, dtype=np.bool)
+        bool_map = np.zeros(numlabels + 1, dtype=bool)
         bool_map[no_lec] = 1
         nondraining_flats = bool_map[labels]
         return nondraining_flats
@@ -3429,7 +3429,7 @@ class Grid(object):
         inner_neighbors, diff, fdir_defined = self._d8_diff(dem, inside)
         pits_bool = (diff < 0).all(axis=0)
         flats_bool = (~fdir_defined & ~pits_bool)
-        flats = np.zeros(dem.shape, dtype=np.bool)
+        flats = np.zeros(dem.shape, dtype=bool)
         flats.flat[inside] = flats_bool
         low_edge_cells = self._get_low_edge_cells(diff, fdir_defined, inner_neighbors,
                                                   shape=dem.shape, inside=inside)

@@ -84,7 +84,8 @@ class Raster(np.ndarray):
         try:
             assert np.can_cast(viewfinder.nodata, obj.dtype, casting='safe')
         except:
-            raise TypeError('`nodata` value not representable in dtype of array.')
+            raise TypeError(f"Cannot cast nodata value {viewfinder.nodata} (type: {type(viewfinder.nodata)}) to array dtype {obj.dtype}.")
+        
         # Don't allow original viewfinder and metadata to be modified
         viewfinder = viewfinder.copy()
         metadata = metadata.copy()

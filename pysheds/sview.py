@@ -81,10 +81,8 @@ class Raster(np.ndarray):
             assert not np.issubdtype(obj.dtype, np.flexible)
         except:
             raise TypeError('`object` and `flexible` dtypes not allowed.')
-        try:
-            assert np.can_cast(viewfinder.nodata, obj.dtype, casting='safe')
-        except:
-            raise TypeError('`nodata` value not representable in dtype of array.')
+        cls._validate_nodata(viewfinder.nodata, obj.dtype)
+
         # Don't allow original viewfinder and metadata to be modified
         viewfinder = viewfinder.copy()
         metadata = metadata.copy()
@@ -116,6 +114,16 @@ class Raster(np.ndarray):
                                         inherit_metadata=False,
                                         new_metadata=metadata)
         return input_array, viewfinder, metadata
+
+    @staticmethod
+    def _validate_nodata(nodata, dtype):
+        "Checks the NoData value is preserved when cast to the raster dtype"
+        nodata = np.array(nodata)
+        casted = nodata.astype(dtype, casting='unsafe')
+        try:
+            assert (nodata == casted) or np.can_cast(nodata, dtype, casting='safe')
+        except:
+            raise TypeError('`nodata` value not representable in dtype of array.')
 
     @property
     def viewfinder(self):
@@ -287,10 +295,8 @@ class MultiRaster(Raster):
             assert not np.issubdtype(obj.dtype, np.flexible)
         except:
             raise TypeError('`object` and `flexible` dtypes not allowed.')
-        try:
-            assert np.can_cast(viewfinder.nodata, obj.dtype, casting='safe')
-        except:
-            raise TypeError('`nodata` value not representable in dtype of array.')
+        cls._validate_nodata(viewfinder.nodata, obj.dtype)
+
         # Don't allow original viewfinder and metadata to be modified
         viewfinder = viewfinder.copy()
         metadata = metadata.copy()

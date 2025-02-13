@@ -4,7 +4,7 @@ from setuptools import setup
 
 setup(
     name="pysheds",
-    version="0.4",
+    version="0.5.1",
     description="🌎 Simple and fast watershed delineation in python.",
     long_description="🌎 Simple and fast watershed delineation in python.",
     long_description_content_type="text/x-rst",
@@ -20,10 +20,6 @@ setup(
         "Natural Language :: English",
         "Operating System :: OS Independent",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.6",
-        "Programming Language :: Python :: 3.7",
-        "Programming Language :: Python :: 3.8",
-        "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: 3.12",
@@ -42,9 +38,13 @@ setup(
         "rasterio>=1",
         "scikit-image",
         "scipy",
+        "typer",
+        "rasterstats",
+        "fiona"
     ],
     extras_require=dict(
         dev=["pytest", "pytest-cov"],
         recipes=["geopandas", "ipython", "matplotlib", "seaborn"]
     ),
+    scripts=['bin/sheds.py']
 )

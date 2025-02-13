@@ -1,5 +1,6 @@
 # Large data directory
 # data/
+.idea
 
 # Vim files
 *.un~

@@ -599,7 +599,7 @@ class sGrid():
         nodata_cells = self._get_nodata_cells(dem)
         if routing.lower() == 'd8':
             if nodata_out is None:
-                nodata_out = 0
+                nodata_out = np.int64(0)
             fdir = self._d8_flowdir(dem=dem, nodata_cells=nodata_cells,
                                     nodata_out=nodata_out, flats=flats,
                                     pits=pits, dirmap=dirmap)
@@ -660,7 +660,7 @@ class sGrid():
                                     mask=new_mask)
 
     def catchment(self, x, y, fdir, pour_value=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                  nodata_out=False, xytype='coordinate', routing='d8', snap='corner',
+                  nodata_out=np.bool_(False), xytype='coordinate', routing='d8', snap='corner',
                   algorithm='iterative', **kwargs):
         """
         Delineates a watershed from a given pour point (x, y).
@@ -819,7 +819,7 @@ class sGrid():
         return catch
 
     def accumulation(self, fdir, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                     nodata_out=0., efficiency=None, routing='d8', cycle_size=1,
+                     nodata_out=np.float64(0.), efficiency=None, routing='d8', cycle_size=1,
                      algorithm='iterative', **kwargs):
         """
         Generates a flow accumulation raster. If no weights are provided, the value of each cell
@@ -1526,7 +1526,7 @@ class sGrid():
         return profiles, connections
 
     def stream_order(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                     nodata_out=0, routing='d8', algorithm='iterative', **kwargs):
+                     nodata_out=np.int64(0), routing='d8', algorithm='iterative', **kwargs):
         """
         Computes the Strahler stream order.
 

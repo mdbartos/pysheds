@@ -110,7 +110,7 @@ class Grid(object):
         props = {
             'affine' : Affine(1.,0.,0.,0.,1.,0.),
             'shape' : (1,1),
-            'nodata' : 0,
+            'nodata' : np.int64(0),
             'crs' : pyproj.Proj(_pyproj_init),
         }
         return props

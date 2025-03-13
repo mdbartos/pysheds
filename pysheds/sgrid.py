@@ -129,7 +129,7 @@ class sGrid():
         props = {
             'affine' : Affine(1.,0.,0.,0.,1.,0.),
             'shape' : (1,1),
-            'nodata' : 0,
+            'nodata' : np.int64(0),
             'crs' : projection.init(),
         }
         return props

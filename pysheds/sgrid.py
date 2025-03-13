@@ -1284,7 +1284,7 @@ class sGrid():
         else:
             raise ValueError('Routing method must be one of: `d8`, `dinf`, `mfd`')
         dem_overrides = {'dtype' : np.float64, 'nodata' : dem.nodata}
-        mask_overrides = {'dtype' : np.bool_, 'nodata' : False}
+        mask_overrides = {'dtype' : np.bool_, 'nodata' : np.bool_(False)}
         kwargs.update(fdir_overrides)
         fdir = self._input_handler(fdir, **kwargs)
         kwargs.update(dem_overrides)
@@ -1335,7 +1335,7 @@ class sGrid():
         else:
             raise ValueError('Algorithm must be `iterative` or `recursive`.')
         hand = self._output_handler(data=hand, viewfinder=fdir.viewfinder,
-                                    metadata=fdir.metadata, nodata=-1)
+                                    metadata=fdir.metadata, nodata=np.int64(-1))
         return hand
 
     def _dinf_compute_hand(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
@@ -1357,7 +1357,7 @@ class sGrid():
         else:
             raise ValueError('Algorithm must be `iterative` or `recursive`.')
         hand = self._output_handler(data=hand, viewfinder=fdir.viewfinder,
-                                    metadata=fdir.metadata, nodata=-1)
+                                    metadata=fdir.metadata, nodata=np.int64(-1))
         return hand
 
     def _mfd_compute_hand(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
@@ -1375,7 +1375,7 @@ class sGrid():
             raise ValueError('Algorithm must be `iterative` or `recursive`.')
         new_mask = fdir.mask[0]
         hand = self._output_handler(data=hand, viewfinder=fdir.viewfinder,
-                                    metadata=fdir.metadata, nodata=-1,
+                                    metadata=fdir.metadata, nodata=np.int64(-1),
                                     mask=new_mask)
         return hand
 
@@ -1425,7 +1425,7 @@ class sGrid():
         # Set nodata cells to zero
         fdir[nodata_cells] = np.int64(0)
         fdir[invalid_cells] = np.int64(0)
-        maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=False)
+        maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=np.bool_(False))
         masked_fdir = np.where(mask, fdir, 0).astype(np.int64)
         startnodes = np.arange(fdir.size, dtype=np.int64)
         endnodes = _self._flatten_fdir_numba(masked_fdir, dirmap).reshape(fdir.shape)
@@ -1497,7 +1497,7 @@ class sGrid():
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
         else:
             raise NotImplementedError('Only implemented for `d8` routing.')
-        mask_overrides = {'dtype' : np.bool_, 'nodata' : False}
+        mask_overrides = {'dtype' : np.bool_, 'nodata' : np.bool_(False)}
         kwargs.update(fdir_overrides)
         fdir = self._input_handler(fdir, **kwargs)
         kwargs.update(mask_overrides)
@@ -2051,7 +2051,7 @@ class sGrid():
         # Find pits
         pits = _self._find_pits_numba(dem, inside)
         pits = self._output_handler(data=pits, viewfinder=dem.viewfinder,
-                                    metadata=dem.metadata, nodata=False)
+                                    metadata=dem.metadata, nodata=np.bool_(False))
         return pits
 
     def fill_pits(self, dem, nodata_out=None, **kwargs):
@@ -2125,7 +2125,7 @@ class sGrid():
         depressions = self._output_handler(data=depressions,
                                            viewfinder=filled_dem.viewfinder,
                                            metadata=filled_dem.metadata,
-                                           nodata=False)
+                                           nodata=np.bool_(False))
         return depressions
 
     def fill_depressions(self, dem, nodata_out=np.nan, **kwargs):
@@ -2184,7 +2184,7 @@ class sGrid():
         # handle nodata values in dem
         flats, _, _ = _self._par_get_candidates_numba(dem, inside)
         flats = self._output_handler(data=flats, viewfinder=dem.viewfinder,
-                                     metadata=dem.metadata, nodata=False)
+                                     metadata=dem.metadata, nodata=np.bool_(False))
         return flats
 
     def resolve_flats(self, dem, nodata_out=None, eps=1e-5, max_iter=1000, **kwargs):
@@ -2372,7 +2372,7 @@ class sGrid():
             assert isinstance(mask, Raster)
         except:
             raise TypeError('`mask` must be a Raster instance.')
-        mask_overrides = {'dtype' : np.bool_, 'nodata' : False}
+        mask_overrides = {'dtype' : np.bool_, 'nodata' : np.bool_(False)}
         kwargs.update(mask_overrides)
         mask = self._input_handler(mask, **kwargs)
         affine = mask.affine

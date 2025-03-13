@@ -1294,7 +1294,7 @@ class sGrid():
         # Set default nodata for hand index and hand
         if nodata_out is None:
             if return_index:
-                nodata_out = -1
+                nodata_out = np.int64(-1)
             else:
                 nodata_out = np.nan
         # Compute height above nearest drainage

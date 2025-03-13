@@ -698,7 +698,7 @@ class Grid(object):
                 dem_mask = np.where(dem.ravel() == nodata_in)[0]
         if routing.lower() == 'd8':
             if nodata_out is None:
-                nodata_out = 0
+                nodata_out = np.int64(0)
             return self._d8_flowdir(dem=dem, dem_mask=dem_mask, out_name=out_name,
                                     nodata_in=nodata_in, nodata_out=nodata_out, pits=pits,
                                     flats=flats, dirmap=dirmap, inplace=inplace, as_crs=as_crs,

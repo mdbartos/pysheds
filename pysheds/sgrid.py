@@ -1007,7 +1007,7 @@ class sGrid():
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
         # Set nodata cells to zero
-        fdir[nodata_cells] = np.int64(0).
+        fdir[nodata_cells] = np.int64(0)
         # Start and end nodes
         startnodes = np.arange(fdir[0].size, dtype=np.int64)
         props = fdir
@@ -1733,7 +1733,7 @@ class sGrid():
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
         # Set nodata cells to zero
-        fdir[nodata_cells] = np.int64(0).
+        fdir[nodata_cells] = np.int64(0)
         # Start and end nodes
         startnodes = np.arange(fdir[0].size, dtype=np.int64)
         props = fdir
@@ -1854,7 +1854,7 @@ class sGrid():
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
         # Set nodata cells to zero
-        fdir[nodata_cells] = np.int64(0).
+        fdir[nodata_cells] = np.int64(0)
         # Start and end nodes
         startnodes = np.arange(fdir[0].size, dtype=np.int64).reshape(fdir[0].shape)
         props = fdir
@@ -1955,7 +1955,7 @@ class sGrid():
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
         # Set nodata cells to zero
-        fdir[nodata_cells] = np.int64(0).
+        fdir[nodata_cells] = np.int64(0)
         # Start and end nodes
         startnodes = np.arange(fdir[0].size, dtype=np.int64).reshape(fdir[0].shape)
         props = fdir

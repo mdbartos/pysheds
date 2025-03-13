@@ -903,8 +903,8 @@ class sGrid():
         nodata_cells = self._get_nodata_cells(fdir)
         invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
-        fdir[nodata_cells] = 0
-        fdir[invalid_cells] = 0
+        fdir[nodata_cells] = np.int64(0)
+        fdir[invalid_cells] = np.int64(0)
         # Start and end nodes
         startnodes = np.arange(fdir.size, dtype=np.int64)
         endnodes = _self._flatten_fdir_numba(fdir, dirmap).reshape(fdir.shape)
@@ -1007,7 +1007,7 @@ class sGrid():
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
         # Set nodata cells to zero
-        fdir[nodata_cells] = 0.
+        fdir[nodata_cells] = np.int64(0).
         # Start and end nodes
         startnodes = np.arange(fdir[0].size, dtype=np.int64)
         props = fdir
@@ -1151,8 +1151,8 @@ class sGrid():
         nodata_cells = self._get_nodata_cells(fdir)
         invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
-        fdir[nodata_cells] = 0
-        fdir[invalid_cells] = 0
+        fdir[nodata_cells] = np.int64(0)
+        fdir[invalid_cells] = np.int64(0)
         if xytype in {'label', 'coordinate'}:
             x, y = self.nearest_cell(x, y, fdir.affine, snap)
         # TODO: Should this be ones for all cells?
@@ -1324,8 +1324,8 @@ class sGrid():
         nodata_cells = self._get_nodata_cells(fdir)
         invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
-        fdir[nodata_cells] = 0
-        fdir[invalid_cells] = 0
+        fdir[nodata_cells] = np.int64(0)
+        fdir[invalid_cells] = np.int64(0)
         dirleft, dirright, dirtop, dirbottom = self._pop_rim(fdir, nodata=0)
         maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=False)
         if algorithm.lower() == 'iterative':
@@ -1423,8 +1423,8 @@ class sGrid():
         nodata_cells = self._get_nodata_cells(fdir)
         invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
-        fdir[nodata_cells] = 0
-        fdir[invalid_cells] = 0
+        fdir[nodata_cells] = np.int64(0)
+        fdir[invalid_cells] = np.int64(0)
         maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=False)
         masked_fdir = np.where(mask, fdir, 0).astype(np.int64)
         startnodes = np.arange(fdir.size, dtype=np.int64)
@@ -1506,8 +1506,8 @@ class sGrid():
         nodata_cells = self._get_nodata_cells(fdir)
         invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
-        fdir[nodata_cells] = 0
-        fdir[invalid_cells] = 0
+        fdir[nodata_cells] = np.int64(0)
+        fdir[invalid_cells] = np.int64(0)
         maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=False)
         masked_fdir = np.where(mask, fdir, 0).astype(np.int64)
         startnodes = np.arange(fdir.size, dtype=np.int64)
@@ -1570,8 +1570,8 @@ class sGrid():
         nodata_cells = self._get_nodata_cells(fdir)
         invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
-        fdir[nodata_cells] = 0
-        fdir[invalid_cells] = 0
+        fdir[nodata_cells] = np.int64(0)
+        fdir[invalid_cells] = np.int64(0)
         maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=False)
         masked_fdir = np.where(mask, fdir, 0).astype(np.int64)
         startnodes = np.arange(fdir.size, dtype=np.int64)
@@ -1665,8 +1665,8 @@ class sGrid():
         nodata_cells = self._get_nodata_cells(fdir)
         invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
-        fdir[nodata_cells] = 0
-        fdir[invalid_cells] = 0
+        fdir[nodata_cells] = np.int64(0)
+        fdir[invalid_cells] = np.int64(0)
         # TODO: Should this be ones for all cells?
         if weights is None:
             weights = (~nodata_cells).reshape(fdir.shape).astype(np.float64)
@@ -1733,7 +1733,7 @@ class sGrid():
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
         # Set nodata cells to zero
-        fdir[nodata_cells] = 0.
+        fdir[nodata_cells] = np.int64(0).
         # Start and end nodes
         startnodes = np.arange(fdir[0].size, dtype=np.int64)
         props = fdir
@@ -1820,8 +1820,8 @@ class sGrid():
         nodata_cells = self._get_nodata_cells(fdir)
         invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
-        fdir[nodata_cells] = 0
-        fdir[invalid_cells] = 0
+        fdir[nodata_cells] = np.int64(0)
+        fdir[invalid_cells] = np.int64(0)
         dirleft, dirright, dirtop, dirbottom = self._pop_rim(fdir, nodata=0)
         startnodes = np.arange(fdir.size, dtype=np.int64).reshape(fdir.shape)
         endnodes = _self._flatten_fdir_numba(fdir, dirmap).reshape(fdir.shape)
@@ -1854,7 +1854,7 @@ class sGrid():
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
         # Set nodata cells to zero
-        fdir[nodata_cells] = 0.
+        fdir[nodata_cells] = np.int64(0).
         # Start and end nodes
         startnodes = np.arange(fdir[0].size, dtype=np.int64).reshape(fdir[0].shape)
         props = fdir
@@ -1922,8 +1922,8 @@ class sGrid():
         nodata_cells = self._get_nodata_cells(fdir)
         invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
-        fdir[nodata_cells] = 0
-        fdir[invalid_cells] = 0
+        fdir[nodata_cells] = np.int64(0)
+        fdir[invalid_cells] = np.int64(0)
         dx = abs(fdir.affine.a)
         dy = abs(fdir.affine.e)
         cdist = _self._d8_cell_distances_numba(fdir, dirmap, dx, dy)
@@ -1955,7 +1955,7 @@ class sGrid():
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
         # Set nodata cells to zero
-        fdir[nodata_cells] = 0.
+        fdir[nodata_cells] = np.int64(0).
         # Start and end nodes
         startnodes = np.arange(fdir[0].size, dtype=np.int64).reshape(fdir[0].shape)
         props = fdir

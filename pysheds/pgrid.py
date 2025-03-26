@@ -2869,7 +2869,7 @@ class Grid(object):
         flats.flat[inside] = flats_bool
         return flats
 
-    def detect_cycles(self, fdir, max_cycle_len=50, dirmap=None, nodata_in=0, nodata_out=-1,
+    def detect_cycles(self, fdir, max_cycle_len=50, dirmap=None, nodata_in=np.int64(0), nodata_out=np.int64(-1),
                      apply_mask=True, ignore_metadata=False, **kwargs):
         """
         Checks for cycles in flow direction array.

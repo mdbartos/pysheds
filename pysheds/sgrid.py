@@ -1319,7 +1319,7 @@ class sGrid():
         return hand
 
     def _d8_compute_hand(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                         nodata_out=-1, algorithm='iterative'):
+                         nodata_out=np.int64(-1), algorithm='iterative'):
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
         invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
@@ -1339,7 +1339,7 @@ class sGrid():
         return hand
 
     def _dinf_compute_hand(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                           nodata_out=-1, algorithm='iterative'):
+                           nodata_out=np.int64(-1), algorithm='iterative'):
         # Get nodata cells
         nodata_cells = self._get_nodata_cells(fdir)
         # Split dinf flowdir
@@ -1361,7 +1361,7 @@ class sGrid():
         return hand
 
     def _mfd_compute_hand(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                          nodata_out=-1, algorithm='iterative'):
+                          nodata_out=np.int64(-1), algorithm='iterative'):
         # Get nodata cells
         nodata_cells = self._get_nodata_cells(fdir)
         # Pad the rim

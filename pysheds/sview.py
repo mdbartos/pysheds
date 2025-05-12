@@ -82,7 +82,12 @@ class Raster(np.ndarray):
         except:
             raise TypeError('`object` and `flexible` dtypes not allowed.')
         try:
-            assert np.can_cast(viewfinder.nodata, obj.dtype, casting='safe')
+            # Check if nodata is np.nan and handle it explicitly
+            if np.isnan(viewfinder.nodata):
+                if not np.issubdtype(obj.dtype, np.floating):
+                    raise TypeError('`nodata` value is np.nan, but array dtype is not floating-point.')
+            else:
+                assert np.can_cast(viewfinder.nodata, obj.dtype, casting='safe')
         except:
             raise TypeError('`nodata` value not representable in dtype of array.')
         # Don't allow original viewfinder and metadata to be modified

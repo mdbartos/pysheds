@@ -129,7 +129,7 @@ class sGrid():
         props = {
             'affine' : Affine(1.,0.,0.,0.,1.,0.),
             'shape' : (1,1),
-            'nodata' : 0,
+            'nodata' : np.int64(0),
             'crs' : projection.init(),
         }
         return props
@@ -599,7 +599,7 @@ class sGrid():
         nodata_cells = self._get_nodata_cells(dem)
         if routing.lower() == 'd8':
             if nodata_out is None:
-                nodata_out = 0
+                nodata_out = np.int64(0)
             fdir = self._d8_flowdir(dem=dem, nodata_cells=nodata_cells,
                                     nodata_out=nodata_out, flats=flats,
                                     pits=pits, dirmap=dirmap)
@@ -660,7 +660,7 @@ class sGrid():
                                     mask=new_mask)
 
     def catchment(self, x, y, fdir, pour_value=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                  nodata_out=False, xytype='coordinate', routing='d8', snap='corner',
+                  nodata_out=np.bool_(False), xytype='coordinate', routing='d8', snap='corner',
                   algorithm='iterative', **kwargs):
         """
         Delineates a watershed from a given pour point (x, y).
@@ -819,7 +819,7 @@ class sGrid():
         return catch
 
     def accumulation(self, fdir, weights=None, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                     nodata_out=0., efficiency=None, routing='d8', cycle_size=1,
+                     nodata_out=np.float64(0.), efficiency=None, routing='d8', cycle_size=1,
                      algorithm='iterative', **kwargs):
         """
         Generates a flow accumulation raster. If no weights are provided, the value of each cell
@@ -903,8 +903,8 @@ class sGrid():
         nodata_cells = self._get_nodata_cells(fdir)
         invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
-        fdir[nodata_cells] = 0
-        fdir[invalid_cells] = 0
+        fdir[nodata_cells] = np.int64(0)
+        fdir[invalid_cells] = np.int64(0)
         # Start and end nodes
         startnodes = np.arange(fdir.size, dtype=np.int64)
         endnodes = _self._flatten_fdir_numba(fdir, dirmap).reshape(fdir.shape)
@@ -1007,7 +1007,7 @@ class sGrid():
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
         # Set nodata cells to zero
-        fdir[nodata_cells] = 0.
+        fdir[nodata_cells] = np.int64(0)
         # Start and end nodes
         startnodes = np.arange(fdir[0].size, dtype=np.int64)
         props = fdir
@@ -1151,8 +1151,8 @@ class sGrid():
         nodata_cells = self._get_nodata_cells(fdir)
         invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
-        fdir[nodata_cells] = 0
-        fdir[invalid_cells] = 0
+        fdir[nodata_cells] = np.int64(0)
+        fdir[invalid_cells] = np.int64(0)
         if xytype in {'label', 'coordinate'}:
             x, y = self.nearest_cell(x, y, fdir.affine, snap)
         # TODO: Should this be ones for all cells?
@@ -1284,7 +1284,7 @@ class sGrid():
         else:
             raise ValueError('Routing method must be one of: `d8`, `dinf`, `mfd`')
         dem_overrides = {'dtype' : np.float64, 'nodata' : dem.nodata}
-        mask_overrides = {'dtype' : np.bool_, 'nodata' : False}
+        mask_overrides = {'dtype' : np.bool_, 'nodata' : np.bool_(False)}
         kwargs.update(fdir_overrides)
         fdir = self._input_handler(fdir, **kwargs)
         kwargs.update(dem_overrides)
@@ -1294,7 +1294,7 @@ class sGrid():
         # Set default nodata for hand index and hand
         if nodata_out is None:
             if return_index:
-                nodata_out = -1
+                nodata_out = np.int64(-1)
             else:
                 nodata_out = np.nan
         # Compute height above nearest drainage
@@ -1319,13 +1319,13 @@ class sGrid():
         return hand
 
     def _d8_compute_hand(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                         nodata_out=-1, algorithm='iterative'):
+                         nodata_out=np.int64(-1), algorithm='iterative'):
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
         invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
-        fdir[nodata_cells] = 0
-        fdir[invalid_cells] = 0
+        fdir[nodata_cells] = np.int64(0)
+        fdir[invalid_cells] = np.int64(0)
         dirleft, dirright, dirtop, dirbottom = self._pop_rim(fdir, nodata=0)
         maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=False)
         if algorithm.lower() == 'iterative':
@@ -1335,11 +1335,11 @@ class sGrid():
         else:
             raise ValueError('Algorithm must be `iterative` or `recursive`.')
         hand = self._output_handler(data=hand, viewfinder=fdir.viewfinder,
-                                    metadata=fdir.metadata, nodata=-1)
+                                    metadata=fdir.metadata, nodata=np.int64(-1))
         return hand
 
     def _dinf_compute_hand(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                           nodata_out=-1, algorithm='iterative'):
+                           nodata_out=np.int64(-1), algorithm='iterative'):
         # Get nodata cells
         nodata_cells = self._get_nodata_cells(fdir)
         # Split dinf flowdir
@@ -1357,11 +1357,11 @@ class sGrid():
         else:
             raise ValueError('Algorithm must be `iterative` or `recursive`.')
         hand = self._output_handler(data=hand, viewfinder=fdir.viewfinder,
-                                    metadata=fdir.metadata, nodata=-1)
+                                    metadata=fdir.metadata, nodata=np.int64(-1))
         return hand
 
     def _mfd_compute_hand(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                          nodata_out=-1, algorithm='iterative'):
+                          nodata_out=np.int64(-1), algorithm='iterative'):
         # Get nodata cells
         nodata_cells = self._get_nodata_cells(fdir)
         # Pad the rim
@@ -1375,7 +1375,7 @@ class sGrid():
             raise ValueError('Algorithm must be `iterative` or `recursive`.')
         new_mask = fdir.mask[0]
         hand = self._output_handler(data=hand, viewfinder=fdir.viewfinder,
-                                    metadata=fdir.metadata, nodata=-1,
+                                    metadata=fdir.metadata, nodata=np.int64(-1),
                                     mask=new_mask)
         return hand
 
@@ -1414,7 +1414,7 @@ class sGrid():
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
         else:
             raise NotImplementedError('Only implemented for `d8` routing.')
-        mask_overrides = {'dtype' : np.bool_, 'nodata' : False}
+        mask_overrides = {'dtype' : np.bool_, 'nodata' : np.bool_(False)}
         kwargs.update(fdir_overrides)
         fdir = self._input_handler(fdir, **kwargs)
         kwargs.update(mask_overrides)
@@ -1423,9 +1423,9 @@ class sGrid():
         nodata_cells = self._get_nodata_cells(fdir)
         invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
-        fdir[nodata_cells] = 0
-        fdir[invalid_cells] = 0
-        maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=False)
+        fdir[nodata_cells] = np.int64(0)
+        fdir[invalid_cells] = np.int64(0)
+        maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=np.bool_(False))
         masked_fdir = np.where(mask, fdir, 0).astype(np.int64)
         startnodes = np.arange(fdir.size, dtype=np.int64)
         endnodes = _self._flatten_fdir_numba(masked_fdir, dirmap).reshape(fdir.shape)
@@ -1497,7 +1497,7 @@ class sGrid():
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
         else:
             raise NotImplementedError('Only implemented for `d8` routing.')
-        mask_overrides = {'dtype' : np.bool_, 'nodata' : False}
+        mask_overrides = {'dtype' : np.bool_, 'nodata' : np.bool_(False)}
         kwargs.update(fdir_overrides)
         fdir = self._input_handler(fdir, **kwargs)
         kwargs.update(mask_overrides)
@@ -1506,8 +1506,8 @@ class sGrid():
         nodata_cells = self._get_nodata_cells(fdir)
         invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
-        fdir[nodata_cells] = 0
-        fdir[invalid_cells] = 0
+        fdir[nodata_cells] = np.int64(0)
+        fdir[invalid_cells] = np.int64(0)
         maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=False)
         masked_fdir = np.where(mask, fdir, 0).astype(np.int64)
         startnodes = np.arange(fdir.size, dtype=np.int64)
@@ -1526,7 +1526,7 @@ class sGrid():
         return profiles, connections
 
     def stream_order(self, fdir, mask, dirmap=(64, 128, 1, 2, 4, 8, 16, 32),
-                     nodata_out=0, routing='d8', algorithm='iterative', **kwargs):
+                     nodata_out=np.int64(0), routing='d8', algorithm='iterative', **kwargs):
         """
         Computes the Strahler stream order.
 
@@ -1561,7 +1561,7 @@ class sGrid():
             fdir_overrides = {'dtype' : np.int64, 'nodata' : fdir.nodata}
         else:
             raise NotImplementedError('Only implemented for `d8` routing.')
-        mask_overrides = {'dtype' : np.bool_, 'nodata' : False}
+        mask_overrides = {'dtype' : np.bool_, 'nodata' : np.bool_(False)}
         kwargs.update(fdir_overrides)
         fdir = self._input_handler(fdir, **kwargs)
         kwargs.update(mask_overrides)
@@ -1570,8 +1570,8 @@ class sGrid():
         nodata_cells = self._get_nodata_cells(fdir)
         invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
-        fdir[nodata_cells] = 0
-        fdir[invalid_cells] = 0
+        fdir[nodata_cells] = np.int64(0)
+        fdir[invalid_cells] = np.int64(0)
         maskleft, maskright, masktop, maskbottom = self._pop_rim(mask, nodata=False)
         masked_fdir = np.where(mask, fdir, 0).astype(np.int64)
         startnodes = np.arange(fdir.size, dtype=np.int64)
@@ -1665,8 +1665,8 @@ class sGrid():
         nodata_cells = self._get_nodata_cells(fdir)
         invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
-        fdir[nodata_cells] = 0
-        fdir[invalid_cells] = 0
+        fdir[nodata_cells] = np.int64(0)
+        fdir[invalid_cells] = np.int64(0)
         # TODO: Should this be ones for all cells?
         if weights is None:
             weights = (~nodata_cells).reshape(fdir.shape).astype(np.float64)
@@ -1733,7 +1733,7 @@ class sGrid():
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
         # Set nodata cells to zero
-        fdir[nodata_cells] = 0.
+        fdir[nodata_cells] = np.int64(0)
         # Start and end nodes
         startnodes = np.arange(fdir[0].size, dtype=np.int64)
         props = fdir
@@ -1820,8 +1820,8 @@ class sGrid():
         nodata_cells = self._get_nodata_cells(fdir)
         invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
-        fdir[nodata_cells] = 0
-        fdir[invalid_cells] = 0
+        fdir[nodata_cells] = np.int64(0)
+        fdir[invalid_cells] = np.int64(0)
         dirleft, dirright, dirtop, dirbottom = self._pop_rim(fdir, nodata=0)
         startnodes = np.arange(fdir.size, dtype=np.int64).reshape(fdir.shape)
         endnodes = _self._flatten_fdir_numba(fdir, dirmap).reshape(fdir.shape)
@@ -1854,7 +1854,7 @@ class sGrid():
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
         # Set nodata cells to zero
-        fdir[nodata_cells] = 0.
+        fdir[nodata_cells] = np.int64(0)
         # Start and end nodes
         startnodes = np.arange(fdir[0].size, dtype=np.int64).reshape(fdir[0].shape)
         props = fdir
@@ -1922,8 +1922,8 @@ class sGrid():
         nodata_cells = self._get_nodata_cells(fdir)
         invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
-        fdir[nodata_cells] = 0
-        fdir[invalid_cells] = 0
+        fdir[nodata_cells] = np.int64(0)
+        fdir[invalid_cells] = np.int64(0)
         dx = abs(fdir.affine.a)
         dy = abs(fdir.affine.e)
         cdist = _self._d8_cell_distances_numba(fdir, dirmap, dx, dy)
@@ -1955,7 +1955,7 @@ class sGrid():
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
         # Set nodata cells to zero
-        fdir[nodata_cells] = 0.
+        fdir[nodata_cells] = np.int64(0)
         # Start and end nodes
         startnodes = np.arange(fdir[0].size, dtype=np.int64).reshape(fdir[0].shape)
         props = fdir
@@ -2051,7 +2051,7 @@ class sGrid():
         # Find pits
         pits = _self._find_pits_numba(dem, inside)
         pits = self._output_handler(data=pits, viewfinder=dem.viewfinder,
-                                    metadata=dem.metadata, nodata=False)
+                                    metadata=dem.metadata, nodata=np.bool_(False))
         return pits
 
     def fill_pits(self, dem, nodata_out=None, **kwargs):
@@ -2125,7 +2125,7 @@ class sGrid():
         depressions = self._output_handler(data=depressions,
                                            viewfinder=filled_dem.viewfinder,
                                            metadata=filled_dem.metadata,
-                                           nodata=False)
+                                           nodata=np.bool_(False))
         return depressions
 
     def fill_depressions(self, dem, nodata_out=np.nan, **kwargs):
@@ -2184,7 +2184,7 @@ class sGrid():
         # handle nodata values in dem
         flats, _, _ = _self._par_get_candidates_numba(dem, inside)
         flats = self._output_handler(data=flats, viewfinder=dem.viewfinder,
-                                     metadata=dem.metadata, nodata=False)
+                                     metadata=dem.metadata, nodata=np.bool_(False))
         return flats
 
     def resolve_flats(self, dem, nodata_out=None, eps=1e-5, max_iter=1000, **kwargs):
@@ -2372,7 +2372,7 @@ class sGrid():
             assert isinstance(mask, Raster)
         except:
             raise TypeError('`mask` must be a Raster instance.')
-        mask_overrides = {'dtype' : np.bool_, 'nodata' : False}
+        mask_overrides = {'dtype' : np.bool_, 'nodata' : np.bool_(False)}
         kwargs.update(mask_overrides)
         mask = self._input_handler(mask, **kwargs)
         affine = mask.affine

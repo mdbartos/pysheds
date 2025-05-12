@@ -110,7 +110,7 @@ class Grid(object):
         props = {
             'affine' : Affine(1.,0.,0.,0.,1.,0.),
             'shape' : (1,1),
-            'nodata' : 0,
+            'nodata' : np.int64(0),
             'crs' : pyproj.Proj(_pyproj_init),
         }
         return props
@@ -698,7 +698,7 @@ class Grid(object):
                 dem_mask = np.where(dem.ravel() == nodata_in)[0]
         if routing.lower() == 'd8':
             if nodata_out is None:
-                nodata_out = 0
+                nodata_out = np.int64(0)
             return self._d8_flowdir(dem=dem, dem_mask=dem_mask, out_name=out_name,
                                     nodata_in=nodata_in, nodata_out=nodata_out, pits=pits,
                                     flats=flats, dirmap=dirmap, inplace=inplace, as_crs=as_crs,
@@ -1034,8 +1034,8 @@ class Grid(object):
             fdir_0.flat[prop_0 == 0] = fdir_1.flat[prop_0 == 0]
             fdir_1.flat[prop_1 == 0] = fdir_0.flat[prop_1 == 0]
             # Set nodata cells to zero
-            fdir_0[invalid_cells] = 0
-            fdir_1[invalid_cells] = 0
+            fdir_0[invalid_cells] = np.int64(0)
+            fdir_1[invalid_cells] = np.int64(0)
             # Create indexing arrays for convenience
             domain = np.arange(fdir.size, dtype=np.min_scalar_type(fdir.size))
             unique = np.zeros(fdir.size, dtype=np.bool)
@@ -1251,11 +1251,11 @@ class Grid(object):
                     nodata_cells = (fdir == nodata_in)
             invalid_cells = ~np.in1d(fdir.ravel(), dirmap)
             invalid_entries = fdir.flat[invalid_cells]
-            fdir.flat[invalid_cells] = 0
+            fdir.flat[invalid_cells] = np.int64(0)
             # Ensure consistent types
             fdir = fdir.astype(mintype)
             # Set nodata cells to zero
-            fdir[nodata_cells] = 0
+            fdir[nodata_cells] = np.int64(0)
             # Get matching of start and end nodes
             startnodes, endnodes = self._construct_matching(fdir, domain,
                                                             dirmap=dirmap)
@@ -1805,8 +1805,8 @@ class Grid(object):
                 fdir_0.flat[prop_0 == 0] = fdir_1.flat[prop_0 == 0]
                 fdir_1.flat[prop_1 == 0] = fdir_0.flat[prop_1 == 0]
                 # Set nodata cells to zero
-                fdir_0[invalid_cells] = 0
-                fdir_1[invalid_cells] = 0
+                fdir_0[invalid_cells] = np.int64(0)
+                fdir_1[invalid_cells] = np.int64(0)
                 # Create indexing arrays for convenience
                 visited = np.zeros(fdir.size, dtype=np.bool)
                 # nvisited = np.zeros(fdir.size, dtype=int)
@@ -2869,7 +2869,7 @@ class Grid(object):
         flats.flat[inside] = flats_bool
         return flats
 
-    def detect_cycles(self, fdir, max_cycle_len=50, dirmap=None, nodata_in=0, nodata_out=-1,
+    def detect_cycles(self, fdir, max_cycle_len=50, dirmap=None, nodata_in=np.int64(0), nodata_out=np.int64(-1),
                      apply_mask=True, ignore_metadata=False, **kwargs):
         """
         Checks for cycles in flow direction array.

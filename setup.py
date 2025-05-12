@@ -36,7 +36,7 @@ setup(
         "geojson",
         "looseversion",
         "numba",
-        "numpy",
+        "numpy>=2.0",
         "pandas",
         "pyproj",
         "rasterio>=1",

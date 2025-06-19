@@ -9,8 +9,17 @@ from rasterio.features import geometry_mask
 
 from . import projection
 
-def read_ascii(data, skiprows=6, mask=None, crs=projection.init(),
-               xll='lower', yll='lower', metadata={}, **kwargs):
+
+def read_ascii(
+    data,
+    skiprows=6,
+    mask=None,
+    crs=projection.init(),
+    xll="lower",
+    yll="lower",
+    metadata={},
+    **kwargs,
+):
     """
     Reads data from an ascii file and returns a Raster.
 
@@ -51,13 +60,22 @@ def read_ascii(data, skiprows=6, mask=None, crs=projection.init(),
         shape = (nrows, ncols)
     data = np.loadtxt(data, skiprows=skiprows, **kwargs)
     nodata = data.dtype.type(nodata)
-    affine = Affine(cellsize, 0., xll, 0., -cellsize, yll + nrows * cellsize)
+    affine = Affine(cellsize, 0.0, xll, 0.0, -cellsize, yll + nrows * cellsize)
     viewfinder = ViewFinder(affine=affine, shape=shape, mask=mask, nodata=nodata, crs=crs)
     out = Raster(data, viewfinder, metadata=metadata)
     return out
 
-def read_raster(data, band=1, window=None, window_crs=None, mask_geometry=False,
-                nodata=None, metadata={}, **kwargs):
+
+def read_raster(
+    data,
+    band=1,
+    window=None,
+    window_crs=None,
+    mask_geometry=False,
+    nodata=None,
+    metadata={},
+    **kwargs,
+):
     """
     Reads data from a raster file and returns a Raster object.
 
@@ -106,9 +124,14 @@ def read_raster(data, band=1, window=None, window_crs=None, mask_geometry=False,
             if window_crs is not None:
                 if window_crs.srs != crs.srs:
                     xmin, ymin, xmax, ymax = window
-                    extent = projection.transform(window_crs, crs, (xmin, xmax),
-                                                (ymin, ymax), errcheck=True,
-                                                always_xy=True)
+                    extent = projection.transform(
+                        window_crs,
+                        crs,
+                        (xmin, xmax),
+                        (ymin, ymax),
+                        errcheck=True,
+                        always_xy=True,
+                    )
                     window = (extent[0][0], extent[1][0], extent[0][1], extent[1][1])
             # If window crs not specified, assume it is in raster crs
             ix_window = f.window(*window)
@@ -124,14 +147,14 @@ def read_raster(data, band=1, window=None, window_crs=None, mask_geometry=False,
             # No mask was applied if all False, out of bounds
             if not mask.any():
                 # Return mask to all True and deliver warning
-                warnings.warn('`mask_geometry` does not fall within the bounds of the raster.')
+                warnings.warn("`mask_geometry` does not fall within the bounds of the raster.")
                 mask = ~mask
         # If no `nodata` value specified, read intended nodata value from file
         if nodata is None:
             nodata = f.nodatavals[0]
             # If no `nodata` value in file, default to 0
             if nodata is None:
-                warnings.warn('No `nodata` value detected. Defaulting to 0.')
+                warnings.warn("No `nodata` value detected. Defaulting to 0.")
                 nodata = 0
             # Otherwise, set nodata to value found in file
             else:
@@ -140,11 +163,25 @@ def read_raster(data, band=1, window=None, window_crs=None, mask_geometry=False,
     out = Raster(data, viewfinder, metadata=metadata)
     return out
 
-def to_ascii(data, file_name, target_view=None, delimiter=' ', fmt=None,
-             interpolation='nearest', apply_input_mask=False,
-             apply_output_mask=True, inherit_nodata=True, affine=None,
-             shape=None, crs=None, mask=None, nodata=None, dtype=None,
-             **kwargs):
+
+def to_ascii(
+    data,
+    file_name,
+    target_view=None,
+    delimiter=" ",
+    fmt=None,
+    interpolation="nearest",
+    apply_input_mask=False,
+    apply_output_mask=True,
+    inherit_nodata=True,
+    affine=None,
+    shape=None,
+    crs=None,
+    mask=None,
+    nodata=None,
+    dtype=None,
+    **kwargs,
+):
     """
     Writes a Raster object to a formatted ascii text file.
 
@@ -187,43 +224,69 @@ def to_ascii(data, file_name, target_view=None, delimiter=' ', fmt=None,
     """
     if target_view is None:
         target_view = data.viewfinder
-    data = View.view(data, target_view, interpolation=interpolation,
-                     apply_input_mask=apply_input_mask,
-                     apply_output_mask=apply_output_mask,
-                     inherit_nodata=inherit_nodata, affine=affine, shape=shape,
-                     crs=crs, mask=mask, nodata=nodata, dtype=dtype)
+    data = View.view(
+        data,
+        target_view,
+        interpolation=interpolation,
+        apply_input_mask=apply_input_mask,
+        apply_output_mask=apply_output_mask,
+        inherit_nodata=inherit_nodata,
+        affine=affine,
+        shape=shape,
+        crs=crs,
+        mask=mask,
+        nodata=nodata,
+        dtype=dtype,
+    )
     try:
-        assert (abs(data.affine.a) == abs(data.affine.e))
+        assert abs(data.affine.a) == abs(data.affine.e)
     except:
-        raise ValueError('Raster cells must be square.')
+        raise ValueError("Raster cells must be square.")
     nodata = data.nodata
     shape = data.shape
     bbox = data.bbox
     cellsize = abs(data.affine.a)
     # TODO: This breaks if cells are not square; issue with ASCII format
-    header_space = 9*' '
-    header = (("ncols{0}{1}\nnrows{0}{2}\nxllcorner{0}{3}\n"
-                "yllcorner{0}{4}\ncellsize{0}{5}\nNODATA_value{0}{6}")
-                .format(header_space,
-                        shape[1],
-                        shape[0],
-                        bbox[0],
-                        bbox[1],
-                        cellsize,
-                        nodata))
+    header_space = 9 * " "
+    header = (
+        "ncols{0}{1}\nnrows{0}{2}\nxllcorner{0}{3}\n"
+        "yllcorner{0}{4}\ncellsize{0}{5}\nNODATA_value{0}{6}"
+    ).format(header_space, shape[1], shape[0], bbox[0], bbox[1], cellsize, nodata)
     if fmt is None:
         if np.issubdtype(data.dtype, np.integer):
-            fmt = '%d'
+            fmt = "%d"
         else:
-            fmt = '%.18e'
-    np.savetxt(file_name, data, fmt=fmt, delimiter=delimiter,
-               header=header, comments='', **kwargs)
+            fmt = "%.18e"
+    np.savetxt(
+        file_name,
+        data,
+        fmt=fmt,
+        delimiter=delimiter,
+        header=header,
+        comments="",
+        **kwargs,
+    )
 
-def to_raster(data, file_name, target_view=None, profile=None, blockxsize=256,
-              blockysize=256, interpolation='nearest', apply_input_mask=False,
-              apply_output_mask=True, inherit_nodata=True, affine=None,
-              shape=None, crs=None, mask=None, nodata=None, dtype=None,
-              **kwargs):
+
+def to_raster(
+    data,
+    file_name,
+    target_view=None,
+    profile=None,
+    blockxsize=256,
+    blockysize=256,
+    interpolation="nearest",
+    apply_input_mask=False,
+    apply_output_mask=True,
+    inherit_nodata=True,
+    affine=None,
+    shape=None,
+    crs=None,
+    mask=None,
+    nodata=None,
+    dtype=None,
+    **kwargs,
+):
     """
     Writes gridded data to a raster.
 
@@ -267,32 +330,40 @@ def to_raster(data, file_name, target_view=None, profile=None, blockxsize=256,
     """
     if target_view is None:
         target_view = data.viewfinder
-    data = View.view(data, target_view, interpolation=interpolation,
-                     apply_input_mask=apply_input_mask,
-                     apply_output_mask=apply_output_mask,
-                     inherit_nodata=inherit_nodata, affine=affine, shape=shape,
-                     crs=crs, mask=mask, nodata=nodata, dtype=dtype)
+    data = View.view(
+        data,
+        target_view,
+        interpolation=interpolation,
+        apply_input_mask=apply_input_mask,
+        apply_output_mask=apply_output_mask,
+        inherit_nodata=inherit_nodata,
+        affine=affine,
+        shape=shape,
+        crs=crs,
+        mask=mask,
+        nodata=nodata,
+        dtype=dtype,
+    )
     height, width = data.shape
     default_blockx = width
     default_profile = {
-        'driver' : 'GTiff',
-        'blockxsize' : blockxsize,
-        'blockysize' : blockysize,
-        'count': 1,
-        'tiled' : True
+        "driver": "GTiff",
+        "blockxsize": blockxsize,
+        "blockysize": blockysize,
+        "count": 1,
+        "tiled": True,
     }
     if not profile:
         profile = default_profile
     profile_updates = {
-        'crs' : data.crs.srs,
-        'transform' : data.affine,
-        'dtype' : data.dtype.name,
-        'nodata' : data.nodata,
-        'height' : height,
-        'width' : width
+        "crs": data.crs.srs,
+        "transform": data.affine,
+        "dtype": data.dtype.name,
+        "nodata": data.nodata,
+        "height": height,
+        "width": width,
     }
     profile.update(profile_updates)
     profile.update(kwargs)
-    with rasterio.open(file_name, 'w', **profile) as dst:
+    with rasterio.open(file_name, "w", **profile) as dst:
         dst.write(np.asarray(data), 1)
-

@@ -1,5 +1,6 @@
 try:
     import numba
+
     _HAS_NUMBA = True
 except ModuleNotFoundError:
     _HAS_NUMBA = False

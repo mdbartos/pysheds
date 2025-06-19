@@ -27,6 +27,7 @@ setup(
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
         "Topic :: Scientific/Engineering :: GIS",
         "Topic :: Scientific/Engineering :: Hydrology",
     ],
@@ -36,7 +37,7 @@ setup(
         "geojson",
         "looseversion",
         "numba",
-        "numpy",
+        "numpy>=2.0",
         "pandas",
         "pyproj",
         "rasterio>=1",
@@ -45,6 +46,6 @@ setup(
     ],
     extras_require=dict(
         dev=["pytest", "pytest-cov"],
-        recipes=["geopandas", "ipython", "matplotlib", "seaborn"]
+        recipes=["geopandas", "ipython", "matplotlib", "seaborn"],
     ),
 )

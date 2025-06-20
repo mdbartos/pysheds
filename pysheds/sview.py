@@ -3,8 +3,10 @@ import numpy as np
 from . import projection
 from affine import Affine
 from looseversion import LooseVersion
+
 try:
     import scipy.spatial
+
     _HAS_SCIPY = True
 except ModuleNotFoundError:
     _HAS_SCIPY = False
@@ -53,12 +55,12 @@ class Raster(np.ndarray):
             # Ensure MultiRaster is 2D
             assert input_array.ndim == 2
         except:
-            raise TypeError('Input must be a 2-dimensional array-like object.')
+            raise TypeError("Input must be a 2-dimensional array-like object.")
         # Handle case where input is a Raster itself
         if isinstance(input_array, Raster):
-            input_array, viewfinder, metadata = cls._handle_raster_input(input_array,
-                                                                         viewfinder,
-                                                                         metadata)
+            input_array, viewfinder, metadata = cls._handle_raster_input(
+                input_array, viewfinder, metadata
+            )
         # Create a numpy array from the input
         obj = np.asarray(input_array).view(cls)
         # If no viewfinder provided, construct one congruent with the array shape
@@ -67,24 +69,90 @@ class Raster(np.ndarray):
         # If a viewfinder is provided, ensure that it is a viewfinder...
         else:
             try:
-                assert(isinstance(viewfinder, ViewFinder))
+                assert isinstance(viewfinder, ViewFinder)
             except:
                 raise ValueError("Must initialize with a ViewFinder.")
             # Ensure that viewfinder shape is correct...
             try:
                 assert viewfinder.shape == obj.shape
             except:
-                raise ValueError('Viewfinder and array shape must be the same.')
+                raise ValueError("Viewfinder and array shape must be the same.")
         # Test typing of array
         try:
             assert not np.issubdtype(obj.dtype, np.object_)
             assert not np.issubdtype(obj.dtype, np.flexible)
         except:
-            raise TypeError('`object` and `flexible` dtypes not allowed.')
+            raise TypeError("`object` and `flexible` dtypes not allowed.")
         try:
-            assert np.can_cast(viewfinder.nodata, obj.dtype, casting='safe')
-        except:
-            raise TypeError('`nodata` value not representable in dtype of array.')
+            # Check if nodata is np.nan and handle it explicitly
+            is_nodata_nan = False
+            try:
+                # np.isnan raises TypeError for non-float types (e.g., int).
+                # It's True if viewfinder.nodata is np.nan or a float NaN.
+                if np.isnan(viewfinder.nodata):
+                    is_nodata_nan = True
+            except TypeError:
+                # If TypeError, viewfinder.nodata is not a float/nan, so is_nodata_nan remains False.
+                pass
+
+            if is_nodata_nan:
+                if not np.issubdtype(obj.dtype, np.floating):
+                    raise TypeError(
+                        f"`nodata` value is np.nan, but array dtype {obj.dtype} is not floating-point."
+                    )
+            else:
+                # This is the crucial line for non-NaN nodata
+                # viewfinder.nodata is now guaranteed to be a NumPy scalar type by ViewFinder's logic
+                valid_nodata_for_dtype = False
+                if np.can_cast(viewfinder.nodata, obj.dtype, casting="safe"):
+                    valid_nodata_for_dtype = True
+                else:
+                    # Safe casting failed. Check for specific integer-to-integer case.
+                    is_nodata_int_like = np.issubdtype(viewfinder.nodata.dtype, np.integer)
+                    is_obj_int_like = np.issubdtype(obj.dtype, np.integer)
+
+                    if is_nodata_int_like and is_obj_int_like:
+                        try:
+                            obj_iinfo = np.iinfo(obj.dtype)
+                            # Cast viewfinder.nodata to Python int for comparison with iinfo.min/max (which are Python ints)
+                            nodata_as_py_int = int(viewfinder.nodata)
+                            if obj_iinfo.min <= nodata_as_py_int <= obj_iinfo.max:
+                                valid_nodata_for_dtype = (
+                                    True  # Value fits, so it's acceptable for nodata
+                                )
+                        except ValueError:  # np.iinfo raises ValueError for non-integer types, though is_obj_int_like should prevent this.
+                            pass  # valid_nodata_for_dtype remains False
+
+                if not valid_nodata_for_dtype:
+                    error_message_detail = (
+                        f"`nodata` value {viewfinder.nodata} (type: {type(viewfinder.nodata)}) "
+                        f"not representable in array dtype {obj.dtype}."
+                    )
+                    # Add range info if it was an integer range failure
+                    if np.issubdtype(viewfinder.nodata.dtype, np.integer) and np.issubdtype(
+                        obj.dtype, np.integer
+                    ):
+                        try:
+                            obj_iinfo = np.iinfo(obj.dtype)
+                            error_message_detail += (
+                                f" Range for {obj.dtype} is [{obj_iinfo.min}, {obj_iinfo.max}]."
+                            )
+                        except ValueError:
+                            pass  # Cannot get iinfo, skip adding range details
+                    raise AssertionError(error_message_detail)
+        except AssertionError as e_assert:
+            # Provide a more informative message from the AssertionError
+            raise TypeError(str(e_assert)) from None
+        except TypeError as e_type:
+            # Re-raise TypeErrors that were intentionally raised (e.g., for nan with non-float dtype)
+            raise e_type
+        except Exception as e_generic:
+            # Catch other unexpected exceptions during the try block
+            msg = (
+                f"An unexpected error occurred during nodata/dtype validation: {e_generic!r}. "
+                f"Nodata: {viewfinder.nodata} (type: {type(viewfinder.nodata)}), dtype: {obj.dtype}."
+            )
+            raise TypeError(msg) from e_generic
         # Don't allow original viewfinder and metadata to be modified
         viewfinder = viewfinder.copy()
         metadata = metadata.copy()
@@ -96,8 +164,8 @@ class Raster(np.ndarray):
     def __array_finalize__(self, obj):
         if obj is None:
             return
-        self._viewfinder = getattr(obj, 'viewfinder', None)
-        self.metadata = getattr(obj, 'metadata', None)
+        self._viewfinder = getattr(obj, "viewfinder", None)
+        self.metadata = getattr(obj, "metadata", None)
 
     @classmethod
     def _handle_raster_input(cls, input_array, viewfinder, metadata):
@@ -109,12 +177,14 @@ class Raster(np.ndarray):
         # Otherwise, given viewfinder overrides and returns a view
         else:
             if viewfinder != input_array.viewfinder:
-                input_array = View.view(data=input_array,
-                                        target_view=viewfinder,
-                                        apply_input_mask=False,
-                                        apply_output_mask=False,
-                                        inherit_metadata=False,
-                                        new_metadata=metadata)
+                input_array = View.view(
+                    data=input_array,
+                    target_view=viewfinder,
+                    apply_input_mask=False,
+                    apply_output_mask=False,
+                    inherit_metadata=False,
+                    new_metadata=metadata,
+                )
         return input_array, viewfinder, metadata
 
     @property
@@ -124,13 +194,13 @@ class Raster(np.ndarray):
     @viewfinder.setter
     def viewfinder(self, new_viewfinder):
         try:
-            assert(isinstance(new_viewfinder, ViewFinder))
+            assert isinstance(new_viewfinder, ViewFinder)
         except:
             raise ValueError("Must be a `ViewFinder` object")
         try:
             assert new_viewfinder.shape == self.shape
         except:
-            raise ValueError('viewfinder and raster array must have the same shape.')
+            raise ValueError("viewfinder and raster array must have the same shape.")
         self._viewfinder = new_viewfinder
 
     @property
@@ -148,9 +218,9 @@ class Raster(np.ndarray):
     @mask.setter
     def mask(self, new_mask):
         try:
-            assert (new_mask.shape == self.shape)
+            assert new_mask.shape == self.shape
         except:
-            raise ValueError('`mask` must have same dimensions as Raster.')
+            raise ValueError("`mask` must have same dimensions as Raster.")
         self.viewfinder.mask = new_mask
 
     @property
@@ -190,11 +260,11 @@ class Raster(np.ndarray):
     @property
     def properties(self):
         property_dict = {
-            'affine' : self.viewfinder.affine,
-            'shape' : self.viewfinder.shape,
-            'crs' : self.viewfinder.crs,
-            'nodata' : self.viewfinder.nodata,
-            'mask' : self.viewfinder.mask
+            "affine": self.viewfinder.affine,
+            "shape": self.viewfinder.shape,
+            "crs": self.viewfinder.crs,
+            "nodata": self.viewfinder.nodata,
+            "mask": self.viewfinder.mask,
         }
         return property_dict
 
@@ -230,23 +300,28 @@ class Raster(np.ndarray):
         left = np.column_stack([X[:, 0], Y[:, 0]])
         right = np.column_stack([X[:, -1], Y[:, -1]])
         boundary = np.vstack([top, bottom, left, right])
-        xi, yi = boundary[:,0], boundary[:,1]
+        xi, yi = boundary[:, 0], boundary[:, 1]
         xb, yb = View.affine_transform(self.affine, xi, yi)
-        xb_p, yb_p = projection.transform(old_crs, new_crs, xb, yb,
-                                      errcheck=True, always_xy=True)
+        xb_p, yb_p = projection.transform(old_crs, new_crs, xb, yb, errcheck=True, always_xy=True)
         x0_p = xb_p.min() if (dx > 0) else xb_p.max()
         y0_p = yb_p.min() if (dy > 0) else yb_p.max()
         xn_p = xb_p.max() if (dx > 0) else xb_p.min()
         yn_p = yb_p.max() if (dy > 0) else yb_p.min()
         a = (xn_p - x0_p) / n
         e = (yn_p - y0_p) / m
-        new_affine = Affine(a, 0., x0_p, 0., e, y0_p)
-        new_viewfinder = ViewFinder(affine=new_affine, shape=self.shape,
-                                    nodata=self.nodata, mask=self.mask,
-                                    crs=new_crs)
-        new_raster = View.view(self, target_view=new_viewfinder,
-                               data_view=self.viewfinder, **kwargs)
+        new_affine = Affine(a, 0.0, x0_p, 0.0, e, y0_p)
+        new_viewfinder = ViewFinder(
+            affine=new_affine,
+            shape=self.shape,
+            nodata=self.nodata,
+            mask=self.mask,
+            crs=new_crs,
+        )
+        new_raster = View.view(
+            self, target_view=new_viewfinder, data_view=self.viewfinder, **kwargs
+        )
         return new_raster
+
 
 class MultiRaster(Raster):
     def __new__(cls, input_array, viewfinder=None, metadata={}):
@@ -254,17 +329,17 @@ class MultiRaster(Raster):
             # MultiRaster must be subclass of ndarray
             assert isinstance(input_array, np.ndarray)
             # If 2D, upcast to 3D
-            if (input_array.ndim == 2):
+            if input_array.ndim == 2:
                 input_array = input_array.reshape(1, *input_array.shape)
             # Ensure MultiRaster is 3D
             assert input_array.ndim == 3
         except:
-            raise TypeError('Input must be a 2d or 3d array-like object.')
+            raise TypeError("Input must be a 2d or 3d array-like object.")
         # Handle case where input is a Raster itself
         if isinstance(input_array, Raster):
-            input_array, viewfinder, metadata = cls._handle_raster_input(input_array,
-                                                                         viewfinder,
-                                                                         metadata)
+            input_array, viewfinder, metadata = cls._handle_raster_input(
+                input_array, viewfinder, metadata
+            )
         # Create a numpy array from the input
         obj = np.asarray(input_array).view(cls)
         # If no viewfinder provided, construct one congruent with the array shape
@@ -273,24 +348,86 @@ class MultiRaster(Raster):
         # If a viewfinder is provided, ensure that it is a viewfinder...
         else:
             try:
-                assert(isinstance(viewfinder, ViewFinder))
+                assert isinstance(viewfinder, ViewFinder)
             except:
                 raise ValueError("Must initialize with a ViewFinder.")
             # Ensure that viewfinder shape is correct...
             try:
                 assert viewfinder.shape == obj.shape
             except:
-                raise ValueError('Viewfinder and array shape must be the same.')
+                raise ValueError("Viewfinder and array shape must be the same.")
         # Test typing of array
         try:
             assert not np.issubdtype(obj.dtype, np.object_)
             assert not np.issubdtype(obj.dtype, np.flexible)
         except:
-            raise TypeError('`object` and `flexible` dtypes not allowed.')
+            raise TypeError("`object` and `flexible` dtypes not allowed.")
         try:
-            assert np.can_cast(viewfinder.nodata, obj.dtype, casting='safe')
-        except:
-            raise TypeError('`nodata` value not representable in dtype of array.')
+            # Check if nodata is np.nan and handle it explicitly
+            is_nodata_nan = False
+            try:
+                # np.isnan raises TypeError for non-float types (e.g., int).
+                if np.isnan(viewfinder.nodata):
+                    is_nodata_nan = True
+            except TypeError:
+                pass  # is_nodata_nan remains False
+
+            if is_nodata_nan:
+                if not np.issubdtype(
+                    obj.dtype, np.floating
+                ):  # Assuming MultiRaster also deals with numerical arrays primarily
+                    raise TypeError(
+                        f"`nodata` value is np.nan, but array dtype {obj.dtype} is not floating-point for MultiRaster."
+                    )
+            else:
+                # viewfinder.nodata is now guaranteed to be a NumPy scalar type by ViewFinder's logic
+                valid_nodata_for_dtype = False
+                if np.can_cast(viewfinder.nodata, obj.dtype, casting="safe"):
+                    valid_nodata_for_dtype = True
+                else:
+                    # Safe casting failed. Check for specific integer-to-integer case.
+                    is_nodata_int_like = np.issubdtype(viewfinder.nodata.dtype, np.integer)
+                    is_obj_int_like = np.issubdtype(obj.dtype, np.integer)
+
+                    if is_nodata_int_like and is_obj_int_like:
+                        try:
+                            obj_iinfo = np.iinfo(obj.dtype)
+                            # Cast viewfinder.nodata to Python int for comparison with iinfo.min/max (which are Python ints)
+                            nodata_as_py_int = int(viewfinder.nodata)
+                            if obj_iinfo.min <= nodata_as_py_int <= obj_iinfo.max:
+                                valid_nodata_for_dtype = (
+                                    True  # Value fits, so it's acceptable for nodata
+                                )
+                        except ValueError:
+                            pass  # valid_nodata_for_dtype remains False
+
+                if not valid_nodata_for_dtype:
+                    error_message_detail = (
+                        f"`nodata` value {viewfinder.nodata} (type: {type(viewfinder.nodata)}) "
+                        f"not representable in array dtype {obj.dtype} for MultiRaster."
+                    )
+                    # Add range info if it was an integer range failure
+                    if np.issubdtype(viewfinder.nodata.dtype, np.integer) and np.issubdtype(
+                        obj.dtype, np.integer
+                    ):
+                        try:
+                            obj_iinfo = np.iinfo(obj.dtype)
+                            error_message_detail += (
+                                f" Range for {obj.dtype} is [{obj_iinfo.min}, {obj_iinfo.max}]."
+                            )
+                        except ValueError:
+                            pass  # Cannot get iinfo, skip adding range details
+                    raise AssertionError(error_message_detail)
+        except AssertionError as e_assert:
+            raise TypeError(str(e_assert)) from None
+        except TypeError as e_type:
+            raise e_type
+        except Exception as e_generic:
+            msg = (
+                f"An unexpected error occurred during MultiRaster nodata/dtype validation: {e_generic!r}. "
+                f"Nodata: {viewfinder.nodata} (type: {type(viewfinder.nodata)}), dtype: {obj.dtype}."
+            )
+            raise TypeError(msg) from e_generic
         # Don't allow original viewfinder and metadata to be modified
         viewfinder = viewfinder.copy()
         metadata = metadata.copy()
@@ -299,7 +436,8 @@ class MultiRaster(Raster):
         obj.metadata = metadata
         return obj
 
-class ViewFinder():
+
+class ViewFinder:
     """
     Class that defines a spatial reference system for a Raster or Grid instance.
     The spatial reference is completely defined by an affine transformation matrix (affine),
@@ -328,11 +466,35 @@ class ViewFinder():
                  `shape`, `mask`, `crs`, and `nodata`.
     dy_dx : Tuple describing the cell size in the y and x directions.
     """
-    def __init__(self, affine=Affine(1., 0., 0., 0., 1., 0.), shape=(1,1),
-                 nodata=0, mask=None, crs=projection.init()):
+
+    def __init__(
+        self,
+        affine=Affine(1.0, 0.0, 0.0, 0.0, 1.0, 0.0),
+        shape=(1, 1),
+        nodata=0,
+        mask=None,
+        crs=projection.init(),
+    ):
         self.affine = affine
         self.crs = crs
-        self.nodata = nodata
+        # Ensure nodata is stored as a NumPy scalar type
+        if isinstance(nodata, int):
+            self._nodata = np.int64(nodata)
+        elif isinstance(nodata, float):
+            self._nodata = np.float64(nodata)
+        elif isinstance(nodata, complex):
+            self._nodata = np.complex128(nodata)
+        elif isinstance(nodata, (np.number, np.bool_)):
+            self._nodata = nodata  # Already a NumPy scalar
+        else:
+            # Attempt to convert to a NumPy array/scalar, then check type
+            try:
+                converted_nodata = np.array(nodata).item()  # .item() to get scalar if 0-d
+                if not isinstance(converted_nodata, (np.number, np.bool_)):
+                    raise TypeError("`nodata` value must be a numeric type or convertible to one.")
+                self._nodata = converted_nodata
+            except:
+                raise TypeError("`nodata` value must be a numeric type or convertible to one.")
         if mask is None:
             self.mask = np.ones(shape, dtype=np.bool_)
         else:
@@ -341,9 +503,9 @@ class ViewFinder():
     def __eq__(self, other):
         if isinstance(other, ViewFinder):
             is_eq = True
-            is_eq &= (self.affine == other.affine)
-            is_eq &= (self.shape == other.shape)
-            is_eq &= (self.crs == other.crs)
+            is_eq &= self.affine == other.affine
+            is_eq &= self.shape == other.shape
+            is_eq &= self.crs == other.crs
             is_eq &= (self.mask == other.mask).all()
             if np.isnan(self.nodata):
                 is_eq &= np.isnan(other.nodata)
@@ -354,8 +516,7 @@ class ViewFinder():
             return False
 
     def __repr__(self):
-        repr_str = '\n'.join([repr(k) + ' : ' + repr(v)
-                              for k, v in self.properties.items()])
+        repr_str = "\n".join([repr(k) + " : " + repr(v) for k, v in self.properties.items()])
         return repr_str
 
     @property
@@ -365,9 +526,9 @@ class ViewFinder():
     @affine.setter
     def affine(self, new_affine):
         try:
-            assert(isinstance(new_affine, Affine))
+            assert isinstance(new_affine, Affine)
         except:
-            raise TypeError('Affine transformation must be an `Affine` object')
+            raise TypeError("Affine transformation must be an `Affine` object")
         self._affine = new_affine
 
     @property
@@ -376,7 +537,7 @@ class ViewFinder():
 
     @shape.setter
     def shape(self, new_shape):
-        raise AttributeError('Viewfinder shape cannot be changed after instantiation.')
+        raise AttributeError("Viewfinder shape cannot be changed after instantiation.")
 
     @property
     def mask(self):
@@ -385,9 +546,9 @@ class ViewFinder():
     @mask.setter
     def mask(self, new_mask):
         try:
-            assert (np.min_scalar_type(new_mask) <= np.dtype(np.bool_))
+            assert np.min_scalar_type(new_mask) <= np.dtype(np.bool_)
         except:
-            raise TypeError('`mask` must be of boolean type')
+            raise TypeError("`mask` must be of boolean type")
         new_mask = np.asarray(new_mask).astype(np.bool_)
         self._mask = new_mask
 
@@ -397,11 +558,40 @@ class ViewFinder():
 
     @nodata.setter
     def nodata(self, new_nodata):
-        try:
-            assert not (np.min_scalar_type(new_nodata) == np.dtype('O'))
-        except:
-            raise TypeError('`nodata` value must be a numeric type.')
-        self._nodata = new_nodata
+        # Ensure new_nodata is stored as a NumPy scalar type
+        if isinstance(new_nodata, int):
+            self._nodata = np.int64(new_nodata)
+        elif isinstance(new_nodata, float):
+            self._nodata = np.float64(new_nodata)
+        elif isinstance(new_nodata, complex):
+            self._nodata = np.complex128(new_nodata)
+        elif isinstance(new_nodata, (np.number, np.bool_)):
+            self._nodata = new_nodata  # Already a NumPy scalar
+        else:
+            # Attempt to convert to a NumPy array/scalar, then check type
+            try:
+                # Use np.asarray to handle potential array-like inputs, then item() if 0-d
+                # Check np.min_scalar_type for object arrays before trying to convert
+                if np.min_scalar_type(new_nodata) == np.dtype("O"):
+                    raise TypeError("`nodata` value must be a numeric type.")
+                converted_nodata = np.asarray(new_nodata)
+                if converted_nodata.ndim == 0:
+                    converted_nodata = converted_nodata.item()
+
+                if not isinstance(converted_nodata, (np.number, np.bool_)):
+                    # If it's an array (not 0-d scalar), this is not allowed for nodata
+                    if isinstance(converted_nodata, np.ndarray) and converted_nodata.ndim > 0:
+                        raise TypeError("`nodata` value must be a scalar numeric type.")
+                    # Final check if it's a simple numeric type after item()
+                    if not isinstance(converted_nodata, (np.number, np.bool_)):
+                        raise TypeError(
+                            "`nodata` value must be a numeric type or convertible to one."
+                        )
+                self._nodata = converted_nodata
+            except TypeError as e:  # Catch specific TypeError from checks
+                raise e
+            except Exception:
+                raise TypeError("`nodata` value must be a numeric type or convertible to one.")
 
     @property
     def crs(self):
@@ -431,7 +621,7 @@ class ViewFinder():
 
     @property
     def coords(self):
-        coordinates = np.meshgrid(*self.axes, indexing='ij')
+        coordinates = np.meshgrid(*self.axes, indexing="ij")
         return np.vstack(np.dstack(coordinates))
 
     @property
@@ -441,11 +631,11 @@ class ViewFinder():
     @property
     def properties(self):
         property_dict = {
-            'affine' : self.affine,
-            'shape' : self.shape,
-            'nodata' : self.nodata,
-            'crs' : self.crs,
-            'mask' : self.mask
+            "affine": self.affine,
+            "shape": self.shape,
+            "nodata": self.nodata,
+            "crs": self.crs,
+            "mask": self.mask,
         }
         return property_dict
 
@@ -457,10 +647,10 @@ class ViewFinder():
     def is_congruent_with(self, other):
         if isinstance(other, ViewFinder):
             is_congruent = True
-            is_congruent &= (self.affine == other.affine)
-            is_congruent &= (self.shape[-2] == other.shape[-2])
-            is_congruent &= (self.shape[-1] == other.shape[-1])
-            is_congruent &= (self.crs == other.crs)
+            is_congruent &= self.affine == other.affine
+            is_congruent &= self.shape[-2] == other.shape[-2]
+            is_congruent &= self.shape[-1] == other.shape[-1]
+            is_congruent &= self.crs == other.crs
             return is_congruent
         else:
             return False
@@ -474,7 +664,8 @@ class ViewFinder():
         target_view = self
         return View.view(raster, data_view, target_view, **kwargs)
 
-class View():
+
+class View:
     """
     Class containing methods for manipulating views of gridded datasets.
 
@@ -488,14 +679,29 @@ class View():
     """
 
     def __init__(self):
-        raise NotImplementedError('The View class is used for classmethods '
-                                  'and is not meant to be instantiated.')
+        raise NotImplementedError(
+            "The View class is used for classmethods and is not meant to be instantiated."
+        )
 
     @classmethod
-    def view(cls, data, target_view, data_view=None, interpolation='nearest',
-             apply_input_mask=False, apply_output_mask=True, inherit_nodata=True,
-             affine=None, shape=None, crs=None, mask=None, nodata=None,
-             dtype=None, inherit_metadata=True, new_metadata={}):
+    def view(
+        cls,
+        data,
+        target_view,
+        data_view=None,
+        interpolation="nearest",
+        apply_input_mask=False,
+        apply_output_mask=True,
+        inherit_nodata=True,
+        affine=None,
+        shape=None,
+        crs=None,
+        mask=None,
+        nodata=None,
+        dtype=None,
+        inherit_metadata=True,
+        new_metadata={},
+    ):
         """
         Return a copy of a gridded dataset `data` transformed to the spatial reference
         system defined by `target_view`.
@@ -544,9 +750,9 @@ class View():
         """
         # TODO: Temporary check on target_view
         try:
-            assert (len(target_view.shape) == 2)
+            assert len(target_view.shape) == 2
         except:
-            raise ValueError('Target view must be 2-dimensional.')
+            raise ValueError("Target view must be 2-dimensional.")
         # TODO: Use type instead of isinstance
         is_raster = isinstance(data, Raster)
         is_multiraster = isinstance(data, MultiRaster)
@@ -555,25 +761,20 @@ class View():
         # If no data view given, use data view
         if data_view is None:
             try:
-                assert (is_raster or is_multiraster)
+                assert is_raster or is_multiraster
             except:
-                raise TypeError('`data` must be a Raster or MultiRaster instance.')
+                raise TypeError("`data` must be a Raster or MultiRaster instance.")
             data_view = data.viewfinder
         # By default, use dataset's `nodata` value
         if nodata is None:
             if inherit_nodata:
                 nodata = data_view.nodata
         # Override parameters of target view if desired
-        target_view = cls._override_target_view(target_view,
-                                                affine=affine,
-                                                shape=shape,
-                                                crs=crs,
-                                                mask=mask,
-                                                nodata=nodata)
+        target_view = cls._override_target_view(
+            target_view, affine=affine, shape=shape, crs=crs, mask=mask, nodata=nodata
+        )
         # Resolve dtype of output Raster
-        dtype = cls._override_dtype(data, target_view,
-                                    dtype=dtype,
-                                    interpolation=interpolation)
+        dtype = cls._override_dtype(data, target_view, dtype=dtype, interpolation=interpolation)
         # Mask input data if desired
         has_input_mask = not data_view.mask.all()
         if apply_input_mask and has_input_mask:
@@ -581,17 +782,25 @@ class View():
             arr = np.where(data_view.mask, data, target_view.nodata).astype(dtype)
             data = Raster(arr, data.viewfinder, metadata=data.metadata)
         if is_multiraster or is_3d_array:
-            out = cls._view_multiraster(data, target_view, data_view=data_view,
-                                        interpolation=interpolation,
-                                        apply_output_mask=apply_output_mask,
-                                        dtype=dtype)
+            out = cls._view_multiraster(
+                data,
+                target_view,
+                data_view=data_view,
+                interpolation=interpolation,
+                apply_output_mask=apply_output_mask,
+                dtype=dtype,
+            )
         elif is_raster or is_2d_array:
-            out = cls._view_raster(data, target_view, data_view=data_view,
-                                   interpolation=interpolation,
-                                   apply_output_mask=apply_output_mask,
-                                   dtype=dtype)
+            out = cls._view_raster(
+                data,
+                target_view,
+                data_view=data_view,
+                interpolation=interpolation,
+                apply_output_mask=apply_output_mask,
+                dtype=dtype,
+            )
         else:
-            raise TypeError('`data` must be a Raster, MultiRaster, 2D array or 3D array.')
+            raise TypeError("`data` must be a Raster, MultiRaster, 2D array or 3D array.")
         # Write metadata
         if inherit_metadata:
             out.metadata.update(data.metadata)
@@ -599,41 +808,82 @@ class View():
         return out
 
     @classmethod
-    def _view_raster(cls, data, target_view, data_view=None, interpolation='nearest',
-                     apply_output_mask=True, dtype=None, out=None):
+    def _view_raster(
+        cls,
+        data,
+        target_view,
+        data_view=None,
+        interpolation="nearest",
+        apply_output_mask=True,
+        dtype=None,
+        out=None,
+    ):
         # Create an output array to fill
         if out is None:
             out = np.empty(target_view.shape, dtype=dtype)
         # If data view and target view are the same, return a copy of the data
         if data_view.is_congruent_with(target_view):
-            out = cls._view_same_viewfinder(data, data_view, target_view, out, dtype,
-                                            apply_output_mask=apply_output_mask)
+            out = cls._view_same_viewfinder(
+                data,
+                data_view,
+                target_view,
+                out,
+                dtype,
+                apply_output_mask=apply_output_mask,
+            )
         # If data view and target view are different...
         else:
-            out = cls._view_different_viewfinder(data, data_view, target_view, out, dtype,
-                                                 apply_output_mask=apply_output_mask,
-                                                 interpolation=interpolation)
+            out = cls._view_different_viewfinder(
+                data,
+                data_view,
+                target_view,
+                out,
+                dtype,
+                apply_output_mask=apply_output_mask,
+                interpolation=interpolation,
+            )
         return out
 
     @classmethod
-    def _view_multiraster(cls, data, target_view, data_view=None, interpolation='nearest',
-                          apply_output_mask=True, dtype=None, out=None):
+    def _view_multiraster(
+        cls,
+        data,
+        target_view,
+        data_view=None,
+        interpolation="nearest",
+        apply_output_mask=True,
+        dtype=None,
+        out=None,
+    ):
         k, m, n = data.shape
         if out is None:
             out = np.empty((k, *target_view.shape), dtype=dtype)
         out_mask = np.ones((k, *target_view.shape), dtype=np.bool_)
         for i in range(k):
-            slice_viewfinder = ViewFinder(affine=data_view.affine, mask=data_view.mask[i],
-                                          nodata=data_view.nodata, crs=data_view.crs)
+            slice_viewfinder = ViewFinder(
+                affine=data_view.affine,
+                mask=data_view.mask[i],
+                nodata=data_view.nodata,
+                crs=data_view.crs,
+            )
             data_i = Raster(np.asarray(data[i]), viewfinder=slice_viewfinder)
             # Write to out array in-place
-            view_i = cls._view_raster(data_i, target_view, slice_viewfinder,
-                                      interpolation=interpolation,
-                                      apply_output_mask=apply_output_mask,
-                                      dtype=dtype, out=out[i, :, :])
+            view_i = cls._view_raster(
+                data_i,
+                target_view,
+                slice_viewfinder,
+                interpolation=interpolation,
+                apply_output_mask=apply_output_mask,
+                dtype=dtype,
+                out=out[i, :, :],
+            )
             out_mask[i, :, :] = view_i.mask
-        target_viewfinder = ViewFinder(affine=target_view.affine, mask=out_mask,
-                                       nodata=target_view.nodata, crs=target_view.crs)
+        target_viewfinder = ViewFinder(
+            affine=target_view.affine,
+            mask=out_mask,
+            nodata=target_view.nodata,
+            crs=target_view.crs,
+        )
         out = MultiRaster(out, viewfinder=target_viewfinder)
         return out
 
@@ -661,15 +911,15 @@ class View():
             assert isinstance(affine, Affine)
             affine = tuple(affine)
         except:
-            raise TypeError('`affine` must be an Affine instance')
+            raise TypeError("`affine` must be an Affine instance")
         # Vector case
-        if hasattr(x, '__len__'):
-            if hasattr(y, '__len__'):
+        if hasattr(x, "__len__"):
+            if hasattr(y, "__len__"):
                 x = np.asarray(x).astype(np.float64)
                 y = np.asarray(y).astype(np.float64)
                 x_t, y_t = _self._affine_map_vec_numba(affine, x, y)
             else:
-                raise TypeError('If `x` is a sequence, `y` must also be a sequence')
+                raise TypeError("If `x` is a sequence, `y` must also be a sequence")
         # Scalar case
         else:
             x = float(x)
@@ -678,7 +928,7 @@ class View():
         return x_t, y_t
 
     @classmethod
-    def nearest_cell(cls, x, y, affine, snap='corner'):
+    def nearest_cell(cls, x, y, affine, snap="corner"):
         """
         Returns the index of the cell (column, row) closest
         to a given geographical coordinate.
@@ -706,8 +956,8 @@ class View():
         try:
             assert isinstance(affine, Affine)
         except:
-            raise TypeError('affine must be an Affine instance.')
-        snap_dict = {'corner': np.around, 'center': np.floor}
+            raise TypeError("affine must be an Affine instance.")
+        snap_dict = {"corner": np.around, "center": np.floor}
         xi, yi = cls.affine_transform(~affine, x, y)
         col, row = snap_dict[snap]((xi, yi)).astype(int)
         return col, row
@@ -767,12 +1017,12 @@ class View():
                Distances from points in xy to xy_new
         """
         if not _HAS_SCIPY:
-            raise ImportError('Requires scipy.spatial module')
+            raise ImportError("Requires scipy.spatial module")
         if affine is None:
             try:
                 assert isinstance(mask, Raster)
             except:
-                raise TypeError('If no affine transform given, mask must be a raster')
+                raise TypeError("If no affine transform given, mask must be a raster")
             affine = mask.affine
         yi, xi = np.where(mask)
         x, y = cls.affine_transform(affine, xi, yi)
@@ -785,7 +1035,7 @@ class View():
             return tree_xy[ix]
 
     @classmethod
-    def trim_zeros(cls, data, pad=(0,0,0,0)):
+    def trim_zeros(cls, data, pad=(0, 0, 0, 0)):
         """Clip a Raster to the smallest area that contains all non-null data.
 
         Parameters
@@ -803,22 +1053,22 @@ class View():
         """
         try:
             for value in pad:
-                assert (isinstance(value, int))
-                assert (value >= 0)
+                assert isinstance(value, int)
+                assert value >= 0
         except:
-            raise ValueError('Pad values must be non-negative integers')
+            raise ValueError("Pad values must be non-negative integers")
         try:
             assert isinstance(data, Raster)
         except:
-            raise TypeError('`data` must be a Raster instance.')
+            raise TypeError("`data` must be a Raster instance.")
         if np.isnan(data.nodata):
-            mask = (~np.isnan(data))
+            mask = ~np.isnan(data)
         else:
-            mask = (data != data.nodata)
+            mask = data != data.nodata
         return cls.clip_to_mask(data, mask=mask, pad=pad)
 
     @classmethod
-    def clip_to_mask(cls, data, mask=None, pad=(0,0,0,0)):
+    def clip_to_mask(cls, data, mask=None, pad=(0, 0, 0, 0)):
         """Clip a Raster to the smallest area that contains all nonzero entries for a given boolean mask.
 
         Parameters
@@ -838,26 +1088,26 @@ class View():
               in the given mask.
         """
         try:
-            assert (data.ndim == 2)
+            assert data.ndim == 2
         except:
-            raise ValueError('Data must be 2-dimensional')
+            raise ValueError("Data must be 2-dimensional")
         try:
             for value in pad:
-                assert (isinstance(value, int))
-                assert (value >= 0)
+                assert isinstance(value, int)
+                assert value >= 0
         except:
-            raise ValueError('Pad values must be non-negative integers')
+            raise ValueError("Pad values must be non-negative integers")
         try:
             assert isinstance(data, Raster)
         except:
-            raise TypeError('`data` must be a Raster instance.')
+            raise TypeError("`data` must be a Raster instance.")
         if mask is None:
             mask = data.mask
         else:
             try:
-                assert (data.shape == mask.shape)
+                assert data.shape == mask.shape
             except:
-                raise ValueError('Shape of `data` and `mask` must be the same')
+                raise ValueError("Shape of `data` and `mask` must be the same")
         vert_pad = (pad[3], pad[1])
         horiz_pad = (pad[0], pad[2])
         nz_r, nz_c = np.nonzero(mask)
@@ -865,20 +1115,19 @@ class View():
         yi_max = nz_r.max()
         xi_min = nz_c.min()
         xi_max = nz_c.max()
-        xul, yul = View.affine_transform(data.affine,
-                                         xi_min - pad[0],
-                                         yi_min - pad[3])
-        new_affine = Affine(data.affine.a, data.affine.b, xul,
-                            data.affine.d, data.affine.e, yul)
-        out = data[yi_min:yi_max + 1, xi_min:xi_max + 1]
-        out = np.pad(out, (vert_pad, horiz_pad),
-                    mode='constant', constant_values=data.nodata)
-        out_mask = mask[yi_min:yi_max + 1, xi_min:xi_max + 1]
-        out_mask = np.pad(out_mask, (vert_pad, horiz_pad),
-                          mode='constant', constant_values=False)
-        new_viewfinder = ViewFinder(affine=new_affine, shape=out.shape,
-                                    nodata=data.nodata, crs=data.crs,
-                                    mask=out_mask)
+        xul, yul = View.affine_transform(data.affine, xi_min - pad[0], yi_min - pad[3])
+        new_affine = Affine(data.affine.a, data.affine.b, xul, data.affine.d, data.affine.e, yul)
+        out = data[yi_min : yi_max + 1, xi_min : xi_max + 1]
+        out = np.pad(out, (vert_pad, horiz_pad), mode="constant", constant_values=data.nodata)
+        out_mask = mask[yi_min : yi_max + 1, xi_min : xi_max + 1]
+        out_mask = np.pad(out_mask, (vert_pad, horiz_pad), mode="constant", constant_values=False)
+        new_viewfinder = ViewFinder(
+            affine=new_affine,
+            shape=out.shape,
+            nodata=data.nodata,
+            crs=data.crs,
+            mask=out_mask,
+        )
         out = Raster(out, viewfinder=new_viewfinder, metadata=data.metadata)
         return out
 
@@ -891,29 +1140,30 @@ class View():
         return new_view
 
     @classmethod
-    def _override_dtype(cls, data, target_view, dtype=None, interpolation='nearest'):
+    def _override_dtype(cls, data, target_view, dtype=None, interpolation="nearest"):
         if dtype is not None:
             return dtype
-        if interpolation == 'nearest':
+        if interpolation == "nearest":
             # Find minimum type needed to represent nodata
             dtype = max(np.min_scalar_type(target_view.nodata), data.dtype)
             # For matplotlib imshow compatibility, upcast floats to float32
             if issubclass(dtype.type, np.floating):
                 dtype = max(dtype, np.dtype(np.float32))
-        elif interpolation == 'linear':
+        elif interpolation == "linear":
             dtype = np.float64
         else:
-            raise ValueError('Interpolation method must be one of: `nearest`, `linear`')
+            raise ValueError("Interpolation method must be one of: `nearest`, `linear`")
         try:
             assert not np.issubdtype(dtype, np.object_)
             assert not np.issubdtype(dtype, np.flexible)
         except:
-            raise TypeError('`object` and `flexible` dtypes not allowed.')
+            raise TypeError("`object` and `flexible` dtypes not allowed.")
         return dtype
 
     @classmethod
-    def _view_same_viewfinder(cls, data, data_view, target_view, out, dtype,
-                              apply_output_mask=True):
+    def _view_same_viewfinder(
+        cls, data, data_view, target_view, out, dtype, apply_output_mask=True
+    ):
         out[:] = data
         has_output_mask = not target_view.mask.all()
         if (apply_output_mask) and (has_output_mask):
@@ -922,14 +1172,20 @@ class View():
         return out_raster
 
     @classmethod
-    def _view_different_viewfinder(cls, data, data_view, target_view, out, dtype,
-                                   apply_output_mask=True, interpolation='nearest'):
-        if (data_view.crs == target_view.crs):
-            out = cls._view_same_crs(out, data, data_view,
-                                     target_view, interpolation)
+    def _view_different_viewfinder(
+        cls,
+        data,
+        data_view,
+        target_view,
+        out,
+        dtype,
+        apply_output_mask=True,
+        interpolation="nearest",
+    ):
+        if data_view.crs == target_view.crs:
+            out = cls._view_same_crs(out, data, data_view, target_view, interpolation)
         else:
-            out = cls._view_different_crs(out, data, data_view,
-                                          target_view, interpolation)
+            out = cls._view_different_crs(out, data, data_view, target_view, interpolation)
         has_output_mask = not target_view.mask.all()
         if (apply_output_mask) and (has_output_mask):
             out[~target_view.mask] = target_view.nodata
@@ -937,37 +1193,38 @@ class View():
         return out_raster
 
     @classmethod
-    def _view_same_crs(cls, view, data, data_view, target_view, interpolation='nearest'):
+    def _view_same_crs(cls, view, data, data_view, target_view, interpolation="nearest"):
         y, x = target_view.axes
         inv_affine = ~data_view.affine
-        _, y_ix = cls.affine_transform(inv_affine,
-                                       np.zeros(target_view.shape[-2],
-                                                dtype=np.float64), y)
-        x_ix, _ = cls.affine_transform(inv_affine, x,
-                                       np.zeros(target_view.shape[-1],
-                                                dtype=np.float64))
+        _, y_ix = cls.affine_transform(
+            inv_affine, np.zeros(target_view.shape[-2], dtype=np.float64), y
+        )
+        x_ix, _ = cls.affine_transform(
+            inv_affine, x, np.zeros(target_view.shape[-1], dtype=np.float64)
+        )
         nodata = target_view.nodata
         # TODO: Check that this works for rotated data.
-        if interpolation == 'nearest':
+        if interpolation == "nearest":
             view = _self._view_fill_by_axes_nearest_numba(data, view, y_ix, x_ix, nodata)
-        elif interpolation == 'linear':
+        elif interpolation == "linear":
             view = _self._view_fill_by_axes_linear_numba(data, view, y_ix, x_ix, nodata)
         else:
-            raise ValueError('Interpolation method must be one of: `nearest`, `linear`')
+            raise ValueError("Interpolation method must be one of: `nearest`, `linear`")
         return view
 
     @classmethod
-    def _view_different_crs(cls, view, data, data_view, target_view, interpolation='nearest'):
+    def _view_different_crs(cls, view, data, data_view, target_view, interpolation="nearest"):
         y, x = target_view.coords.T
-        xt, yt = projection.transform(target_view.crs, data_view.crs, x=x, y=y,
-                                  errcheck=True, always_xy=True)
+        xt, yt = projection.transform(
+            target_view.crs, data_view.crs, x=x, y=y, errcheck=True, always_xy=True
+        )
         inv_affine = ~data_view.affine
         x_ix, y_ix = cls.affine_transform(inv_affine, xt, yt)
         nodata = target_view.nodata
-        if interpolation == 'nearest':
+        if interpolation == "nearest":
             view = _self._view_fill_by_entries_nearest_numba(data, view, y_ix, x_ix, nodata)
-        elif interpolation == 'linear':
+        elif interpolation == "linear":
             view = _self._view_fill_by_entries_linear_numba(data, view, y_ix, x_ix, nodata)
         else:
-            raise ValueError('Interpolation method must be one of: `nearest`, `linear`')
+            raise ValueError("Interpolation method must be one of: `nearest`, `linear`")
         return view

@@ -2,6 +2,7 @@ import numpy as np
 import pyproj
 import pytest
 from pysheds.grid import Grid
+from pysheds.sview import Raster
 
 
 # Initialize parameters
@@ -106,18 +107,12 @@ def test_computed_fdir_catch(d, grid):
     fdir_d8 = d.fdir_d8
     fdir_dinf = d.fdir_dinf
     fdir_mfd = d.fdir_mfd
-    catch_d8 = grid.catchment(
-        x, y, fdir_d8, dirmap=dirmap, routing="d8", xytype="coordinate"
-    )
+    catch_d8 = grid.catchment(x, y, fdir_d8, dirmap=dirmap, routing="d8", xytype="coordinate")
     assert np.count_nonzero(catch_d8) > 11300
     # Reference routing
-    catch_dinf = grid.catchment(
-        x, y, fdir_dinf, dirmap=dirmap, routing="dinf", xytype="coordinate"
-    )
+    catch_dinf = grid.catchment(x, y, fdir_dinf, dirmap=dirmap, routing="dinf", xytype="coordinate")
     assert np.count_nonzero(catch_dinf) > 11300
-    catch_mfd = grid.catchment(
-        x, y, fdir_mfd, dirmap=dirmap, routing="mfd", xytype="coordinate"
-    )
+    catch_mfd = grid.catchment(x, y, fdir_mfd, dirmap=dirmap, routing="mfd", xytype="coordinate")
     assert np.count_nonzero(catch_dinf) > 11300
     catch_d8_recur = grid.catchment(
         x,
@@ -202,9 +197,7 @@ def test_accumulation(d, grid):
     #                                  routing='dinf', efficiency=eff)
     # pos = np.where(grid.dinf_acc==grid.dinf_acc.max())
     # assert(np.round(grid.dinf_acc[pos] / grid.dinf_acc_eff[pos]) == 4.)
-    acc_d8_recur = grid.accumulation(
-        fdir_d8, dirmap=dirmap, routing="d8", algorithm="recursive"
-    )
+    acc_d8_recur = grid.accumulation(fdir_d8, dirmap=dirmap, routing="d8", algorithm="recursive")
     acc_dinf_recur = grid.accumulation(
         fdir_dinf, dirmap=dirmap, routing="dinf", algorithm="recursive"
     )
@@ -217,9 +210,7 @@ def test_accumulation(d, grid):
     reduction = 0.25
     outlets = np.where(acc_dinf == acc_dinf.max())
     eff[outlets] = reduction
-    acc_dinf_eff = grid.accumulation(
-        fdir_dinf, dirmap=dirmap, routing="dinf", efficiency=eff
-    )
+    acc_dinf_eff = grid.accumulation(fdir_dinf, dirmap=dirmap, routing="dinf", efficiency=eff)
     outlets_eff = np.sort(acc_dinf_eff[outlets])
     assert np.isclose(outlets_eff[0] / outlets_eff[1], reduction)
     # as the reduction is applied to the outflow of a grid cell
@@ -246,9 +237,7 @@ def test_hand(d, grid):
     hand_d8 = grid.compute_hand(fdir, dem, acc > 100, routing="d8")
     hand_dinf = grid.compute_hand(fdir_dinf, dem, acc > 100, routing="dinf")
     hand_mfd = grid.compute_hand(fdir_mfd, dem, acc > 100, routing="mfd")
-    hand_d8_recur = grid.compute_hand(
-        fdir, dem, acc > 100, routing="d8", algorithm="recursive"
-    )
+    hand_d8_recur = grid.compute_hand(fdir, dem, acc > 100, routing="d8", algorithm="recursive")
     hand_dinf_recur = grid.compute_hand(
         fdir_dinf, dem, acc > 100, routing="dinf", algorithm="recursive"
     )
@@ -377,7 +366,11 @@ def test_to_raster(d, grid, tmp_path):
     fdir = d.fdir
     grid.clip_to(catch)
     grid.to_raster(
-        fdir, tmp_path / "test_dir.tif", target_view=fdir.viewfinder, blockxsize=16, blockysize=16
+        fdir,
+        tmp_path / "test_dir.tif",
+        target_view=fdir.viewfinder,
+        blockxsize=16,
+        blockysize=16,
     )
     fdir_out = grid.read_raster(tmp_path / "test_dir.tif")
     assert (fdir_out == fdir).all()
@@ -407,14 +400,14 @@ def test_to_raster_kwargs(d, grid, fdir, tmp_path):
         assert ds.profile["compress"] == "lzw"
 
 
-# def test_from_raster():
+# def test_from_raster(d, grid, tmp_path):
 #     grid.clip_to('catch')
-#     grid.to_raster('dir', 'test_dir.tif', view=False, apply_mask=False, blockxsize=16, blockysize=16)
-#     newgrid = Grid.from_raster('test_dir.tif', 'dir_output')
+#     grid.to_raster('dir', tmp_path / "test_dir.tif", view=False, apply_mask=False, blockxsize=16, blockysize=16)
+#     newgrid = Grid.from_raster(tmp_path / "test_dir.tif", data_name='dir_output')
 #     newgrid.clip_to('dir_output')
 #     assert ((newgrid.dir_output == grid.dir).all())
-#     grid.to_raster('dir', 'test_dir.tif', view=True, apply_mask=True, blockxsize=16, blockysize=16)
-#     newgrid = Grid.from_raster('test_dir.tif', 'dir_output')
+#     grid.to_raster('dir', tmp_path / "test_dir.tif", view=True, apply_mask=True, blockxsize=16, blockysize=16)
+#     newgrid = Grid.from_raster(tmp_path / "test_dir.tif", data_name='dir_output')
 #     assert((newgrid.dir_output == grid.view('dir', apply_mask=True)).all())
 
 
@@ -528,7 +521,6 @@ def test_snap_to(d, grid):
 #     # TODO: Need to check that everything was reset properly
 
 
-@pytest.mark.xfail(reason="TypeError: `nodata` value not representable in dtype of array.")
 def test_polygonize_rasterize(grid):
     shapes = grid.polygonize()
     raster = grid.rasterize(shapes)

@@ -1,8 +1,8 @@
 import sys
 import ast
 import copy
-
-# import pyproj
+import os
+import warnings
 import numpy as np
 import pandas as pd
 import geojson
@@ -477,14 +477,17 @@ class sGrid:
         return newinstance
 
     @classmethod
-    def from_raster(cls, data, **kwargs):
+    def from_raster(cls, data, data_name=None, **kwargs):
         """
         Instantiates grid from a raster object or raster file.
 
         Parameters
         ----------
-        data: Raster or str representing file path
+        data: Raster or str or path-like object representing file path
               Raster data to use for instantiation.
+        data_name : str, optional
+            The name of the attribute to assign the raster data to on the
+            new grid instance.
 
         Additional keyword arguments (**kwargs) are passed to self.read_raster if
         data is a file path.
@@ -495,15 +498,21 @@ class sGrid:
                    A new Grid instance with its ViewFinder defined by the input raster.
         """
         newinstance = cls()
+        if data_name is None:
+            data_name = kwargs.pop('data_name', None)
         if isinstance(data, Raster):
             newinstance.viewfinder = data.viewfinder
+            if data_name:
+                setattr(newinstance, data_name, data)
             return newinstance
-        elif isinstance(data, str):
-            data = newinstance.read_raster(data, **kwargs)
-            newinstance.viewfinder = data.viewfinder
+        elif isinstance(data, (str, os.PathLike)):
+            raster_obj = newinstance.read_raster(data, **kwargs)
+            newinstance.viewfinder = raster_obj.viewfinder
+            if data_name:
+                setattr(newinstance, data_name, raster_obj)
             return newinstance
         else:
-            raise TypeError("`data` must be a Raster or str.")
+            raise TypeError("`data` must be a Raster, str, or path-like object.")
 
     def view(
         self,
@@ -645,12 +654,14 @@ class sGrid:
 
         Parameters
         ----------
-        data : Raster
-               Raster dataset to clip to.
+        data : str or Raster
+               Raster dataset (or name of raster dataset) to clip to.
         pad : tuple of ints (length 4)
               Apply padding to edges of new view (left, bottom, right, top). A pad of
               (1,1,1,1), for instance, will add a one-cell rim around the new view.
         """
+        if isinstance(data, str):
+            data = getattr(self, data)
         # get class attributes
         new_raster = View.trim_zeros(data, pad=pad)
         self.viewfinder = new_raster.viewfinder
@@ -2861,7 +2872,14 @@ class sGrid:
         if not _HAS_RASTERIO:
             raise ImportError("Requires rasterio module")
         if data is None:
-            data = Raster(self.mask.astype(np.uint8), viewfinder=self.viewfinder)
+            temp_viewfinder = ViewFinder(
+                affine=self.affine,
+                shape=self.shape,
+                nodata=255,
+                mask=self.mask,
+                crs=self.crs,
+            )
+            data = Raster(self.mask.astype(np.uint8), viewfinder=temp_viewfinder)
         data = self.view(data, affine=transform, mask=mask, **kwargs)
         mask = data.mask
         transform = data.affine

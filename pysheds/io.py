@@ -1,13 +1,11 @@
 import ast
 import warnings
 import numpy as np
-import pyproj
 import rasterio
 from affine import Affine
-from pysheds.sview import Raster, ViewFinder, View
-from rasterio.features import geometry_mask
-
 from . import projection
+from .sview import Raster, ViewFinder, View
+from rasterio.features import geometry_mask
 
 
 def read_ascii(
@@ -240,7 +238,7 @@ def to_ascii(
     )
     try:
         assert abs(data.affine.a) == abs(data.affine.e)
-    except:
+    except Exception:
         raise ValueError("Raster cells must be square.")
     nodata = data.nodata
     shape = data.shape
@@ -345,7 +343,6 @@ def to_raster(
         dtype=dtype,
     )
     height, width = data.shape
-    default_blockx = width
     default_profile = {
         "driver": "GTiff",
         "blockxsize": blockxsize,

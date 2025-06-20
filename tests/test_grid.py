@@ -2,6 +2,7 @@ import numpy as np
 import pyproj
 import pytest
 from pysheds.grid import Grid
+from pysheds.sview import Raster
 
 
 # Initialize parameters
@@ -399,14 +400,14 @@ def test_to_raster_kwargs(d, grid, fdir, tmp_path):
         assert ds.profile["compress"] == "lzw"
 
 
-# def test_from_raster():
+# def test_from_raster(d, grid, tmp_path):
 #     grid.clip_to('catch')
-#     grid.to_raster('dir', 'test_dir.tif', view=False, apply_mask=False, blockxsize=16, blockysize=16)
-#     newgrid = Grid.from_raster('test_dir.tif', 'dir_output')
+#     grid.to_raster('dir', tmp_path / "test_dir.tif", view=False, apply_mask=False, blockxsize=16, blockysize=16)
+#     newgrid = Grid.from_raster(tmp_path / "test_dir.tif", data_name='dir_output')
 #     newgrid.clip_to('dir_output')
 #     assert ((newgrid.dir_output == grid.dir).all())
-#     grid.to_raster('dir', 'test_dir.tif', view=True, apply_mask=True, blockxsize=16, blockysize=16)
-#     newgrid = Grid.from_raster('test_dir.tif', 'dir_output')
+#     grid.to_raster('dir', tmp_path / "test_dir.tif", view=True, apply_mask=True, blockxsize=16, blockysize=16)
+#     newgrid = Grid.from_raster(tmp_path / "test_dir.tif", data_name='dir_output')
 #     assert((newgrid.dir_output == grid.view('dir', apply_mask=True)).all())
 
 
@@ -520,7 +521,6 @@ def test_snap_to(d, grid):
 #     # TODO: Need to check that everything was reset properly
 
 
-@pytest.mark.xfail(reason="TypeError: `nodata` value not representable in dtype of array.")
 def test_polygonize_rasterize(grid):
     shapes = grid.polygonize()
     raster = grid.rasterize(shapes)

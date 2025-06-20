@@ -1,2 +1,8 @@
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::UserWarning",
+]
+
 [tool.ruff]
 line-length = 100

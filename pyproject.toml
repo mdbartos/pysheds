@@ -6,3 +6,7 @@ filterwarnings = [
 
 [tool.ruff]
 line-length = 100
+exclude = [".venv", ".git", ".tox", "build", "dist", "docs"]
+
+[tool.ruff.lint]
+ignore = ["F841", "E741", "E722", "F401", "E501", "E731", "E402", "E714"]

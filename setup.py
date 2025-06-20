@@ -43,6 +43,7 @@ setup(
         "rasterio>=1",
         "scikit-image",
         "scipy",
+        "ruff",
     ],
     extras_require=dict(
         dev=["pytest", "pytest-cov"],

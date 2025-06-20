@@ -656,9 +656,9 @@ class Grid(object):
         np.warnings.filterwarnings(action="ignore", message="Anti-aliasing", category=UserWarning)
         nodata_in = self._check_nodata_in(data, nodata_in)
         if isinstance(data, str):
-            out_name = "{0}{1}".format(data, out_suffix)
+            out_name = f"{data}{out_suffix}"
         else:
-            out_name = "data_{1}".format(out_suffix)
+            out_name = f"data_{out_suffix}"
         grid_props = {"nodata": nodata_out}
         metadata = {}
         data = self._input_handler(
@@ -2765,7 +2765,7 @@ class Grid(object):
         # Handle raster data
         if isinstance(data, Raster):
             for param in required_params:
-                if not param in properties:
+                if param not in properties:
                     if param in kwargs:
                         properties[param] = kwargs[param]
                     else:
@@ -2778,7 +2778,7 @@ class Grid(object):
         # Handle raw data
         if isinstance(data, np.ndarray):
             for param in required_params:
-                if not param in properties:
+                if param not in properties:
                     if param in kwargs:
                         properties[param] = kwargs[param]
                     elif ignore_metadata:
@@ -2791,7 +2791,7 @@ class Grid(object):
         # Handle named dataset
         elif isinstance(data, str):
             for param in required_params:
-                if not param in properties:
+                if param not in properties:
                     if param in kwargs:
                         properties[param] = kwargs[param]
                     elif hasattr(self, param):
@@ -3807,7 +3807,7 @@ class Grid(object):
         if len(dirmap) != 8:
             raise AssertionError("dirmap must be a sequence of length 8")
         try:
-            assert not 0 in dirmap
+            assert 0 not in dirmap
         except:
             raise ValueError("Directional mapping cannot contain '0' (reserved value)")
         return dirmap

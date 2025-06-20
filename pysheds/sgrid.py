@@ -499,7 +499,7 @@ class sGrid:
         """
         newinstance = cls()
         if data_name is None:
-            data_name = kwargs.pop('data_name', None)
+            data_name = kwargs.pop("data_name", None)
         if isinstance(data, Raster):
             newinstance.viewfinder = data.viewfinder
             if data_name:

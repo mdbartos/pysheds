@@ -24,7 +24,9 @@ def generate_grids():
     paths = generate_paths()
     grids = dict()
     grids["grid"] = Grid.from_raster(paths["dem_path"])
-    grids["fdir"] = grids["grid"].read_ascii(paths["dir_path"], dtype=np.uint8, crs=grids["grid"].crs)
+    grids["fdir"] = grids["grid"].read_ascii(
+        paths["dir_path"], dtype=np.uint8, crs=grids["grid"].crs
+    )
     grids["dem"] = grids["grid"].read_raster(paths["dem_path"])
     grids["roi"] = grids["grid"].read_raster(paths["roi_path"])
 

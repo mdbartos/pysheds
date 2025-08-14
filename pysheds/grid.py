@@ -6,4 +6,4 @@ except ModuleNotFoundError:
 if _HAS_NUMBA:
     from pysheds.sgrid import sGrid as Grid  # noqa: F401
 else:
-    from pysheds.pgrid import Grid as Grid  # noqa: F401
+    raise ImportError('Missing required dependency `numba`.')

@@ -2275,8 +2275,13 @@ class sGrid():
         if not _HAS_RASTERIO:
             raise ImportError('Requires rasterio module')
         if data is None:
+            mask_viewfinder = ViewFinder(affine=self.viewfinder.affine,
+                                         shape=self.viewfinder.shape,
+                                         mask=self.viewfinder.mask,
+                                         nodata=np.uint8(0),
+                                         crs=self.viewfinder.crs)
             data = Raster(self.mask.astype(np.uint8),
-                          viewfinder=self.viewfinder)
+                          viewfinder=mask_viewfinder)
         data = self.view(data, affine=transform, mask=mask, **kwargs)
         mask = data.mask
         transform = data.affine

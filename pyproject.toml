@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pysheds"
+version = "0.5"
+description = "Simple and fast watershed delineation in python."
+readme = {text = "Simple and fast watershed delineation in python.", content-type = "text/x-rst"}
+license = "GPL-3.0-or-later"
+requires-python = ">=3.11"
+authors = [
+    {name = "Matt Bartos", email = "mdbartos@umich.edu"},
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: GIS",
+    "Topic :: Scientific/Engineering :: Hydrology",
+]
+dependencies = [
+    "affine",
+    "geojson",
+    "looseversion",
+    "numba>=0.60",
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "pyproj>=3.6",
+    "rasterio>=1.3",
+    "scikit-image>=0.21",
+    "scipy>=1.11",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-cov", "flake8"]
+recipes = ["geopandas", "ipython", "matplotlib", "seaborn"]
+
+[project.urls]
+Homepage = "http://open-storm.org"
+Repository = "https://github.com/mdbartos/pysheds"
+
+[tool.setuptools]
+packages = ["pysheds"]

@@ -528,7 +528,6 @@ def test_snap_to(d, grid):
 #     # TODO: Need to check that everything was reset properly
 
 
-@pytest.mark.xfail(reason="TypeError: `nodata` value not representable in dtype of array.")
 def test_polygonize_rasterize(grid):
     shapes = grid.polygonize()
     raster = grid.rasterize(shapes)

@@ -49,7 +49,10 @@ def read_ascii(data, skiprows=6, mask=None, crs=projection.init(),
         cellsize = ast.literal_eval(header.readline().split()[1])
         nodata = ast.literal_eval(header.readline().split()[1])
         shape = (nrows, ncols)
+    target_dtype = kwargs.pop('dtype', None)
     data = np.loadtxt(data, skiprows=skiprows, **kwargs)
+    if target_dtype is not None:
+        data = data.astype(target_dtype)
     nodata = data.dtype.type(nodata)
     affine = Affine(cellsize, 0., xll, 0., -cellsize, yll + nrows * cellsize)
     viewfinder = ViewFinder(affine=affine, shape=shape, mask=mask, nodata=nodata, crs=crs)

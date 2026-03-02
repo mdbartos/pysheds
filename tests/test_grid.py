@@ -2,6 +2,7 @@ import numpy as np
 import pyproj
 import pytest
 from pysheds.grid import Grid
+from pysheds.view import ViewFinder
 
 
 # Initialize parameters
@@ -557,3 +558,13 @@ def test_misc(d, grid):
     dem = d.dem
     l, r, t, b = grid._pop_rim(dem, nodata=0)
     grid._replace_rim(dem, l, r, t, b)
+
+
+def test_viewfinder_bbox():
+    from affine import Affine
+
+    affine = Affine(0.9641494421429059, 0.0, 503066.3552400001, 0.0, 0.986615463859816, 170296.54693900005)
+    shape = (23229, 14821)
+    viewfinder = ViewFinder(affine, shape)
+    expected = (503066.3552400001, 170296.54693900005, 517356.01412200014, 193214.63754899972)
+    assert viewfinder.bbox == expected

@@ -9,6 +9,13 @@ from affine import Affine
 from numba.types import Tuple, int64
 from numba import from_dtype
 
+# solving numpy 2.x compabilities
+# Handle NumPy 2.0 deprecation of in1d
+try:
+    from numpy import isin
+except ImportError:
+    from numpy import in1d as isin
+
 try:
     import skimage.measure
     _HAS_SKIMAGE = True
@@ -901,7 +908,7 @@ class sGrid():
                          nodata_out=0., efficiency=None, algorithm='iterative', **kwargs):
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
-        invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
+        invalid_cells = ~isin(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
         fdir[nodata_cells] = 0
         fdir[invalid_cells] = 0
@@ -1149,7 +1156,7 @@ class sGrid():
                           snap='corner', algorithm='iterative', **kwargs):
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
-        invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
+        invalid_cells = ~isin(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
         fdir[nodata_cells] = 0
         fdir[invalid_cells] = 0
@@ -1322,7 +1329,7 @@ class sGrid():
                          nodata_out=-1, algorithm='iterative'):
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
-        invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
+        invalid_cells = ~isin(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
         fdir[nodata_cells] = 0
         fdir[invalid_cells] = 0
@@ -1421,7 +1428,7 @@ class sGrid():
         mask = self._input_handler(mask, **kwargs)
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
-        invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
+        invalid_cells = ~isin(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
         fdir[nodata_cells] = 0
         fdir[invalid_cells] = 0
@@ -1504,7 +1511,7 @@ class sGrid():
         mask = self._input_handler(mask, **kwargs)
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
-        invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
+        invalid_cells = ~isin(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
         fdir[nodata_cells] = 0
         fdir[invalid_cells] = 0
@@ -1568,7 +1575,7 @@ class sGrid():
         mask = self._input_handler(mask, **kwargs)
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
-        invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
+        invalid_cells = ~isin(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
         fdir[nodata_cells] = 0
         fdir[invalid_cells] = 0
@@ -1663,7 +1670,7 @@ class sGrid():
                               algorithm='iterative', nodata_out=np.nan, **kwargs):
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
-        invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
+        invalid_cells = ~isin(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
         fdir[nodata_cells] = 0
         fdir[invalid_cells] = 0
@@ -1818,7 +1825,7 @@ class sGrid():
                     nodata_out=np.nan):
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
-        invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
+        invalid_cells = ~isin(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
         fdir[nodata_cells] = 0
         fdir[invalid_cells] = 0
@@ -1920,7 +1927,7 @@ class sGrid():
                            nodata_out=np.nan):
         # Find nodata cells and invalid cells
         nodata_cells = self._get_nodata_cells(fdir)
-        invalid_cells = ~np.in1d(fdir.ravel(), dirmap).reshape(fdir.shape)
+        invalid_cells = ~isin(fdir.ravel(), dirmap).reshape(fdir.shape)
         # Set nodata cells to zero
         fdir[nodata_cells] = 0
         fdir[invalid_cells] = 0

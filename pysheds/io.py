@@ -49,7 +49,9 @@ def read_ascii(data, skiprows=6, mask=None, crs=projection.init(),
         cellsize = ast.literal_eval(header.readline().split()[1])
         nodata = ast.literal_eval(header.readline().split()[1])
         shape = (nrows, ncols)
-    data = np.loadtxt(data, skiprows=skiprows, **kwargs)
+    # Extract dtype from kwargs. Default to float so scientific notation parses safely.
+    target_dtype = kwargs.pop('dtype', float)
+    data = np.loadtxt(data, skiprows=skiprows, **kwargs).astype(target_dtype)
     nodata = data.dtype.type(nodata)
     affine = Affine(cellsize, 0., xll, 0., -cellsize, yll + nrows * cellsize)
     viewfinder = ViewFinder(affine=affine, shape=shape, mask=mask, nodata=nodata, crs=crs)

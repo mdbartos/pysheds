@@ -11,7 +11,10 @@ from numba import from_dtype
 
 # solving numpy 2.x compabilities
 # Handle NumPy 2.0 deprecation of in1d
-_isin = getattr(np, 'isin', None) or getattr(np, 'in1d')
+try:
+    from numpy import isin
+except ImportError:
+    from numpy import in1d as isin
 
 try:
     import skimage.measure

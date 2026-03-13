@@ -13,6 +13,8 @@ def transform(
         errcheck: bool = False,
         always_xy: bool = True,
 ):
+    # Replaces deprecated pyproj.transform(); based on pyproj's Transformer API
+    # see: https://github.com/pyproj4/pyproj/blob/4faef1724b044ee145832591fcd7ed2639477670/pyproj/transformer.py#L1332-L1334
     return pyproj.Transformer.from_proj(p1, p2, always_xy=always_xy).transform(
         xx=x, yy=y, zz=z, tt=tt, radians=radians, errcheck=errcheck
     )

@@ -2282,6 +2282,8 @@ class sGrid():
         if not _HAS_RASTERIO:
             raise ImportError('Requires rasterio module')
         if data is None:
+            # The grid's viewfinder may carry a float nodata incompatible with
+            # the uint8 mask dtype. Use a dedicated ViewFinder with uint8 nodata.
             mask_viewfinder = ViewFinder(affine=self.viewfinder.affine,
                                          shape=self.viewfinder.shape,
                                          mask=self.viewfinder.mask,
